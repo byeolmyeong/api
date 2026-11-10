@@ -18,6 +18,10 @@ data class PlanetPosition(
 	val sign: Sign,
 	val degreeInSign: Double,
 	val retrograde: Boolean,
+	/** 황경의 하루 이동량(도/일). 각도가 다가가는 중인지 판정할 때 쓴다. */
+	val speed: Double,
+	/** 속한 하우스(1~12). 출생 시각을 모르면 null. computeChart 가 채운다. */
+	val house: Int? = null,
 )
 
 /** 각도를 0 이상 360 미만으로 접는다. */
@@ -39,12 +43,14 @@ fun computePositions(utc: Instant): List<PlanetPosition> {
 	val time = astroTime(utc)
 	return Body.entries.map { body ->
 		val longitude = apparentLongitude(body, time)
+		val speed = longitudeSpeed(body, time)
 		PlanetPosition(
 			body = body,
 			longitude = longitude,
 			sign = signOf(longitude),
 			degreeInSign = degreeInSign(longitude),
-			retrograde = longitudeSpeed(body, time) < 0.0,
+			retrograde = speed < 0.0,
+			speed = speed,
 		)
 	}
 }
