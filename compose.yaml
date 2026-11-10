@@ -1,0 +1,15 @@
+# 로컬 개발용 DB. 사용자·비밀번호는 .env 에서 읽는다(이름은 .env.example).
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: byeolmyeong
+      POSTGRES_USER: ${DATABASE_USERNAME}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:

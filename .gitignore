@@ -5,3 +5,16 @@
 !.env.example
 .claude/settings.local.json
 .local/
+
+# Gradle·Kotlin·IDE
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+.idea
+*.iml
+out/
+.vscode/
+.kotlin
