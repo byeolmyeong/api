@@ -14,15 +14,16 @@
 - "왜 이렇게 됐나"가 궁금할 때 → docs/decisions/ ADR 번호순. 바뀌면 새 번호로 대체. 종합된 답은 docs/synthesis/.
 
 ## 디렉터리 (이름이 곧 지시)
-- `src/main/kotlin/` 서버 코드 · `src/main/resources/` 설정·프롬프트·DB 마이그레이션 · `src/test/kotlin/` 검증 (계획 태스크 1 에서 만든다)
+- `src/main/kotlin/` 서버 코드 · `src/main/resources/` 설정·프롬프트·DB 마이그레이션 · `src/test/kotlin/` 검증. 패키지 뿌리 `com.byeolmyeong.api`
 - `docs/` agent가 참고할 문서 · `docs/raw/` 원본(던지는 곳, 고치지 않음) · `.claude/` 설정·규칙·스킬·에이전트·훅 · `build/` 생성물(커밋 안 함)
 
 ## 스택
-Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · OpenAI API. 버전은 계획 태스크 1 에서 확정해 docs/decisions/001-spring-boot-postgres.md 에 적는다.
+Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · OpenAI API. 버전은 docs/decisions/001-spring-boot-postgres.md
 
-## 명령어 (계획 태스크 1 이후)
+## 명령어
 - 개발: `./gradlew bootRun` · 빌드·테스트: `./gradlew build` · 테스트만: `./gradlew test`
-- 로컬 DB: `docker compose up -d`. 환경 변수 이름은 .env.example
+- 테스트는 Docker 가 떠 있어야 한다(Testcontainers).
+- 로컬 DB: `docker compose up -d`(`.env` 의 `DATABASE_USERNAME`·`DATABASE_PASSWORD` 를 읽는다). 환경 변수 이름은 .env.example
 
 ## 도구 (.claude/)
 - 스킬 `/plan-feature`(킷 제공): 한 커밋을 넘는 요청은 바로 만들지 않는다. `docs/plans/`에 계획 파일 → 승인 → 실행 → 검증.

@@ -28,5 +28,5 @@ superseded_by:
 
 ## 결과·재검토 조건
 - API 계약을 바꾸면 두 저장소에 각각 커밋한다. 계약의 원본은 docs/architecture.md 의 표다. 어긋남이 반복되면 OpenAPI 명세 생성을 다시 본다.
-- Spring Boot 버전은 계획 태스크 1 에서 확정해 여기에 적는다. [확인 필요]
+- 버전(2026-11-10 확정, start.spring.io 의 안정 버전): Spring Boot 4.1.2 · Kotlin 2.3.21 · Gradle 9.8.2 · JVM 21 · PostgreSQL 17(로컬·테스트 이미지 `postgres:17`). 실제 값의 원본은 `build.gradle.kts` 와 `gradle/wrapper/gradle-wrapper.properties` 다.
 - 운영 호스팅은 미정이다. [확인 필요]
