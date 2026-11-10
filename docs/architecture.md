@@ -20,6 +20,7 @@ last_reviewed: 2026-11-10
 ## 모듈 (패키지)
 - `chart` — 계산. 순수 함수만 둔다(입력: UTC 시각·위경도 → 출력: 차트). DB·HTTP·AI 를 모른다. 이유: 계산 정확도가 제품의 신뢰이고 기준값 테스트로 혼자 검증돼야 한다.
 - `birth` — 출생지 목록과 시각 변환. `java.time` 의 시간대 이력을 쓴다.
+- `web` — 로그인 없는 `POST /charts` 의 HTTP 층(입력 검증·응답 변환)과 주소별 요청 수 제한. `chart`·`birth` 를 부른다.
 - `auth` — ID 토큰 검증, 세션, 계정 삭제.
 - `reading` — 요약 해석·리포트 생성과 저장, 근거 대조, 횟수 제한.
 - `synastry` — 직접 입력, 초대, 수락, 궁합 글.
@@ -47,7 +48,13 @@ last_reviewed: 2026-11-10
 | `GET /shared/{shareId}` | 없음 | 없음 | 요약 해석 또는 궁합 키워드(글만) |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
 
-- `Chart` = `{ timeKnown, positions[{ body, sign, degree, minute, house?, retrograde }], points[...], houses?[12], angles?{ asc, mc }, aspects[{ a, b, type, orb, applying }] }`
+- `Chart` = `{ timeKnown, positions[{ body, sign, degree, minute, house?, retrograde }], points[{ point, sign, degree, minute, house? }], houses?[12 × { house, sign, degree, minute }], angles?{ asc{ sign, degree, minute }, mc{ sign, degree, minute } }, aspects[{ a, b, type, orb, applying }] }`
+  - `body`: `SUN`·`MOON`·`MERCURY`·`VENUS`·`MARS`·`JUPITER`·`SATURN`·`URANUS`·`NEPTUNE`·`PLUTO`. `point`: `NORTH_NODE`·`LILITH`·`FORTUNE`. `sign`: `ARIES`…`PISCES`. `type`: `CONJUNCTION`·`SEXTILE`·`SQUARE`·`TRINE`·`OPPOSITION`.
+  - `degree`(0~29)·`minute`(0~59)는 별자리 안 도수이고 올리지 않고 버린다. `house` 는 1~12. `orb` 는 도(소수 둘째 자리). `aspects` 는 행성 10개 사이만.
+  - 시각이 `null`(모름)이면 `timeKnown: false` 이고 `house`·`houses`·`angles` 키와 `FORTUNE` 점이 없다(값이 `null` 인 키를 보내지 않는다).
+- `POST /charts` 요청: `date` 는 `YYYY-MM-DD`, `time` 은 `HH:mm` 또는 `null`, `placeId` 는 `GET /places` 의 `id`(정수).
+- 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`·`UNKNOWN_PLACE`. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
+- `GET /places?q=`: 검색어를 공백으로 나눈 낱말이 이름에 모두 든 곳을 20개까지. `q` 가 없으면 400.
 - `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`
 - `Synastry` = `{ id, names[2], headline, keywords[3], overlay(나의 차트와 상대 점의 화면 좌표용 황경), shareId, reportStatus }`. 초대로 연결된 궁합의 `overlay` 에서 상대 쪽 황경은 내려보내지 않는다. 이유: 행성 위치로 생일을 역산할 수 있다.
 
@@ -64,7 +71,7 @@ last_reviewed: 2026-11-10
 
 ## 횟수 제한 (서버에서만 판정한다)
 - 심층 리포트 계정당 1편, 궁합 리포트 계정당 1편, 궁합 키워드 계정당 하루 5번.
-- 로그인 없는 `POST /charts`·`GET /places` 는 주소(IP)별 요청 수를 제한한다.
+- 로그인 없는 `POST /charts`·`GET /places` 는 주소(IP)별 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리).
 
 ## 외부 시스템
 | 시스템 | 용도 | 상태 |
