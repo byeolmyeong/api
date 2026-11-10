@@ -16,6 +16,10 @@ java {
 
 repositories {
 	mavenCentral()
+	// astronomy-engine Kotlin 판은 JitPack 에만 있다. 다른 의존성이 여기서 풀리지 않게 그룹을 제한한다.
+	maven("https://jitpack.io") {
+		content { includeGroup("io.github.cosinekitty") }
+	}
 }
 
 dependencies {
@@ -25,6 +29,7 @@ dependencies {
 	implementation("org.flywaydb:flyway-database-postgresql")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("tools.jackson.module:jackson-module-kotlin")
+	implementation("io.github.cosinekitty:astronomy:2.1.19")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-flyway-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-jdbc-test")
