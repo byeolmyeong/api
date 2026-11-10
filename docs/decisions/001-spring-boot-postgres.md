@@ -10,7 +10,7 @@ superseded_by:
 > 상태: 활성 · 결정일 2026-11-10
 
 ## 맥락
-서버가 할 일은 익명 계정, 해석 생성(OpenAI API)·저장, 공유 조회, 나중에 구매 확인이다. 차트 계산은 앱이 하므로 앱과 공유할 계산 코드가 없다. 만드는 사람은 한 명이고 주력이 Spring 이다. 언어는 사용자가 Kotlin 을 골랐다. 같은 결정의 앱 쪽 기록: 앱 저장소 `docs/decisions/004-spring-backend.md`.
+서버가 할 일은 차트 계산, 로그인, 글 생성(OpenAI API)·저장, 궁합 초대, 공유 조회, 알림, 나중에 구매 확인이다(이 문장은 2026-11-10 범위 확정에 맞춰 고쳤다. 계산 위치의 결정은 docs/decisions/002-chart-calculation.md). 만드는 사람은 한 명이고 주력이 Spring 이다. 언어는 사용자가 Kotlin 을 골랐다. 같은 결정의 앱 쪽 기록: 앱 저장소 `docs/decisions/004-spring-backend.md`.
 
 ## 결정
 서버는 Spring Boot(Kotlin, JVM 21, Gradle) + PostgreSQL 로 만들고, 앱 저장소와 분리된 이 저장소에 둔다. 해석 생성은 OpenAI API 를 쓴다.

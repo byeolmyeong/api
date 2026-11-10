@@ -1,13 +1,13 @@
 # 별명 서버 (byeolmyeong-api)
 
-"별명"(한국어 서양 점성술 앱)의 서버. 앱이 보낸 차트로 AI 해석을 생성·저장하고 공유 링크로 내보낸다. 앱 저장소: https://github.com/byeolmyeong/byeolmyeong-app (로컬 `../byeolmyeong-app`)
+"별명"(한국어 서양 점성술 앱)의 서버. 차트를 계산하고, 그 차트로 AI 해석·리포트·궁합 글을 생성·저장하고, 로그인·초대·공유·알림을 맡는다. 앱 저장소: https://github.com/byeolmyeong/byeolmyeong-app (로컬 `../byeolmyeong-app`)
 
 ## 항상 (자동 로드, 합계 30,000자 이내)
 - 위반 금지 규칙: @docs/golden-rules.md
 - 인수인계: `.local/handoff.md`가 있으면 지금 읽는다. 지난 세션이 어디까지 했고 다음에 뭘 할지가 있다.
 
 ## 상황별 (그 일을 할 때만 읽는다)
-- 제품·범위·컨셉(해석 말투)을 판단할 때 → 앱 저장소의 `../byeolmyeong-app/docs/product.md`. 기획 문서의 원본은 앱 저장소다. 여기에 복사하지 않는다.
+- 무엇을 만드는지(기능·규칙·출시 기준) → 앱 저장소의 `../byeolmyeong-app/docs/release-1.0.0.md`. 제품 방향은 `../byeolmyeong-app/docs/product.md`. 기획 문서의 원본은 앱 저장소다. 여기에 복사하지 않는다.
 - 서버 구조·데이터 흐름·API 계약을 바꿀 때 → docs/architecture.md
 - 지금 할 일 → docs/plans/2026-11-10-api-mvp.md
 - 코드 어디서 시작할지 모를 때 → docs/codebase-map.md (`/agent-codebase bootstrap` 이 만든다)
@@ -33,8 +33,10 @@ Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · OpenAI API.
 
 ## 규칙
 - 소유자는 토큰에서만 얻는다. 요청 본문·경로의 소유자 id 를 믿지 않는다. 남의 자원은 404 로 답한다.
-- 차트는 서버에서 다시 계산하지 않는다. 앱이 보낸 차트 JSON 의 형식과 값 범위만 검사한다. 근거: docs/architecture.md
-- AI 생성 호출은 인터페이스 하나 뒤에 둔다. 실패·빈 응답은 저장하지 않는다.
+- 차트 계산은 `chart` 패키지의 순수 함수에서만 한다. AI 에게 계산을 맡기지 않는다. 근거: docs/decisions/002-chart-calculation.md
+- 초대로 연결된 상대의 출생 정보와 행성 위치를 다른 사람에게 내려보내지 않는다. 직접 입력한 상대의 출생 정보는 저장하지 않는다.
+- AI 생성 호출은 인터페이스 하나 뒤에 둔다. 실패·빈 응답·근거가 차트와 안 맞는 응답은 저장하지 않는다.
+- 횟수 제한은 서버에서만 판정한다.
 - API 키는 환경 변수에만 둔다. 출생 정보는 로그에 남기지 않는다.
 - API 계약(경로·요청·응답)을 바꾸면 docs/architecture.md 의 계약 표를 같은 커밋에서 고치고, 앱 저장소에 맞춤 변경이 필요하다고 보고한다.
 - 결정이 바뀌면 코드보다 먼저 docs/decisions/에 새 ADR. 원본은 docs/raw/, 종합은 docs/synthesis/.
