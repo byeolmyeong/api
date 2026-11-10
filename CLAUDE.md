@@ -14,11 +14,11 @@
 - "왜 이렇게 됐나"가 궁금할 때 → docs/decisions/ ADR 번호순. 바뀌면 새 번호로 대체. 종합된 답은 docs/synthesis/.
 
 ## 디렉터리 (이름이 곧 지시)
-- `src/main/java/` 서버 코드 · `src/main/resources/` 설정·프롬프트·DB 마이그레이션 · `src/test/java/` 검증 (계획 태스크 1 에서 만든다)
+- `src/main/kotlin/` 서버 코드 · `src/main/resources/` 설정·프롬프트·DB 마이그레이션 · `src/test/kotlin/` 검증 (계획 태스크 1 에서 만든다)
 - `docs/` agent가 참고할 문서 · `docs/raw/` 원본(던지는 곳, 고치지 않음) · `.claude/` 설정·규칙·스킬·에이전트·훅 · `build/` 생성물(커밋 안 함)
 
 ## 스택
-Spring Boot · Java 21 · Gradle · PostgreSQL · OpenAI API. 버전은 계획 태스크 1 에서 확정해 docs/decisions/001-spring-boot-postgres.md 에 적는다.
+Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · OpenAI API. 버전은 계획 태스크 1 에서 확정해 docs/decisions/001-spring-boot-postgres.md 에 적는다.
 
 ## 명령어 (계획 태스크 1 이후)
 - 개발: `./gradlew bootRun` · 빌드·테스트: `./gradlew build` · 테스트만: `./gradlew test`
