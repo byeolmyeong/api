@@ -15,13 +15,16 @@ data class StoredReport(val status: ReportStatus, val report: Report?, val stale
  */
 data class ReportRun(val ownerId: UUID, val chartHash: String, val startedAt: OffsetDateTime)
 
+// 시기(timing)를 더하기 전에 완성된 리포트. 만든 적 없는 것으로 보고, 다시 요청하면 새로 만들어 덮어쓴다(결정 008).
+private const val WITHOUT_TIMING = "(reports.status = 'DONE' and reports.body -> 'timing' is null)"
+
 @Repository
 class ReportRepository(private val jdbc: JdbcTemplate, private val mapper: JsonMapper) {
 
 	fun find(ownerId: UUID, chartHash: String, staleMinutes: Int): StoredReport? = jdbc.query(
 		"""
 		select status, body, started_at < now() - make_interval(mins => ?) as stale
-		from reports where owner_id = ? and chart_hash = ?
+		from reports where owner_id = ? and chart_hash = ? and not $WITHOUT_TIMING
 		""".trimIndent(),
 		{ rs, _ ->
 			StoredReport(
@@ -35,7 +38,7 @@ class ReportRepository(private val jdbc: JdbcTemplate, private val mapper: JsonM
 
 	/**
 	 * 생성을 시작할 자리를 잡는다. 잡았으면 그 생성을 돌려주고, 못 잡았으면 null 이다.
-	 * 잡는 경우: 행이 없다, `FAILED` 다, `WRITING` 인 채 [staleMinutes] 분이 지났다.
+	 * 잡는 경우: 행이 없다, `FAILED` 다, `WRITING` 인 채 [staleMinutes] 분이 지났다, 시기가 없는 예전 리포트다.
 	 * 한 문장이라 동시에 불러도 한 요청만 잡는다(나머지는 행 잠금을 기다린 뒤 조건에 걸린다).
 	 */
 	fun claim(ownerId: UUID, chartHash: String, staleMinutes: Int): ReportRun? = jdbc.query(
@@ -45,6 +48,7 @@ class ReportRepository(private val jdbc: JdbcTemplate, private val mapper: JsonM
 		set status = 'WRITING', body = null, started_at = now(), updated_at = now()
 		where reports.status = 'FAILED'
 			or (reports.status = 'WRITING' and reports.started_at < now() - make_interval(mins => ?))
+			or $WITHOUT_TIMING
 		returning started_at
 		""".trimIndent(),
 		{ rs, _ -> ReportRun(ownerId, chartHash, rs.getObject("started_at", OffsetDateTime::class.java)) },
