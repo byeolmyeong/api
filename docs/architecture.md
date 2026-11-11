@@ -26,7 +26,7 @@ last_reviewed: 2026-11-11
 - `generation` — 글 생성 공통: 공급자를 가리는 인터페이스 `TextGenerator`(지시문·차트 글·JSON 구조를 받아 JSON 을 돌려준다)와 그 Claude 구현, 차트를 프롬프트 글로 옮기는 `chartFacts`, 근거에 쓰는 말(`Basis.kt`). 해석·리포트·궁합 글이 모두 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다. `chart` 만 안다(소유자·저장·HTTP 를 모른다).
 - `reading` — 요약 해석 생성·저장. 요약 해석에만 있는 것(지시문, 돌려받을 구조, 문단·강점·보완점 개수 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다.
 - `report` — 심층 리포트. 요청은 자리만 잡고 202 로 답하고, 글은 뒤에서 영역(성격·관계·일·감정)마다 따로 생성해 네 영역이 모두 검증을 통과하면 저장한다. 완성되면 `ReportDone` 이벤트를 낸다. 시기 영역(마디·구간을 `chart` 에서 받아 글을 붙인다)은 태스크 8b 에서 더한다.
-- `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹, 궁합 리포트(202 로 답하고 뒤에서 영역마다 쓴다). 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 008). 초대·수락은 아직 없다(태스크 9 의 나머지).
+- `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹, 궁합 리포트(202 로 답하고 뒤에서 영역마다 쓴다). 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 010). 초대·수락은 아직 없다(태스크 9 의 나머지).
 - `direction` — 방향성 제시.
 - `share` — 공유 조회(공유 카드 4종).
 - `push` — 기기 토큰과 알림 발송.
@@ -112,14 +112,14 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`·`UNKNOWN_PLACE`. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
 - `GET /places?q=`: 검색어를 공백으로 나눈 낱말이 이름에 모두 든 곳을 20개까지. `q` 가 없으면 전체 목록(229곳)을 준다. 앱의 출생지 고르기 화면이 쓴다. `name` 은 `시·도 시·군·구` 꼴이고 세종만 `세종특별자치시` 한 낱말이다.
 - `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`
-- 궁합(직접 입력) (2026-11-11 구현, 결정 008. 초대로 연결된 궁합은 아직 없다)
+- 궁합(직접 입력) (2026-11-11 구현, 결정 010. 초대로 연결된 궁합은 아직 없다)
   - `Synastry` = `{ id, name, relation: LOVE | FRIEND | WORK | FAMILY, score, scoreLabel?, headline, keywords[3], reportStatus: NONE | WRITING | FAILED | DONE, createdAt, overlay? }`. `id` 는 UUID, `name` 은 상대를 부를 이름, `score` 는 나 기준 40~100 의 정수(서버 계산), `headline` 은 한 줄 요약, `createdAt` 은 UTC `YYYY-MM-DDTHH:mm:ssZ`. 값이 없는 키는 보내지 않는다(`null` 로 보내지 않는다).
   - `scoreLabel`: 점수가 60 미만이면 `"다른 결의 사이"`, 60 이상이면 키가 없다. 앱은 이 키가 있으면 점수 옆에 그대로 붙인다(60 을 앱에서 다시 판정하지 않는다). 그때 키워드와 한 줄 요약은 끌리는 점부터 쓰여 있다.
   - `overlay`(겹친 휠) = `{ mine[{ body, longitude }], mineAsc?, theirs[{ body, longitude }], lines[{ mine, theirs, type }] }`. **`POST /synastry/direct` 의 응답에만 있다.** 상대의 행성 위치라 서버가 저장하지 않으므로 `GET` 에는 없다. `mine`·`theirs` 는 행성 10개(`body` 순서는 `Chart` 와 같다), `longitude` 는 `Chart` 와 같은 황경(소수 둘째 자리, 버림). `mineAsc` 는 내 상승점의 황경이고 내 태어난 시각을 알 때만 있다. `lines` 는 점수에 쓴 각도다: `mine` 은 `SUN`·`MOON`·`MERCURY`·`VENUS`·`MARS`·`ASC`(내 쪽), `theirs` 는 `body`(상대 쪽), `type` 은 `Chart` 의 각도 종류.
   - `POST /synastry/direct` 요청: `name` 은 앞뒤 공백을 뗀 1~20자, `date`·`time`·`placeId` 는 **상대의** 출생 정보이고 형식은 `POST /charts` 와 같다. `placeId` 는 `time` 이 있을 때만 필수이고 `time` 이 `null` 이면 없어도 된다(와도 읽지 않는다, 앱 결정 020). 나는 저장된 프로필이다. 같은 상대를 다시 보내면 새 궁합이 하나 더 생긴다(서버는 같은 사람인지 알 수 없다).
   - `POST /synastry/direct` 오류: 400 `INVALID_REQUEST`(본문 형식)·`INVALID_NAME`·`INVALID_RELATION`·`INVALID_DATE`·`INVALID_TIME`·`UNKNOWN_PLACE`(시각이 있는데 곳이 없거나 목록에 없다) · 404 `NO_PROFILE`(내 출생 정보를 저장한 적 없다) · 429 `RATE_LIMITED` · 502 `GENERATION_FAILED`(글을 만들지 못했다. 아무것도 저장하지 않는다. 다시 보내면 된다). 글을 받을 때까지 기다렸다 답하므로 수십 초가 걸릴 수 있다.
 - `Direction` = `{ topic, title, items[3] }` (조언형, 단정 금지).
-- 궁합 리포트 (2026-11-11 구현, 결정 008)
+- 궁합 리포트 (2026-11-11 구현, 결정 010)
   - `SynastryReport` = `{ sections[{ area: ATTRACTION | TALK | CONFLICT | LASTING, title, paragraphs[{ title, body, basis[] }] }] }`. `sections` 는 정확히 이 네 영역(끌림·대화·갈등·오래가기)이 이 순서로 오고, 영역마다 문단 3~4개다. `basis` 는 내 쪽 요소의 말뿐이다: `태양`·`달`·`수성`·`금성`·`화성`, 내 시각을 알면 `상승점`(문단마다 1개 이상).
   - `POST /synastry/{id}/report`: 서버에 상대의 출생 정보가 없으므로 본문으로 다시 받는다(형식·`placeId` 규칙은 `POST /synastry/direct` 와 같다). 계산 직후에는 앱이 입력 화면의 값을 그대로 보내고, 나중에 처음 요청할 때는 다시 입력받는다. 글을 기다리지 않고 202 로 답하고, 앱은 `GET /synastry/{id}/report` 를 몇 초 간격으로 다시 부른다(`Synastry.reportStatus` 도 같은 값이다).
   - 상태: `NONE` 요청한 적 없다(`GET` 만) · `WRITING` 쓰는 중 · `DONE` 완성 · `FAILED` 만들지 못했다(다시 `POST` 하면 새로 시작한다). 없거나 `FAILED` 면 생성을 시작하고 `WRITING`. 이미 `DONE`·`WRITING` 이면 다시 만들지 않고 그 상태를 준다(그때는 본문을 읽지 않으므로 없어도 된다). 뒤에서 일할 자리가 꽉 차면 `FAILED`. `WRITING` 인 채 10분이 지나면 `FAILED` 로 보이고 `POST` 는 다시 시작한다(심층 리포트와 같다). 궁합(`id`)마다 리포트는 하나다.
@@ -138,7 +138,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
 - 지금의 궁합 테이블(직접 입력, V7. 위 줄의 `synastries` 설명보다 이쪽이 맞다): `synastries`(소유자, 부를 이름, 관계 유형, 나 기준 점수, 한 줄 요약, 키워드, 계산할 때의 내 차트 해시) · `synastry_reports`(궁합마다 한 행, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때). 초대로 연결된 두 참여자와 공유 식별자는 초대·공유 때 더한다.
-- 직접 입력한 상대의 행성 황경·별자리와 두 차트 사이의 각도 목록도 저장하지 않는다. 이유: 내 차트와 겹쳐 보면 상대의 생일을 좁힐 수 있다(결정 008).
+- 직접 입력한 상대의 행성 황경·별자리와 두 차트 사이의 각도 목록도 저장하지 않는다. 이유: 내 차트와 겹쳐 보면 상대의 생일을 좁힐 수 있다(결정 010).
 
 ## 글 생성 규칙
 - 프롬프트는 리소스 파일로 둔다. 본문에 점성술 용어를 쓰지 않고, 문단마다 근거(차트 요소)를 별도 필드로 받는다. 건강·투자·미래 사건을 단정하지 않는다.

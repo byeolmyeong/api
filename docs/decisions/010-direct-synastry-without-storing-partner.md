@@ -5,7 +5,7 @@ status: active
 last_reviewed: 2026-11-11
 superseded_by:
 ---
-# 008. 직접 입력 궁합: 상대의 출생 정보를 저장하지 않고 겹친 휠과 궁합 리포트를 준다
+# 010. 직접 입력 궁합: 상대의 출생 정보를 저장하지 않고 겹친 휠과 궁합 리포트를 준다
 
 > 상태: 활성 · 결정일 2026-11-11 · 앱 쪽 규칙: 앱 저장소 `docs/release-1.0.0.md` F5, `docs/decisions/010`·`020` · docs/architecture.md 의 `Synastry` 계약을 바꾼다. 초대 쪽(태스크 9 의 나머지)은 다루지 않는다.
 

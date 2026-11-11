@@ -34,7 +34,7 @@ private const val DONE = """{"status":"DONE"}"""
 private const val PARTNER = """{"date":"1988-07-21","time":"06:10","placeId":$MAPO}"""
 private val MY_SIDE_WORDS = listOf("태양", "달", "수성", "금성", "화성", "상승점")
 
-/** 궁합 리포트(끌림·대화·갈등·오래가기): 상대의 출생 정보를 다시 받아 뒤에서 쓰고, 글만 저장한다(결정 008). */
+/** 궁합 리포트(끌림·대화·갈등·오래가기): 상대의 출생 정보를 다시 받아 뒤에서 쓰고, 글만 저장한다(결정 010). */
 @Import(TestcontainersConfiguration::class, FakeSynastryConfig::class)
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

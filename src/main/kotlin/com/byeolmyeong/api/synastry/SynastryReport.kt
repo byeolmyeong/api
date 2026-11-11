@@ -18,7 +18,7 @@ import tools.jackson.databind.JsonNode
 /** 글로 쓰는 네 영역(끌림·대화·갈등·오래가기). 응답의 `sections` 는 이 순서다 — 끌리는 점이 늘 먼저다. */
 enum class SynastryReportArea { ATTRACTION, TALK, CONFLICT, LASTING }
 
-/** 문단 하나. [basis] 는 내 쪽 요소의 말뿐이다([synastryBasisVocabulary]). 상대 쪽 요소는 저장되는 글에 넣지 않는다(결정 008). */
+/** 문단 하나. [basis] 는 내 쪽 요소의 말뿐이다([synastryBasisVocabulary]). 상대 쪽 요소는 저장되는 글에 넣지 않는다(결정 010). */
 data class SynastryReportParagraph(val title: String, val body: String, val basis: List<String>)
 
 data class SynastryReportSection(val area: SynastryReportArea, val title: String, val paragraphs: List<SynastryReportParagraph>)

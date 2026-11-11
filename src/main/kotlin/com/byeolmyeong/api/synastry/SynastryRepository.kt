@@ -14,7 +14,7 @@ import java.util.UUID
 /** 저장된 궁합 한 행과 그 리포트의 상태. [ownerChartHash] 는 계산할 때의 내 차트다. */
 data class StoredSynastry(val synastry: Synastry, val ownerChartHash: String)
 
-/** 저장하는 것 전부. 상대의 출생 정보·행성 위치·각도는 여기에 없다(결정 008). */
+/** 저장하는 것 전부. 상대의 출생 정보·행성 위치·각도는 여기에 없다(결정 010). */
 data class NewSynastry(
 	val ownerId: UUID,
 	val name: String,

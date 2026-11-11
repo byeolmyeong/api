@@ -44,7 +44,7 @@ data class OverlayBody(val body: Body, val longitude: Double)
 data class OverlayLine(val mine: SynastryTarget, val theirs: Body, val type: AspectType)
 
 /**
- * 두 차트를 겹친 휠의 자료. 상대의 행성 위치가 들어 있어 저장하지 않고, 계산한 그 응답에만 싣는다(결정 008).
+ * 두 차트를 겹친 휠의 자료. 상대의 행성 위치가 들어 있어 저장하지 않고, 계산한 그 응답에만 싣는다(결정 010).
  * [mineAsc] 는 내 태어난 시각을 알 때만 있다.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
