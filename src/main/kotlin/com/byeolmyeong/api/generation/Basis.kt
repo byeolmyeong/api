@@ -1,4 +1,4 @@
-package com.byeolmyeong.api.reading
+package com.byeolmyeong.api.generation
 
 import com.byeolmyeong.api.chart.Body
 import com.byeolmyeong.api.chart.Chart
@@ -11,12 +11,6 @@ import com.byeolmyeong.api.chart.signOf
 
 const val ASCENDANT_LABEL = "상승점"
 const val MIDHEAVEN_LABEL = "중천"
-
-/** 시각을 알 때 정확히 5문단, 모르면 "첫인상과 지향"이 빠져 4문단. */
-const val SECTIONS_WITH_TIME = 5
-const val SECTIONS_WITHOUT_TIME = 4
-const val STRENGTH_COUNT = 3
-const val CAUTION_COUNT = 3
 
 val Body.label: String
 	get() = when (this) {
@@ -71,23 +65,4 @@ fun basisVocabulary(chart: Chart): List<String> {
 	val occupiedSigns = (chart.positions.map { it.sign } + chart.points.map { it.sign } + angles.map { it.second }).toSet()
 	val occupiedHouses = chart.positions.mapNotNull { it.house }.toSet()
 	return names + Sign.entries.filter { it in occupiedSigns }.map { it.label } + (1..12).filter { it in occupiedHouses }.map(::houseLabel)
-}
-
-/**
- * 생성된 글을 저장해도 되는지 본다. 문제가 없으면 null, 있으면 로그용 코드를 준다.
- * - `MALFORMED`: 빈 글, 문단·강점·보완점 개수가 틀림, 근거가 없는 문단
- * - `BASIS_NOT_IN_CHART`: 근거에 [basisVocabulary] 에 없는 말이 있다(글자까지 같아야 한다)
- */
-fun draftProblem(draft: ReadingDraft, chart: Chart): String? {
-	val sectionCount = if (chart.timeKnown) SECTIONS_WITH_TIME else SECTIONS_WITHOUT_TIME
-	val texts = listOf(draft.headline) + draft.sections.flatMap { listOf(it.title, it.body) } + draft.strengths + draft.cautions
-	val wellFormed = draft.sections.size == sectionCount &&
-		draft.strengths.size == STRENGTH_COUNT &&
-		draft.cautions.size == CAUTION_COUNT &&
-		texts.none { it.isBlank() } &&
-		draft.sections.none { it.basis.isEmpty() }
-	if (!wellFormed) return "MALFORMED"
-	val allowed = basisVocabulary(chart).toSet()
-	if (draft.sections.any { section -> section.basis.any { it !in allowed } }) return "BASIS_NOT_IN_CHART"
-	return null
 }

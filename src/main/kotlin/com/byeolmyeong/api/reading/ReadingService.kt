@@ -1,17 +1,14 @@
 package com.byeolmyeong.api.reading
 
 import com.byeolmyeong.api.birth.BirthProfileService
-import com.byeolmyeong.api.birth.Places
-import com.byeolmyeong.api.birth.toUtc
 import com.byeolmyeong.api.chart.Chart
-import com.byeolmyeong.api.chart.computeChart
+import com.byeolmyeong.api.generation.GenerationException
+import com.byeolmyeong.api.generation.TextGenerator
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
-import java.util.HexFormat
 import java.util.UUID
 
 private const val SUMMARY = "SUMMARY"
@@ -27,36 +24,29 @@ private const val SHARE_ID_BYTES = 16
 @Service
 class ReadingService(
 	private val profiles: BirthProfileService,
-	private val places: Places,
 	private val repository: ReadingRepository,
-	private val generator: ReadingGenerator,
+	private val generator: TextGenerator,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val random = SecureRandom()
 
 	fun summary(ownerId: UUID): Reading {
-		val profile = profiles.find(ownerId) ?: throw NotFoundException("NO_PROFILE")
-		val place = checkNotNull(places.find(profile.placeId)) { "저장된 출생지가 목록에 없다" }
-		val utc = toUtc(profile.date, profile.time)
-		val timeKnown = profile.time != null
-		// 차트를 정하는 입력만으로 만든다. 시각을 모르면 위경도는 차트에 쓰이지 않으므로 넣지 않는다.
-		val chartHash = sha256(
-			if (timeKnown) "v1|${utc.epochSecond}|${place.lat}|${place.lon}" else "v1|${utc.epochSecond}|time-unknown",
-		)
+		val birth = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
+		val chartHash = birth.hash
 		repository.find(ownerId, SUMMARY, chartHash)?.let { return it }
 
-		val draft = generate(computeChart(utc, place.lat, place.lon, timeKnown))
+		val draft = generate(birth.chart())
 		// 동시에 두 요청이 생성했으면 먼저 들어간 글만 남고, 둘 다 그 글을 돌려준다.
 		repository.insertIfAbsent(ownerId, SUMMARY, chartHash, draft, newShareId())
 		return checkNotNull(repository.find(ownerId, SUMMARY, chartHash)) { "방금 저장한 글이 없다" }
 	}
 
 	private fun generate(chart: Chart): ReadingDraft {
-		val prompt = buildReadingPrompt(chart)
+		val request = readingRequest(chart)
 		repeat(MAX_ATTEMPTS) { attempt ->
 			val draft = try {
-				generator.generate(prompt)
-			} catch (e: ReadingGenerationException) {
+				generator.generate(request)?.let(::parseReadingDraft)
+			} catch (e: GenerationException) {
 				log.warn("event=reading_generation_failed reason={} attempt={}", e.reason, attempt + 1)
 				throw e
 			}
@@ -65,12 +55,9 @@ class ReadingService(
 			log.warn("event=reading_attempt_rejected reason={} attempt={}", problem, attempt + 1)
 		}
 		log.warn("event=reading_generation_failed reason=ATTEMPTS_EXHAUSTED attempt={}", MAX_ATTEMPTS)
-		throw ReadingGenerationException("ATTEMPTS_EXHAUSTED")
+		throw GenerationException("ATTEMPTS_EXHAUSTED")
 	}
 
 	private fun newShareId(): String =
 		Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(SHARE_ID_BYTES).also(random::nextBytes))
-
-	private fun sha256(text: String): String =
-		HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.toByteArray()))
 }

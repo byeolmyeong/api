@@ -28,7 +28,7 @@ class ArchitectureTest {
         const val ROOT = "com.byeolmyeong.api"
 
         private val FEATURES = listOf("profile", "reading", "report", "synastry", "direction", "share", "push")
-        private val SHARED = listOf("chart", "birth", "auth", "web")
+        private val SHARED = listOf("chart", "birth", "auth", "web", "generation")
 
         /** 기능 사이에 허용되는 유일한 연결: Spring 이벤트 클래스. 이벤트를 늘리면 docs/architecture.md 와 여기를 같이 고친다. */
         private val EVENTS = setOf("$ROOT.report.ReportDone", "$ROOT.synastry.InviteAccepted")
@@ -86,12 +86,21 @@ class ArchitectureTest {
                         .or(resideInAnyPackage(*(SHARED + FEATURES).map(::pkg).toTypedArray())),
                 )
                 .allowEmptyShould(true)
-                .because("공통으로 쓰는 것(chart·birth·auth·web)만 아래에 둔다")
+                .because("공통으로 쓰는 것(chart·birth·auth·web·generation)만 아래에 둔다")
 
         @ArchTest
         @JvmField
-        val authAndWebDoNotDependOnFeatures: ArchRule =
-            noClasses().that().resideInAnyPackage(pkg("auth"), pkg("web"))
+        val generationDependsOnlyOnChart: ArchRule =
+            classes().that().resideInAPackage(pkg("generation"))
+                .should().onlyDependOnClassesThat(
+                    resideOutsideOfPackage("$ROOT..").or(resideInAnyPackage(pkg("generation"), pkg("chart"))),
+                )
+                .because("글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다")
+
+        @ArchTest
+        @JvmField
+        val sharedPackagesDoNotDependOnFeatures: ArchRule =
+            noClasses().that().resideInAnyPackage(pkg("auth"), pkg("web"), pkg("generation"))
                 .should().dependOnClassesThat().resideInAnyPackage(*FEATURES.map(::pkg).toTypedArray())
                 .allowEmptyShould(true)
                 .because("공통이 기능을 알면 순환이 생긴다")

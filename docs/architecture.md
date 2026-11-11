@@ -19,11 +19,12 @@ last_reviewed: 2026-11-11
 
 ## 모듈 (패키지) — 기능별. 결정: docs/decisions/004-module-boundaries-archunit.md
 - `chart` — 계산. 순수 함수만 둔다(입력: UTC 시각·위경도 → 출력: 차트·변곡점 구간·궁합 점수). DB·HTTP·AI·Spring 을 모른다. 이유: 계산 정확도가 제품의 신뢰이고 기준값 테스트로 혼자 검증돼야 한다.
-- `birth` — 출생지 목록과 시각 변환(`java.time` 의 시간대 이력), 그리고 저장된 출생 정보를 읽고 쓰는 한 곳(`BirthProfileService`). 해석·리포트·궁합이 모두 소유자의 출생 정보를 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다.
+- `birth` — 출생지 목록과 시각 변환(`java.time` 의 시간대 이력), 그리고 저장된 출생 정보를 읽고 쓰는 한 곳(`BirthProfileService`). 저장된 출생 정보에서 차트 입력과 "같은 차트" 를 가리는 해시(`ChartInput`)를 얻는 곳도 여기다. 해석·리포트·궁합이 모두 소유자의 출생 정보를 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다.
 - `web` — HTTP 공통: 오류 응답 모양(`ErrorResponse`·`BadRequestException`·`NotFoundException`), 출생 정보 요청 검증(`BirthRequestParser`), 요청 속도 제한, CORS, 지금의 `POST /charts` 컨트롤러. `auth` 를 모른다.
 - `auth` — 세션 발급·검증, 세션 검사(`SessionInterceptor`: 로그인 전에 쓰는 경로 목록에 없으면 모두 세션 필요), 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 계정 삭제(`DELETE /account`), 나중에 구글·애플·카카오 토큰 검증과 만 14세 판정.
 - `profile` — 내 출생 정보 저장·조회의 HTTP 입구(`GET`·`PUT /profile`). 저장 자체는 `birth.BirthProfileService` 가 한다.
-- `reading` — 요약 해석 생성·저장, 근거 대조. 생성 공급자는 `TextGenerator` 인터페이스 하나 뒤에 둔다.
+- `generation` — 글 생성 공통: 공급자를 가리는 인터페이스 `TextGenerator`(지시문·차트 글·JSON 구조를 받아 JSON 을 돌려준다)와 그 Claude 구현, 차트를 프롬프트 글로 옮기는 `chartFacts`, 근거에 쓰는 말(`Basis.kt`). 해석·리포트·궁합 글이 모두 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다. `chart` 만 안다(소유자·저장·HTTP 를 모른다).
+- `reading` — 요약 해석 생성·저장. 요약 해석에만 있는 것(지시문, 돌려받을 구조, 문단·강점·보완점 개수 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다.
 - `report` — 심층 리포트(비동기 생성), 시기 영역의 마디·구간을 `chart` 에서 받아 글을 붙인다.
 - `synastry` — 직접 입력, 초대, 수락, 나 기준 점수(`chart` 계산), 랭킹, 궁합 글·궁합 리포트.
 - `direction` — 방향성 제시.
@@ -34,11 +35,12 @@ last_reviewed: 2026-11-11
 ```
 src/main/kotlin/com/byeolmyeong/api/
   chart/       Positions · Houses · Aspects · Points · Timeline(마디·구간) · SynastryScore   ← 순수 계산
-  birth/       Places · BirthTime · BirthProfile(Service·Repository) · PlacesController
+  birth/       Places · BirthTime · BirthProfile(Service·Repository · ChartInput) · PlacesController
   web/         ErrorResponse · BirthRequest(Parser) · RateLimiter · CorsConfig · ChartController
   auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor)
   profile/     ProfileController
-  reading/     ReadingController · ReadingService · ReadingRepository · ReadingGenerator(인터페이스) · ClaudeReadingGenerator · ReadingPrompt · Basis
+  generation/  TextGenerator(인터페이스) · ClaudeTextGenerator · ChartFacts · Basis
+  reading/     ReadingController · ReadingService · ReadingRepository · ReadingDraft(지시문·구조·검증)
   report/      ReportController · ReportService · ReportRepository · ReportDone(이벤트)
   synastry/    SynastryController · SynastryService · InviteService · SynastryRepository · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository
@@ -56,11 +58,12 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
 | 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`)로만 한다 | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
-| 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
-| `auth`·`web` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
+| 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
+| `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
+| `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
 | `*Repository` 는 같은 패키지의 `*Service` 에서만 부른다(컨트롤러에서 부르지 않는다) | 소유자 검사를 서비스 한 곳에서 한다 |
 | 패키지 사이 순환 의존 0 | |
-| 글 생성(Claude API)·소셜 로그인 같은 외부 호출은 인터페이스 하나 뒤에만 둔다 | 공급자를 바꿀 수 있게 |
+| 글 생성(Claude API)·소셜 로그인 같은 외부 호출은 인터페이스 하나 뒤에만 둔다. Claude SDK 를 아는 클래스는 `generation.ClaudeTextGenerator` 하나다 | 공급자를 바꿀 수 있게 |
 
 ## 용어 (코드·문서·화면에서 같은 말을 쓴다)
 | 화면 말 | 코드 이름 | 뜻 |
@@ -124,10 +127,10 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 프롬프트는 리소스 파일로 둔다. 본문에 점성술 용어를 쓰지 않고, 문단마다 근거(차트 요소)를 별도 필드로 받는다. 건강·투자·미래 사건을 단정하지 않는다.
 - 근거 대조: AI 가 돌려준 `basis` 의 차트 요소가 서버가 계산한 차트에 없으면 그 응답을 버리고 다시 생성한다(상한 2회). 이유: 없는 요소를 근거로 든 글은 신뢰를 깬다.
 - 같은 소유자·차트·종류의 글은 한 번만 생성한다. 실패·빈 응답·구조가 틀린 응답은 저장하지 않는다.
-- 생성 호출부는 인터페이스 하나(`reading.ReadingGenerator`) 뒤에 둔다. 이유: 공급자(지금은 Claude, 결정 006)와 모델을 바꿀 수 있어야 한다.
+- 생성 호출부는 인터페이스 하나(`generation.TextGenerator`) 뒤에 둔다. 이유: 공급자(지금은 Claude, 결정 006)와 모델을 바꿀 수 있어야 한다. 결정 006 이 말하는 `reading.ReadingGenerator`·`ClaudeReadingGenerator` 가 리포트도 쓰게 되면서 이 이름으로 옮겨졌다.
 - 프롬프트에는 차트 요소(천체·별자리·하우스·각도 관계)만 넣는다. 출생 날짜·시각·장소와 도수는 넣지 않는다. 시각을 모르면 하우스·상승점·중천·행운점·버텍스를 넣지 않고, 글에서도 쓰지 않게 한다.
 - 요약 해석의 모양: 시각을 알면 문단 5개(중심 → 마음 → 첫인상과 지향 → 힘이 몰린 곳 → 과제), 모르면 "첫인상과 지향"이 빠져 4개. 강점 3개, 보완점 3개. 개수가 다르거나 빈 글이 있으면 버린다.
-- 근거에 쓸 수 있는 말(`reading/Basis.kt` 가 단일 출처, 글자까지 같아야 한다): 천체 이름(태양·달·수성·금성·화성·목성·토성·천왕성·해왕성·명왕성), 지점 이름(북쪽 교점·릴리스, 시각을 알면 행운점·버텍스), 시각을 알면 `상승점`·`중천`, 그 차트에서 천체·지점·상승점·중천이 하나라도 놓인 별자리(양·황소·…·물고기, "자리"를 붙이지 않는다), 천체가 하나라도 놓인 하우스(`N하우스`, 시각을 알 때만).
+- 근거에 쓸 수 있는 말(`generation/Basis.kt` 가 단일 출처, 글자까지 같아야 한다): 천체 이름(태양·달·수성·금성·화성·목성·토성·천왕성·해왕성·명왕성), 지점 이름(북쪽 교점·릴리스, 시각을 알면 행운점·버텍스), 시각을 알면 `상승점`·`중천`, 그 차트에서 천체·지점·상승점·중천이 하나라도 놓인 별자리(양·황소·…·물고기, "자리"를 붙이지 않는다), 천체가 하나라도 놓인 하우스(`N하우스`, 시각을 알 때만).
 
 ## 요청 속도 제한 (남용 방지, 서버에서만 판정한다)
 - 리포트·궁합·방향성 제시에 기능 횟수 제한은 없다(앱 결정 011). 같은 차트·같은 두 사람의 글은 한 번만 만든다.

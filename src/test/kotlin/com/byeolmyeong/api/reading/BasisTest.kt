@@ -9,6 +9,7 @@ import com.byeolmyeong.api.chart.PointKind
 import com.byeolmyeong.api.chart.computeChart
 import com.byeolmyeong.api.chart.degreeInSign
 import com.byeolmyeong.api.chart.signOf
+import com.byeolmyeong.api.generation.basisVocabulary
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import kotlin.test.assertEquals

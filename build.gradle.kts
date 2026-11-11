@@ -30,7 +30,7 @@ dependencies {
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	implementation("io.github.cosinekitty:astronomy:2.1.19")
-	// Claude API 공식 Java SDK. reading.ClaudeReadingGenerator 만 쓴다(결정 006).
+	// Claude API 공식 Java SDK. generation.ClaudeTextGenerator 만 쓴다(결정 006).
 	implementation("com.anthropic:anthropic-java:3.3.0")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-flyway-test")
