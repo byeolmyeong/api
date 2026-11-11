@@ -24,6 +24,15 @@ data class NewSynastry(
 	val ownerChartHash: String,
 )
 
+/** 저장된 궁합 리포트. [status] 는 멈춘 것을 이미 `FAILED` 로 바꾼 값이다. */
+data class StoredSynastryReport(val status: SynastryReportStatus, val report: SynastryReport?)
+
+/**
+ * 리포트 한 번의 생성. [startedAt] 은 그 생성을 시작하며 행에 적은 시각이고, 끝낼 때 "아직 내 생성이 맞는지" 를 이것으로 가린다
+ * (멈춘 줄 알고 다시 시작한 뒤에 옛 생성이 뒤늦게 끝나도 덮어쓰지 못한다).
+ */
+data class SynastryReportRun(val synastryId: UUID, val startedAt: OffsetDateTime)
+
 // 리포트 상태는 synastry_reports 에서 읽는다. WRITING 인 채 정해진 시간이 지났으면 멈춘 것(FAILED)으로 본다.
 private const val SELECT = """
 	select s.id, s.name, s.relation, s.score, s.headline, s.keywords, s.owner_chart_hash, s.created_at,
@@ -83,4 +92,55 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 		"$SELECT where s.owner_id = ? and s.relation = ? order by s.score desc, s.created_at, s.id",
 		row, staleMinutes, ownerId, relation.name,
 	)
+
+	// 아래 리포트 함수들은 궁합 id 만 받는다. 그 궁합이 소유자의 것인지는 서비스가 [find] 로 먼저 본다.
+
+	fun findReport(synastryId: UUID, staleMinutes: Int): StoredSynastryReport? = jdbc.query(
+		"""
+		select case when status = 'WRITING' and started_at < now() - make_interval(mins => ?) then 'FAILED' else status end as status, body
+		from synastry_reports where synastry_id = ?
+		""".trimIndent(),
+		{ rs, _ ->
+			StoredSynastryReport(
+				status = SynastryReportStatus.valueOf(rs.getString("status")),
+				report = rs.getString("body")?.let { mapper.readValue(it, SynastryReport::class.java) },
+			)
+		},
+		staleMinutes, synastryId,
+	).firstOrNull()
+
+	/**
+	 * 리포트 생성을 시작할 자리를 잡는다. 잡았으면 그 생성을 돌려주고, 못 잡았으면 null 이다.
+	 * 잡는 경우: 행이 없다, `FAILED` 다, `WRITING` 인 채 [staleMinutes] 분이 지났다.
+	 * 한 문장이라 동시에 불러도 한 요청만 잡는다.
+	 */
+	fun claimReport(synastryId: UUID, staleMinutes: Int): SynastryReportRun? = jdbc.query(
+		"""
+		insert into synastry_reports (synastry_id, status) values (?, 'WRITING')
+		on conflict (synastry_id) do update
+		set status = 'WRITING', body = null, started_at = now(), updated_at = now()
+		where synastry_reports.status = 'FAILED'
+			or (synastry_reports.status = 'WRITING' and synastry_reports.started_at < now() - make_interval(mins => ?))
+		returning started_at
+		""".trimIndent(),
+		{ rs, _ -> SynastryReportRun(synastryId, rs.getObject("started_at", OffsetDateTime::class.java)) },
+		synastryId, staleMinutes,
+	).firstOrNull()
+
+	/** 글을 저장하고 `DONE` 으로 바꾼다. 그 사이 행이 지워졌거나 다른 생성이 자리를 잡았으면 아무것도 하지 않고 false. */
+	fun completeReport(run: SynastryReportRun, report: SynastryReport): Boolean = jdbc.update(
+		"""
+		update synastry_reports set status = 'DONE', body = ?::jsonb, updated_at = now()
+		where synastry_id = ? and status = 'WRITING' and started_at = ?
+		""".trimIndent(),
+		mapper.writeValueAsString(report), run.synastryId, run.startedAt,
+	) == 1
+
+	/** `FAILED` 로 바꾼다. 아직 그 생성의 자리일 때만. */
+	fun failReport(run: SynastryReportRun) {
+		jdbc.update(
+			"update synastry_reports set status = 'FAILED', updated_at = now() where synastry_id = ? and status = 'WRITING' and started_at = ?",
+			run.synastryId, run.startedAt,
+		)
+	}
 }

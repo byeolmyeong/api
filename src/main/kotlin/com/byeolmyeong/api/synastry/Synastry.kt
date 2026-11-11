@@ -161,7 +161,7 @@ fun parseSummary(root: JsonNode): SynastrySummary? = SynastrySummary(
 )
 
 /** 글에 숫자가 있는가. 점수는 서버만 말한다: 모델이 글 속에 다른 점수를 적지 못하게 한다. */
-internal fun hasDigit(text: String): Boolean = text.any { it.isDigit() }
+private fun hasDigit(text: String): Boolean = text.any { it.isDigit() }
 
 /**
  * 저장해도 되는 키워드·한 줄 요약인지 본다. 문제가 없으면 null, 있으면 로그용 코드를 준다.

@@ -50,6 +50,20 @@ class SynastryController(
 	@GetMapping("/synastry/{id}")
 	fun get(@PathVariable id: String): Synastry = synastries.get(owner.id(), id(id))
 
+	/** 글을 기다리지 않고 202 로 답한다. 본문은 상대의 출생 정보다(저장돼 있지 않아 다시 받는다). 이미 완성됐거나 쓰는 중이면 본문을 읽지 않는다. */
+	@PostMapping("/synastry/{id}/report")
+	fun requestReport(@PathVariable id: String, @RequestBody(required = false) request: BirthRequest?): ResponseEntity<SynastryReportResponse> {
+		val status = synastries.requestReport(owner.id(), id(id)) { partner(request ?: throw BadRequestException("INVALID_REQUEST")) }
+		return ResponseEntity.accepted().body(SynastryReportResponse(status))
+	}
+
+	@GetMapping("/synastry/{id}/report")
+	fun report(@PathVariable id: String): SynastryReportResponse = synastries.report(owner.id(), id(id))
+
+	@ExceptionHandler(ProfileChangedException::class)
+	fun profileChanged(): ResponseEntity<ErrorResponse> =
+		ResponseEntity.status(409).body(ErrorResponse("PROFILE_CHANGED"))
+
 	@ExceptionHandler(GenerationException::class)
 	fun generationFailed(): ResponseEntity<ErrorResponse> =
 		ResponseEntity.status(502).body(ErrorResponse("GENERATION_FAILED"))
