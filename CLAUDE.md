@@ -8,7 +8,7 @@
 
 ## 상황별 (그 일을 할 때만 읽는다)
 - 무엇을 만드는지(기능·규칙·출시 기준) → 앱 저장소의 `../byeolmyeong-app/docs/release-1.0.0.md`. 제품 방향은 `../byeolmyeong-app/docs/product.md`. 기획 문서의 원본은 앱 저장소다. 여기에 복사하지 않는다.
-- 서버 구조·데이터 흐름·API 계약을 바꿀 때 → docs/architecture.md
+- 서버 구조·의존 규칙·용어·데이터 흐름·API 계약을 볼 때·바꿀 때 → docs/architecture.md (의존 규칙은 ArchitectureTest 가 강제)
 - 지금 할 일 → docs/plans/2026-11-10-api-mvp.md
 - 코드 어디서 시작할지 모를 때 → docs/codebase-map.md (`/agent-codebase bootstrap` 이 만든다)
 - "왜 이렇게 됐나"가 궁금할 때 → docs/decisions/ ADR 번호순. 바뀌면 새 번호로 대체. 종합된 답은 docs/synthesis/.
