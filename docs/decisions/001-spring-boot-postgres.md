@@ -10,13 +10,14 @@ superseded_by:
 > 상태: 활성 · 결정일 2026-11-10
 
 ## 맥락
-서버가 할 일은 익명 계정, 해석 생성(OpenAI API)·저장, 공유 조회, 나중에 구매 확인이다. 차트 계산은 앱이 하므로 앱과 공유할 계산 코드가 없다. 만드는 사람은 한 명이고 주력이 Java·Spring 이다. 같은 결정의 앱 쪽 기록: 앱 저장소 `docs/decisions/004-spring-backend.md`.
+서버가 할 일은 차트 계산, 로그인, 글 생성(OpenAI API)·저장, 궁합 초대, 공유 조회, 알림, 나중에 구매 확인이다(이 문장은 2026-11-10 범위 확정에 맞춰 고쳤다. 계산 위치의 결정은 docs/decisions/002-chart-calculation.md). 만드는 사람은 한 명이고 주력이 Spring 이다. 언어는 사용자가 Kotlin 을 골랐다. 같은 결정의 앱 쪽 기록: 앱 저장소 `docs/decisions/004-spring-backend.md`.
 
 ## 결정
-서버는 Spring Boot(Java 21, Gradle) + PostgreSQL 로 만들고, 앱 저장소와 분리된 이 저장소에 둔다. 해석 생성은 OpenAI API 를 쓴다.
+서버는 Spring Boot(Kotlin, JVM 21, Gradle) + PostgreSQL 로 만들고, 앱 저장소와 분리된 이 저장소에 둔다. 해석 생성은 OpenAI API 를 쓴다.
 
 ## 근거
 - 혼자 만드는 서비스는 가장 손에 익은 도구가 가장 빠르다.
+- Kotlin 은 Spring 이 공식 지원하고, null 안전성과 data class 로 요청·응답 타입이 짧아진다.
 - 빌드 도구와 배포 주기가 앱과 달라 저장소를 나누면 설정·CI 가 단순해진다.
 - OpenAI 는 사용자가 골랐다. 생성 호출부를 인터페이스 뒤에 두어 바꿀 수 있게 한다.
 
@@ -27,5 +28,5 @@ superseded_by:
 
 ## 결과·재검토 조건
 - API 계약을 바꾸면 두 저장소에 각각 커밋한다. 계약의 원본은 docs/architecture.md 의 표다. 어긋남이 반복되면 OpenAPI 명세 생성을 다시 본다.
-- Spring Boot 버전은 계획 태스크 1 에서 확정해 여기에 적는다. [확인 필요]
+- 버전(2026-11-10 확정, start.spring.io 의 안정 버전): Spring Boot 4.1.2 · Kotlin 2.3.21 · Gradle 9.8.2 · JVM 21 · PostgreSQL 17(로컬·테스트 이미지 `postgres:17`). 실제 값의 원본은 `build.gradle.kts` 와 `gradle/wrapper/gradle-wrapper.properties` 다.
 - 운영 호스팅은 미정이다. [확인 필요]
