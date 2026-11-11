@@ -1,6 +1,9 @@
 package com.byeolmyeong.api.web
 
+import com.byeolmyeong.api.DEV_AUTH_ON
 import com.byeolmyeong.api.TestcontainersConfiguration
+import com.byeolmyeong.api.devToken
+import com.byeolmyeong.api.http
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.beans.factory.annotation.Autowired
@@ -27,16 +30,11 @@ private val SIGNS = listOf(
 	"LIBRA", "SCORPIO", "SAGITTARIUS", "CAPRICORN", "AQUARIUS", "PISCES",
 )
 
-fun postChart(port: Int, body: String): HttpResponse<String> = HttpClient.newHttpClient().send(
-	HttpRequest.newBuilder(URI("http://localhost:$port/charts"))
-		.header("Content-Type", "application/json")
-		.POST(HttpRequest.BodyPublishers.ofString(body))
-		.build(),
-	HttpResponse.BodyHandlers.ofString(),
-)
+/** 개발용 세션으로 차트를 요청한다(세션이 있어야 한다). */
+fun postChart(port: Int, body: String): HttpResponse<String> = http(port, "POST", "/charts", body, devToken(port))
 
 @Import(TestcontainersConfiguration::class)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [DEV_AUTH_ON])
 class ChartApiIntegrationTest {
 
 	@LocalServerPort
@@ -180,9 +178,13 @@ class ChartApiIntegrationTest {
 
 	@Test
 	fun `요청 뒤 DB 에 출생 정보 행이 없다`() {
+		// 같은 DB 를 쓰는 다른 테스트가 남긴 행을 지우고 시작한다(계정을 지우면 딸린 행이 함께 지워진다).
+		jdbc.update("delete from accounts")
 		chart("""{"date":"1990-03-15","time":"14:30","placeId":$MAPO}""")
+		// 세션을 받느라 계정·세션 행은 생긴다. 그 밖의 어떤 테이블에도 행이 없어야 한다.
 		val tables = jdbc.queryForList(
-			"select table_name from information_schema.tables where table_schema = 'public' and table_name <> 'flyway_schema_history'",
+			"select table_name from information_schema.tables where table_schema = 'public' " +
+				"and table_name not in ('flyway_schema_history', 'accounts', 'sessions')",
 			String::class.java,
 		)
 		val rows = tables.sumOf { jdbc.queryForObject("select count(*) from \"$it\"", Long::class.java)!! }
@@ -193,7 +195,7 @@ class ChartApiIntegrationTest {
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-	properties = ["byeolmyeong.rate-limit.charts-per-minute=3", "byeolmyeong.rate-limit.places-per-minute=2"],
+	properties = [DEV_AUTH_ON, "byeolmyeong.rate-limit.charts-per-minute=3", "byeolmyeong.rate-limit.places-per-minute=2"],
 )
 class RateLimitIntegrationTest {
 
