@@ -1,34 +1,29 @@
-package com.byeolmyeong.api.reading
+package com.byeolmyeong.api.generation
 
 import com.byeolmyeong.api.chart.Aspect
 import com.byeolmyeong.api.chart.AspectType
 import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.chart.signOf
 
-// 프롬프트를 만든다. 지시문은 리소스 파일(src/main/resources/prompts/)에, 차트는 아래 함수가 글로 옮긴다.
+// 프롬프트의 재료. 지시문은 리소스 파일(src/main/resources/prompts/)에, 차트는 아래 함수가 글로 옮긴다.
 // 넣는 것은 차트 요소(천체·별자리·하우스·각도 관계)뿐이다. 출생 날짜·시각·장소와 도수는 넣지 않는다.
 
-private val COMMON: String by lazy { resource("reading-summary.md") }
-private val TIME_KNOWN: String by lazy { resource("reading-summary-time-known.md") }
-private val TIME_UNKNOWN: String by lazy { resource("reading-summary-time-unknown.md") }
-
-private fun resource(name: String): String {
+/** `src/main/resources/prompts/` 의 지시문 파일 하나를 읽는다. */
+fun promptResource(name: String): String {
 	val path = "/prompts/$name"
-	val stream = checkNotNull(ReadingPrompt::class.java.getResourceAsStream(path)) { "$path 가 없다" }
+	val stream = checkNotNull(TextGenerator::class.java.getResourceAsStream(path)) { "$path 가 없다" }
 	return stream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
 }
 
-fun buildReadingPrompt(chart: Chart): ReadingPrompt = ReadingPrompt(
-	instructions = COMMON + "\n\n" + if (chart.timeKnown) TIME_KNOWN else TIME_UNKNOWN,
-	facts = chartFacts(chart),
-	basisVocabulary = basisVocabulary(chart),
-)
+/** 모든 글에 공통인 글쓰기 규칙(말투·용어 금지·단정 금지·근거). 글마다의 지시문 앞에 붙인다. */
+val WRITING_RULES: String by lazy { promptResource("writing-rules.md") }
 
-private fun chartFacts(chart: Chart): String {
+/** 서버가 계산한 차트를 모델이 읽을 글로 옮긴다. 시각을 모르면 하우스·상승점·중천이 들어가지 않는다. */
+fun chartFacts(chart: Chart): String {
 	fun placed(name: String, sign: String, house: Int?) = "$name: $sign" + (house?.let { " · ${houseLabel(it)}" } ?: "")
 	val lines = mutableListOf("[천체]")
 	lines += chart.positions.map { placed(it.body.label, it.sign.label, it.house) }
-	if (chart.moonSignMayChange) lines += "(달의 별자리는 태어난 시각에 따라 이웃 별자리일 수 있다. 마음 문단은 이 점을 감안해 너무 좁게 단정하지 않는다.)"
+	if (chart.moonSignMayChange) lines += "(달의 별자리는 태어난 시각에 따라 이웃 별자리일 수 있다. 달을 바탕으로 쓰는 문단은 이 점을 감안해 너무 좁게 단정하지 않는다.)"
 	lines += ""
 	lines += "[그 밖의 지점]"
 	lines += chart.points.map { placed(it.kind.label, it.sign.label, it.house) }

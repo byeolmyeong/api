@@ -3,6 +3,11 @@ package com.byeolmyeong.api.reading
 import com.byeolmyeong.api.DEV_AUTH_ON
 import com.byeolmyeong.api.TestcontainersConfiguration
 import com.byeolmyeong.api.devToken
+import com.byeolmyeong.api.generation.ASCENDANT_LABEL
+import com.byeolmyeong.api.generation.GenerationException
+import com.byeolmyeong.api.generation.GenerationRequest
+import com.byeolmyeong.api.generation.TextGenerator
+import com.byeolmyeong.api.generation.houseLabel
 import com.byeolmyeong.api.http
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -17,6 +22,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
 import org.springframework.jdbc.core.JdbcTemplate
+import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
 import java.security.MessageDigest
 import java.util.HexFormat
@@ -36,16 +42,23 @@ private const val UNKNOWN = """{"date":"1990-03-15","time":null,"placeId":$MAPO}
 private const val FAILED = """{"error":"GENERATION_FAILED"}"""
 private val TIME_ONLY_WORDS = listOf("하우스", "상승점", "중천", "행운점", "버텍스")
 
+/** 테스트가 보는 요청의 모습. [basisVocabulary] 는 요청의 구조(스키마)에서 근거로 고를 수 있게 한 말이다. */
+data class ReadingPrompt(val instructions: String, val facts: String, val basisVocabulary: List<String>)
+
 /** 실제 생성기 대신 끼우는 가짜. 받은 프롬프트를 기억하고, 테스트가 정한 대로 답한다. */
-class FakeReadingGenerator : ReadingGenerator {
+class FakeReadingGenerator : TextGenerator {
+	private val mapper = JsonMapper()
 	val prompts = CopyOnWriteArrayList<ReadingPrompt>()
 
 	@Volatile
 	var respond: (ReadingPrompt, Int) -> ReadingDraft? = ::validDraft
 
-	override fun generate(prompt: ReadingPrompt): ReadingDraft? {
+	override fun generate(request: GenerationRequest): JsonNode? {
+		val schema: JsonNode = mapper.valueToTree(request.schema)
+		val vocabulary = schema["properties"]["sections"]["items"]["properties"]["basis"]["items"]["enum"].values().map { it.asString() }
+		val prompt = ReadingPrompt(request.instructions, request.userText, vocabulary)
 		prompts += prompt
-		return respond(prompt, prompts.size)
+		return respond(prompt, prompts.size)?.let { mapper.valueToTree(it) }
 	}
 
 	fun reset() {
@@ -249,7 +262,7 @@ class ReadingApiIntegrationTest {
 	@Test
 	fun `생성 호출이 실패하면 다시 부르지 않고 502 이다`() {
 		val token = tokenWithProfile(KNOWN)
-		generator.respond = { _, _ -> throw ReadingGenerationException("HTTP_429") }
+		generator.respond = { _, _ -> throw GenerationException("HTTP_429") }
 
 		val response = read(token)
 
@@ -363,7 +376,7 @@ class ReadingApiIntegrationTest {
 		http(port, "PUT", "/profile", """{"date":"1977-07-07","time":null,"placeId":$MAPO}""", token)
 		generator.respond = { prompt, call -> validDraft(prompt, call).let { d -> d.copy(sections = d.sections.map { it.copy(basis = listOf("없는별")) }) } }
 		assertEquals(502, read(token).statusCode())
-		generator.respond = { _, _ -> throw ReadingGenerationException("HTTP_500") }
+		generator.respond = { _, _ -> throw GenerationException("HTTP_500") }
 		assertEquals(502, read(token).statusCode())
 
 		val facts = generator.prompts.first().facts

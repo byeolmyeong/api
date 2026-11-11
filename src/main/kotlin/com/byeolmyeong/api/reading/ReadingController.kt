@@ -1,6 +1,7 @@
 package com.byeolmyeong.api.reading
 
 import com.byeolmyeong.api.auth.CurrentOwner
+import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.web.ErrorResponse
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -14,7 +15,7 @@ class ReadingController(private val owner: CurrentOwner, private val readings: R
 	@PostMapping("/readings")
 	fun create(): Reading = readings.summary(owner.id())
 
-	@ExceptionHandler(ReadingGenerationException::class)
+	@ExceptionHandler(GenerationException::class)
 	fun generationFailed(): ResponseEntity<ErrorResponse> =
 		ResponseEntity.status(502).body(ErrorResponse("GENERATION_FAILED"))
 }

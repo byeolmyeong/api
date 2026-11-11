@@ -1,4 +1,4 @@
-package com.byeolmyeong.api.reading
+package com.byeolmyeong.api.generation
 
 import com.sun.net.httpserver.HttpServer
 import org.junit.jupiter.api.AfterEach
@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 private const val KEY = "test-key-not-real"
 
 /** Claude API 를 흉내 내는 로컬 서버로 요청 모양과 응답 처리만 본다. 실제 API 는 부르지 않는다. */
-class ClaudeReadingGeneratorTest {
+class ClaudeTextGeneratorTest {
 
 	private val mapper = JsonMapper()
 	private lateinit var server: HttpServer
@@ -29,18 +29,16 @@ class ClaudeReadingGeneratorTest {
 	private var requestBeta: String? = null
 	private var requestBody: JsonNode? = null
 
-	private val prompt = ReadingPrompt(
-		instructions = "지시문",
-		facts = "차트 사실",
-		basisVocabulary = listOf("태양", "쌍둥이", "6하우스"),
+	private val schema = mapOf(
+		"type" to "object",
+		"properties" to mapOf("title" to mapOf("type" to "string"), "basis" to basisSchema(listOf("태양", "쌍둥이", "6하우스"))),
+		"required" to listOf("title", "basis"),
+		"additionalProperties" to false,
 	)
 
-	private val draft = ReadingDraft(
-		headline = "총평",
-		sections = (1..5).map { ReadingSection("제목$it", "본문$it", listOf("태양", "6하우스")) },
-		strengths = listOf("하나", "둘", "셋"),
-		cautions = listOf("넷", "다섯", "여섯"),
-	)
+	private val request = GenerationRequest(purpose = "test", instructions = "지시문", userText = "차트 사실", schema = schema)
+
+	private val draft: JsonNode = mapper.readTree("""{"title":"제목","basis":["태양","6하우스"]}""")
 
 	@BeforeEach
 	fun start() {
@@ -64,7 +62,7 @@ class ClaudeReadingGeneratorTest {
 	@AfterEach
 	fun stop() = server.stop(0)
 
-	private fun generator(apiKey: String = KEY, timeoutSeconds: Long = 5, refusalFallback: Boolean = true) = ClaudeReadingGenerator(
+	private fun generator(apiKey: String = KEY, timeoutSeconds: Long = 5, refusalFallback: Boolean = true) = ClaudeTextGenerator(
 		apiKey = apiKey,
 		baseUrl = "http://localhost:${server.address.port}",
 		model = "test-model",
@@ -94,7 +92,7 @@ class ClaudeReadingGeneratorTest {
 	fun `구조를 정한 요청을 보내고 글을 돌려준다`() {
 		responseBody = message(mapper.writeValueAsString(draft))
 
-		assertEquals(draft, generator().generate(prompt))
+		assertEquals(draft, generator().generate(request))
 
 		assertEquals(1, hits.get())
 		assertEquals("/v1/messages", requestPath)
@@ -111,10 +109,10 @@ class ClaudeReadingGeneratorTest {
 		assertEquals("json_schema", format["type"].asString())
 		assertEquals(
 			listOf("태양", "쌍둥이", "6하우스"),
-			format["schema"]["properties"]["sections"]["items"]["properties"]["basis"]["items"]["enum"].values().map { it.asString() },
+			format["schema"]["properties"]["basis"]["items"]["enum"].values().map { it.asString() },
 			"근거는 차트에 있는 말 중에서만 고르게 한다",
 		)
-		assertEquals(listOf("headline", "sections", "strengths", "cautions"), format["schema"]["required"].values().map { it.asString() })
+		assertEquals(mapper.valueToTree<JsonNode>(schema), format["schema"], "받은 구조를 그대로 보낸다")
 		// 이 모델이 400 으로 거절하는 것들을 보내지 않는다
 		for (field in listOf("thinking", "temperature", "top_p", "top_k", "tool_choice", "tools")) {
 			assertNull(body[field], field)
@@ -128,7 +126,7 @@ class ClaudeReadingGeneratorTest {
 	fun `거절 대비를 끄면 그 값들을 보내지 않는다`() {
 		responseBody = message(mapper.writeValueAsString(draft))
 
-		assertEquals(draft, generator(refusalFallback = false).generate(prompt))
+		assertEquals(draft, generator(refusalFallback = false).generate(request))
 
 		assertNull(requestBeta)
 		assertNull(requestBody!!["fallbacks"])
@@ -138,7 +136,7 @@ class ClaudeReadingGeneratorTest {
 	fun `쓸 수 없는 응답은 null 이다`() {
 		fun assertUnusable(body: String, why: String) {
 			responseBody = body
-			assertNull(generator().generate(prompt), why)
+			assertNull(generator().generate(request), why)
 		}
 		val json = mapper.writeValueAsString(draft)
 		assertUnusable(message(json, stopReason = "refusal"), "거절 — 내용이 있어도 읽지 않는다")
@@ -146,12 +144,6 @@ class ClaudeReadingGeneratorTest {
 		assertUnusable(message(json.dropLast(20), stopReason = "max_tokens"), "중간에 끊겼다")
 		assertUnusable(message(json, stopReason = "max_tokens"), "끊겼다고 하면 읽지 않는다")
 		assertUnusable(message("JSON 이 아니다"), "글이 JSON 이 아니다")
-		assertUnusable(message("""{"headline":"총평"}"""), "필드가 빠졌다")
-		assertUnusable(message("""{"headline":1,"sections":"x","strengths":[],"cautions":[]}"""), "타입이 틀리다")
-		assertUnusable(
-			message("""{"headline":"총평","sections":[{"title":"제목","body":"본문","basis":[1]}],"strengths":[],"cautions":[]}"""),
-			"근거가 문자열이 아니다",
-		)
 		assertUnusable(message("[]"), "객체가 아니다")
 		assertUnusable(message(null), "글이 없다")
 	}
@@ -161,7 +153,7 @@ class ClaudeReadingGeneratorTest {
 		status = 429
 		responseBody = """{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}"""
 
-		val e = assertFailsWith<ReadingGenerationException> { generator().generate(prompt) }
+		val e = assertFailsWith<GenerationException> { generator().generate(request) }
 
 		assertEquals("HTTP_429", e.reason)
 		assertEquals(1, hits.get(), "다시 부르지 않는다")
@@ -172,7 +164,7 @@ class ClaudeReadingGeneratorTest {
 		status = 500
 		responseBody = "oops <b>not json</b>"
 
-		val e = assertFailsWith<ReadingGenerationException> { generator().generate(prompt) }
+		val e = assertFailsWith<GenerationException> { generator().generate(request) }
 
 		assertEquals("HTTP_500", e.reason)
 		assertEquals(1, hits.get())
@@ -183,7 +175,7 @@ class ClaudeReadingGeneratorTest {
 		status = 400
 		responseBody = """{"type":"error","error":{"type":"invalid_request_error","message":"차트 사실 is wrong"}}"""
 
-		val e = assertFailsWith<ReadingGenerationException> { generator().generate(prompt) }
+		val e = assertFailsWith<GenerationException> { generator().generate(request) }
 
 		assertEquals("HTTP_400", e.reason)
 		assertEquals("HTTP_400", e.message)
@@ -192,7 +184,7 @@ class ClaudeReadingGeneratorTest {
 
 	@Test
 	fun `키가 없으면 부르지 않고 실패로 알린다`() {
-		val e = assertFailsWith<ReadingGenerationException> { generator(apiKey = " ").generate(prompt) }
+		val e = assertFailsWith<GenerationException> { generator(apiKey = " ").generate(request) }
 
 		assertEquals("NO_API_KEY", e.reason)
 		assertEquals(0, hits.get())
@@ -203,7 +195,7 @@ class ClaudeReadingGeneratorTest {
 		delayMillis = 3_000
 		responseBody = message(mapper.writeValueAsString(draft))
 
-		val e = assertFailsWith<ReadingGenerationException> { generator(timeoutSeconds = 1).generate(prompt) }
+		val e = assertFailsWith<GenerationException> { generator(timeoutSeconds = 1).generate(request) }
 
 		assertEquals("IO", e.reason)
 		assertTrue(hits.get() <= 1)
