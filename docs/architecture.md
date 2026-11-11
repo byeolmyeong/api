@@ -27,7 +27,7 @@ last_reviewed: 2026-11-11
 - `reading` — 요약 해석 생성·저장. 요약 해석에만 있는 것(지시문, 돌려받을 구조, 문단·강점·보완점 개수 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다.
 - `report` — 심층 리포트. 요청은 자리만 잡고 202 로 답하고, 글은 뒤에서 영역(성격·관계·일·감정)마다 따로 생성해 네 영역이 모두 검증을 통과하면 저장한다. 완성되면 `ReportDone` 이벤트를 낸다. 시기 영역(마디·구간을 `chart` 에서 받아 글을 붙인다)은 태스크 8b 에서 더한다.
 - `synastry` — 직접 입력, 초대, 수락, 나 기준 점수(`chart` 계산), 랭킹, 궁합 글·궁합 리포트.
-- `direction` — 방향성 제시.
+- `direction` — 방향성 제시(해 볼 만한 것 3개). 지금은 이성 주제 하나다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래·궁합 주제는 리포트 시기·궁합이 들어온 뒤에 더한다. 결정: docs/decisions/009-direction-storage-and-advice-check.md
 - `share` — 공유 조회(공유 카드 4종).
 - `push` — 기기 토큰과 알림 발송.
 
@@ -43,7 +43,7 @@ src/main/kotlin/com/byeolmyeong/api/
   reading/     ReadingController · ReadingService · ReadingRepository · ReadingDraft(지시문·구조·검증)
   report/      ReportController · ReportService(+ 일꾼 설정 ReportExecutorConfig) · ReportRepository · Report(모양·지시문·구조·검증) · ReportDone(이벤트)
   synastry/    SynastryController · SynastryService · InviteService · SynastryRepository · InviteAccepted(이벤트)
-  direction/   DirectionController · DirectionService · DirectionRepository
+  direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증)
   share/       ShareController · ShareService
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
@@ -95,7 +95,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /invites/{inviteId}/accept` | 세션 | `{ name }` | `Synastry` |
 | `GET /synastry` · `GET /synastry/{id}` | 세션 | 없음 | 목록 · `Synastry` |
 | `GET /synastry/ranking?relation=` | 세션 | 관계 유형 | `[{ id, name, score, keywords[3] }]` 점수순, 인원 제한 없음 |
-| `POST /directions` | 세션 | `{ topic: FUTURE \| LOVE \| SYNASTRY, synastryId? }` | `Direction` |
+| `POST /directions` | 세션 | `{ topic: LOVE }` (프로필의 출생 정보를 쓴다. `FUTURE`·`SYNASTRY` 와 `synastryId` 는 아직 받지 않는다) | 200 `Direction` · `topic` 이 없거나 `LOVE` 가 아니면 400 `INVALID_TOPIC` · 본문이 JSON 이 아니면 400 `INVALID_REQUEST` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트는 저장된 글을 바로 준다 |
 | `POST /synastry/{id}/report` | 세션 | 없음 | 202 `{ status }` |
 | `GET /shared/{shareId}` | 없음 | 없음 | 요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나(글과 숫자만) |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
@@ -112,7 +112,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - `GET /places?q=`: 검색어를 공백으로 나눈 낱말이 이름에 모두 든 곳을 20개까지. `q` 가 없으면 전체 목록(229곳)을 준다. 앱의 출생지 고르기 화면이 쓴다. `name` 은 `시·도 시·군·구` 꼴이고 세종만 `세종특별자치시` 한 낱말이다.
 - `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`
 - `Synastry` = `{ id, names[2], relation, score(40~100, 나 기준), headline, keywords[3], overlay(나의 차트와 상대 점의 화면 좌표용 황경), shareId, reportStatus }`.
-- `Direction` = `{ topic, title, items[3] }` (조언형, 단정 금지).
+- `Direction` = `{ topic: LOVE, title, items[3 × { title, body, basis[] }] }`. `title` 은 세 항목을 아우르는 한 줄 제목. `items` 는 정확히 3개이고, 항목의 `title` 은 "보기"로 끝나는 실천 한 줄, `body` 는 2~3문장, `basis` 는 `Reading` 과 같은 말(1개 이상)이다. 공유 식별자는 없다. 지금 프로필의 차트 기준이라 출생 정보를 고치면 새 글이 만들어진다(예전 글은 남아 있어 되돌리면 다시 나온다). 다시 생성하는 방법은 없다. (2026-11-11 `LOVE` 구현, `FUTURE`·`SYNASTRY` 는 남음)
 - `Synastry.overlay` = `{ mine[{ body, longitude }], theirs?[{ body, longitude }], lines[{ a, b, type }] }`. 초대로 연결된 궁합에서는 `theirs` 를 내려보내지 않는다. 이유: 행성 위치로 생일을 역산할 수 있다.
 - `GET /synastry` 목록 원소 = `{ id, names[2], relation, score, headline, createdAt }`. `GET /invites/{inviteId}` 의 `status` = `PENDING \| ACCEPTED \| EXPIRED`.
 - `Report` = `{ sections[{ area: PERSONALITY \| RELATIONSHIP \| WORK \| EMOTION, title, paragraphs[{ title, body, basis[] }] }] }`. `sections` 는 정확히 이 네 영역이 이 순서로 오고, 영역마다 문단 4~6개다. `basis` 는 `Reading` 과 같은 말이다. **`timing` 필드는 아직 없다 — 태스크 8b 에서 더한다.** (2026-11-11 구현)
@@ -124,7 +124,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - `GET /shared/{shareId}` = `{ kind: READING \| SCORE \| RANKING \| NEXT_TURN, title, lines[], score?, items?[{ name, score }] }` (글과 숫자만, 출생 정보·근거 없음).
 
 ## 데이터
-- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자, 주제, 대상, 본문) · `push_tokens`.
+- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자·주제·대상 unique, 본문. 대상의 뜻은 주제가 정한다: `LOVE` 는 차트 해시 — 결정 009) · `push_tokens`.
 - 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
 
@@ -137,6 +137,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 요약 해석의 모양: 시각을 알면 문단 5개(중심 → 마음 → 첫인상과 지향 → 힘이 몰린 곳 → 과제), 모르면 "첫인상과 지향"이 빠져 4개. 강점 3개, 보완점 3개. 개수가 다르거나 빈 글이 있으면 버린다.
 - 지시문은 공통 글쓰기 규칙(`prompts/writing-rules.md`: 말투·용어 금지·단정 금지·근거) 뒤에 글마다의 지시문을 붙여 만든다. 요약 해석: `reading-summary*.md`. 리포트: `report.md` + 영역별 `report-<영역>.md` + 시각을 모르면 `report-time-unknown.md`.
 - 리포트의 모양과 생성: 영역(성격·관계·일·감정)마다 모델을 따로 부른다(네 호출을 한꺼번에). 영역마다 제목 하나와 문단 4~6개, 문단마다 근거. 틀린 영역(빈 글·문단 수·근거 없는 문단·차트에 없는 근거)은 그 영역만 다시 생성한다(영역마다 다시 2회까지). 한 영역이라도 끝내 못 만들거나 호출이 실패하면 리포트 전체가 `FAILED` 이고 아무것도 저장하지 않는다. 관계 영역은 "나는 사람을 어떻게 대하는 사람인가"(친구·가족·연인 전반)이고 연애 조언이 아니다.
+- 방향성 제시의 모양과 검증(지금은 이성 주제): 지시문은 공통 규칙 + `direction.md` + 주제별 `direction-<주제>.md`(지금은 `direction-love.md`) + 시각을 모르면 `direction-time-unknown.md`. 한 줄 제목과 항목 3개, 항목마다 근거. 요약 해석과 같은 검증(빈 글·개수·근거 없는 항목·차트에 없는 근거)에 더해 조언형인지 글자로 본다: 항목 제목이 "보기"로 끝나지 않거나, 어느 글에든 "반드시"·"틀림없이"·"운명", 앞일을 말하는 끝맺음(ㄹ 받침 뒤의 "거예요"·"거에요"·"겁니다"·"것입니다"·"것이에요"), "~게 됩니다"·"~게 돼요" 가 있으면 버리고 다시 생성한다(다시 2회까지, 그래도 틀리면 502). 규칙의 단일 출처는 `direction/Direction.kt` 의 `adviceProblem`. 이성 주제는 "연애에서 해 볼 만한 것"(실천)이고 리포트 관계 영역(성향 설명)과 다르다.
 - 리포트의 글은 요청 스레드가 아니라 정해진 수의 일꾼(`byeolmyeong.report.worker-threads`·`queue-capacity`)이 쓴다. 로그에는 이벤트 이름·영역·사유 코드·시도 횟수·토큰 수만 남긴다.
 - 근거에 쓸 수 있는 말(`generation/Basis.kt` 가 단일 출처, 글자까지 같아야 한다): 천체 이름(태양·달·수성·금성·화성·목성·토성·천왕성·해왕성·명왕성), 지점 이름(북쪽 교점·릴리스, 시각을 알면 행운점·버텍스), 시각을 알면 `상승점`·`중천`, 그 차트에서 천체·지점·상승점·중천이 하나라도 놓인 별자리(양·황소·…·물고기, "자리"를 붙이지 않는다), 천체가 하나라도 놓인 하우스(`N하우스`, 시각을 알 때만).
 
