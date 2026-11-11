@@ -12,7 +12,7 @@ last_reviewed: 2026-11-11
 - 차트 계산: 출생 정보를 받아 행성 위치·하우스·각도·추가 지점(버텍스 포함, 키론 제외)을 계산한다. 세션이 있어야 받는다. 결정: docs/decisions/002-chart-calculation.md, docs/decisions/003-follow-app-decisions-2026-11-11.md
 - 출생 시각 변환과 출생지: 국내 시·군·구 목록을 갖고, 현지 시각을 당시 표준시·서머타임 이력으로 UTC 로 바꾼다.
 - 로그인: 구글·애플·카카오 토큰을 검증하고 자체 세션 토큰을 준다. 익명 계정은 없다. 가입 때 만 14세 이상인지 판정하고, 미만이면 계정을 만들지 않는다.
-- 글 생성: 계산한 차트로 OpenAI API 를 호출해 요약 해석·심층 리포트·궁합 글·방향성 제시를 만들고 저장한다. 계산은 AI 에게 맡기지 않는다.
+- 글 생성: 계산한 차트로 Claude API(결정 006)를 호출해 요약 해석·심층 리포트·궁합 글·방향성 제시를 만들고 저장한다. 계산은 AI 에게 맡기지 않는다.
 - 변곡점: 정해진 마디(토성 사각·귀환·두 번째 귀환, 천왕성 대립)와 변화·기회·운명적 만남 구간을 계산하고, 구간마다 기간·영역·크기를 붙인다. 규칙: 앱 저장소 release-1.0.0 F4.
 - 궁합: 직접 입력과 초대 링크. 두 차트를 겹치는 계산과 나 기준 점수(40~100, 관계 유형별)는 서버에서만 한다. 나 기준으로 여러 명과 1:1 매칭한 결과를 랭킹으로 돌려준다(인원 제한 없음). 규칙: 앱 저장소 release-1.0.0 F5.
 - 공유 조회, 요청 속도 제한(남용 방지), 푸시 알림 발송, 계정 삭제.
@@ -38,7 +38,7 @@ src/main/kotlin/com/byeolmyeong/api/
   web/         ErrorResponse · BirthRequest(Parser) · RateLimiter · CorsConfig · ChartController
   auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor)
   profile/     ProfileController
-  reading/     ReadingController · ReadingService · ReadingRepository · TextGenerator(인터페이스) · OpenAiTextGenerator
+  reading/     ReadingController · ReadingService · ReadingRepository · ReadingGenerator(인터페이스) · ClaudeReadingGenerator · ReadingPrompt · Basis
   report/      ReportController · ReportService · ReportRepository · ReportDone(이벤트)
   synastry/    SynastryController · SynastryService · InviteService · SynastryRepository · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository
@@ -60,7 +60,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `auth`·`web` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
 | `*Repository` 는 같은 패키지의 `*Service` 에서만 부른다(컨트롤러에서 부르지 않는다) | 소유자 검사를 서비스 한 곳에서 한다 |
 | 패키지 사이 순환 의존 0 | |
-| OpenAI·소셜 로그인 같은 외부 호출은 인터페이스 하나 뒤에만 둔다 | 공급자를 바꿀 수 있게 |
+| 글 생성(Claude API)·소셜 로그인 같은 외부 호출은 인터페이스 하나 뒤에만 둔다 | 공급자를 바꿀 수 있게 |
 
 ## 용어 (코드·문서·화면에서 같은 말을 쓴다)
 | 화면 말 | 코드 이름 | 뜻 |
@@ -83,7 +83,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken }` | `{ token }` · 만 14세 미만 403 `UNDER_AGE` · 브랜딩 뒤 구현 |
 | `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId }` | 같은 형태 · 저장한 적 없으면 `GET` 은 404 `NO_PROFILE` · `PUT` 의 400 은 `POST /charts` 와 같다 |
 | `DELETE /account` | 세션 | 없음 | 204 |
-| `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` |
+| `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트는 저장된 글을 바로 준다 |
 | `POST /reports` | 세션 | 없음 | 202 `{ status }` |
 | `GET /reports/me` | 세션 | 없음 | `{ status: NONE \| WRITING \| DONE, report? }` |
 | `POST /synastry/direct` | 세션 | `{ name, relation: LOVE \| FRIEND \| WORK, date, time \| null, placeId }` | `Synastry` |
@@ -124,7 +124,10 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 프롬프트는 리소스 파일로 둔다. 본문에 점성술 용어를 쓰지 않고, 문단마다 근거(차트 요소)를 별도 필드로 받는다. 건강·투자·미래 사건을 단정하지 않는다.
 - 근거 대조: AI 가 돌려준 `basis` 의 차트 요소가 서버가 계산한 차트에 없으면 그 응답을 버리고 다시 생성한다(상한 2회). 이유: 없는 요소를 근거로 든 글은 신뢰를 깬다.
 - 같은 소유자·차트·종류의 글은 한 번만 생성한다. 실패·빈 응답·구조가 틀린 응답은 저장하지 않는다.
-- 생성 호출부는 인터페이스 하나 뒤에 둔다. 이유: 공급자(OpenAI)와 모델을 바꿀 수 있어야 한다.
+- 생성 호출부는 인터페이스 하나(`reading.ReadingGenerator`) 뒤에 둔다. 이유: 공급자(지금은 Claude, 결정 006)와 모델을 바꿀 수 있어야 한다.
+- 프롬프트에는 차트 요소(천체·별자리·하우스·각도 관계)만 넣는다. 출생 날짜·시각·장소와 도수는 넣지 않는다. 시각을 모르면 하우스·상승점·중천·행운점·버텍스를 넣지 않고, 글에서도 쓰지 않게 한다.
+- 요약 해석의 모양: 시각을 알면 문단 5개(중심 → 마음 → 첫인상과 지향 → 힘이 몰린 곳 → 과제), 모르면 "첫인상과 지향"이 빠져 4개. 강점 3개, 보완점 3개. 개수가 다르거나 빈 글이 있으면 버린다.
+- 근거에 쓸 수 있는 말(`reading/Basis.kt` 가 단일 출처, 글자까지 같아야 한다): 천체 이름(태양·달·수성·금성·화성·목성·토성·천왕성·해왕성·명왕성), 지점 이름(북쪽 교점·릴리스, 시각을 알면 행운점·버텍스), 시각을 알면 `상승점`·`중천`, 그 차트에서 천체·지점·상승점·중천이 하나라도 놓인 별자리(양·황소·…·물고기, "자리"를 붙이지 않는다), 천체가 하나라도 놓인 하우스(`N하우스`, 시각을 알 때만).
 
 ## 요청 속도 제한 (남용 방지, 서버에서만 판정한다)
 - 리포트·궁합·방향성 제시에 기능 횟수 제한은 없다(앱 결정 011). 같은 차트·같은 두 사람의 글은 한 번만 만든다.
@@ -135,7 +138,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | 시스템 | 용도 | 상태 |
 |---|---|---|
 | PostgreSQL | 저장 | 로컬은 컨테이너. 운영 호스팅은 [확인 필요] |
-| OpenAI API | 글 생성 | [확인 필요] 키 미발급. 모델은 구현 시 확정 |
+| Claude API | 글 생성 | 키는 환경 변수 `ANTHROPIC_API_KEY`. 모델은 설정 `byeolmyeong.claude.model`(결정 006) |
 | 구글·애플·카카오 로그인 | 토큰 검증 | [확인 필요] 클라이언트 등록, 만 14세 확인 방법(생년월일 / 카카오 연령대) |
 | 푸시 발송 | 초대 수락·리포트 완성 알림 | [확인 필요] 발송 경로는 구현 시 Expo 공식 문서로 확정 |
 
