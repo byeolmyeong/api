@@ -7,7 +7,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
-enum class PointKind { NORTH_NODE, LILITH, FORTUNE }
+enum class PointKind { NORTH_NODE, LILITH, FORTUNE, VERTEX }
 
 data class ChartPoint(
 	val kind: PointKind,

@@ -12,8 +12,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tan
 
-/** 상승점·중천과 플라시더스 하우스 경계 12개(1하우스부터, 황경). */
-data class Houses(val ascendant: Double, val midheaven: Double, val cusps: List<Double>)
+enum class HouseSystem { PLACIDUS }
+
+/** 상승점·중천·버텍스와 플라시더스 하우스 경계 12개(1하우스부터, 황경). */
+data class Houses(val ascendant: Double, val midheaven: Double, val vertex: Double, val cusps: List<Double>)
 
 // 플라시더스는 극권에서 계산되지 않는다. 국내 출생지만 받는 동안은 닿지 않는 값이다(ADR 002).
 private const val PLACIDUS_MAX_LATITUDE = 66.0
@@ -29,9 +31,11 @@ fun computeHouses(utc: Instant, latitude: Double, longitude: Double): Houses {
 	val ramc = Math.toRadians(normalizeDegrees(siderealTime(time) * 15.0 + longitude))
 
 	val midheaven = eclipticLongitudeOfRightAscension(ramc, obliquity)
-	val ascendant = normalizeDegrees(
-		Math.toDegrees(atan2(cos(ramc), -(sin(ramc) * cos(obliquity) + tan(phi) * sin(obliquity)))),
-	)
+	val ascendant = risingLongitude(ramc, obliquity, phi)
+	// 버텍스: 황도와 묘유권(동서를 지나는 수직권)이 서쪽에서 만나는 점. 여위도(90도 - 위도)의 땅에서
+	// 자오선을 반 바퀴 돌린 때의 상승점과 같다. 남반구는 여위도의 부호가 바뀐다.
+	val colatitude = if (phi >= 0) Math.PI / 2 - phi else -Math.PI / 2 - phi
+	val vertex = risingLongitude(ramc + Math.PI, obliquity, colatitude)
 	val cusp11 = placidusCusp(ramc, obliquity, phi, fraction = 1.0 / 3.0, aboveHorizon = true)
 	val cusp12 = placidusCusp(ramc, obliquity, phi, fraction = 2.0 / 3.0, aboveHorizon = true)
 	val cusp2 = placidusCusp(ramc, obliquity, phi, fraction = 2.0 / 3.0, aboveHorizon = false)
@@ -41,6 +45,7 @@ fun computeHouses(utc: Instant, latitude: Double, longitude: Double): Houses {
 	return Houses(
 		ascendant = ascendant,
 		midheaven = midheaven,
+		vertex = vertex,
 		cusps = listOf(
 			ascendant, cusp2, cusp3, opposite(midheaven), opposite(cusp11), opposite(cusp12),
 			opposite(ascendant), opposite(cusp2), opposite(cusp3), midheaven, cusp11, cusp12,
@@ -56,6 +61,10 @@ fun houseOf(longitude: Double, cusps: List<Double>): Int {
 	}
 	error("하우스 경계가 황도를 한 바퀴 덮지 않는다")
 }
+
+// 자오선의 적경이 [ramc] 이고 위도가 [phi] 인 곳에서 동쪽 지평선에 떠오르는 황도의 점.
+private fun risingLongitude(ramc: Double, obliquity: Double, phi: Double): Double =
+	normalizeDegrees(Math.toDegrees(atan2(cos(ramc), -(sin(ramc) * cos(obliquity) + tan(phi) * sin(obliquity)))))
 
 // 참 황도 → 참 적도 회전은 x 축을 도는 회전 하나라, 행렬 성분에서 황도 경사를 읽는다.
 private fun trueObliquityRadians(time: Time): Double {
