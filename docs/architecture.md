@@ -134,9 +134,11 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - `GET /shared/{shareId}` = `{ kind: READING \| SCORE \| RANKING \| NEXT_TURN, title, lines[], score?, items?[{ name, score }] }` (글과 숫자만, 출생 정보·근거 없음).
 
 ## 데이터
-- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때·상태가 바뀐 때) · `synastries`(소유자, 부를 이름, 관계 유형, 나 기준 점수, 한 줄 요약, 키워드, 계산할 때의 내 차트 해시 — 직접 입력. 초대로 연결된 두 참여자는 초대 때 더한다) · `synastry_reports`(궁합마다 한 행, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자, 주제, 대상, 본문) · `push_tokens`.
-- 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다. 상대의 행성 황경·별자리와 두 차트 사이의 각도 목록도 저장하지 않는다(내 차트와 겹쳐 보면 생일을 좁힐 수 있다, 결정 008).
+- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자, 주제, 대상, 본문) · `push_tokens`.
+- 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
+- 지금의 궁합 테이블(직접 입력, V7. 위 줄의 `synastries` 설명보다 이쪽이 맞다): `synastries`(소유자, 부를 이름, 관계 유형, 나 기준 점수, 한 줄 요약, 키워드, 계산할 때의 내 차트 해시) · `synastry_reports`(궁합마다 한 행, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때). 초대로 연결된 두 참여자와 공유 식별자는 초대·공유 때 더한다.
+- 직접 입력한 상대의 행성 황경·별자리와 두 차트 사이의 각도 목록도 저장하지 않는다. 이유: 내 차트와 겹쳐 보면 상대의 생일을 좁힐 수 있다(결정 008).
 
 ## 글 생성 규칙
 - 프롬프트는 리소스 파일로 둔다. 본문에 점성술 용어를 쓰지 않고, 문단마다 근거(차트 요소)를 별도 필드로 받는다. 건강·투자·미래 사건을 단정하지 않는다.
