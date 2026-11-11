@@ -55,6 +55,10 @@ fun computePositions(utc: Instant): List<PlanetPosition> {
 	}
 }
 
+/** [from] 과 [to] 사이에 달의 별자리가 바뀌는가. 달은 하루에 한 별자리(30도)를 넘지 못하므로 양 끝만 본다. */
+fun moonSignChanges(from: Instant, to: Instant): Boolean =
+	signOf(apparentLongitude(Body.MOON, astroTime(from))) != signOf(apparentLongitude(Body.MOON, astroTime(to)))
+
 internal fun astroTime(utc: Instant): Time = Time.fromMillisecondsSince1970(utc.toEpochMilli())
 
 // 빛이 오는 시간과 광행차를 보정한 J2000 적도 벡터를 그 시각의 참 황도(세차·장동 반영)로 돌린다.

@@ -37,4 +37,17 @@ class PointsTest {
 		}
 		println("행운점 최대 오차: %.6f 도 (2건)".format(maxError))
 	}
+
+	@Test
+	fun `차트의 버텍스가 기준값과 0_1도 이내로 맞는다`() {
+		var maxError = 0.0
+		for (reference in CHART_REFERENCES) {
+			val chart = computeChart(reference.utc, reference.latitude, reference.longitude, timeKnown = true)
+			val vertex = chart.points.first { it.kind == PointKind.VERTEX }
+			val error = angleError(vertex.longitude, reference.vertex)
+			maxError = maxOf(maxError, error)
+			assertTrue(error <= 0.1, "${reference.name} 버텍스: 오차 $error 도")
+		}
+		println("버텍스 최대 오차: %.6f 도 (2건)".format(maxError))
+	}
 }
