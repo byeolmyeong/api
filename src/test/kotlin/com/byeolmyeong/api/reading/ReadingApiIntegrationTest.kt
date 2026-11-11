@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private const val MAPO = 1841277
@@ -296,6 +297,27 @@ class ReadingApiIntegrationTest {
 			"모델에게 쓰지 말라고 알린다",
 		)
 		assertFalse(unknown.instructions.contains("첫인상과 지향 —"), "시각 모름 구성에 첫인상 문단이 없다")
+	}
+
+	// 시각을 모르는 프로필에는 태어난 곳이 없다(결정 007). 곳을 보내 저장했던 때와 같은 차트다.
+	@Test
+	fun `태어난 곳이 없는 시각 모름 프로필로도 글을 만든다`() {
+		val token = tokenWithProfile("""{"date":"1990-03-15","time":null}""")
+		assertNull(jdbc.queryForObject("select place_id from profiles", Int::class.java))
+
+		val response = read(token)
+		assertEquals(200, response.statusCode(), response.body())
+		assertEquals(4, mapper.readTree(response.body())["sections"].size())
+		assertEquals(1, rows())
+		val withoutPlace = generator.prompts.single()
+		assertTrue(withoutPlace.facts.contains("태양: 물고기"))
+		for (word in TIME_ONLY_WORDS) assertFalse(withoutPlace.facts.contains(word), "차트 사실에 '$word' 가 있다")
+
+		// placeId 를 보내도 같은 차트라 저장된 글을 그대로 준다(다시 생성하지 않는다)
+		assertEquals(200, http(port, "PUT", "/profile", UNKNOWN, token).statusCode())
+		assertEquals(response.body(), read(token).body())
+		assertEquals(1, generator.prompts.size)
+		assertEquals(1, rows())
 	}
 
 	@Test

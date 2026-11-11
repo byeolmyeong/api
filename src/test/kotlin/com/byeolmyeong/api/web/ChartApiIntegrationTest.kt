@@ -135,6 +135,20 @@ class ChartApiIntegrationTest {
 		assertEquals(chart, chart("""{"date":"1990-03-16","placeId":$MAPO}"""))
 	}
 
+	// 태어난 곳은 상승점·하우스에만 쓰인다. 시각을 모르면 받지 않아도 되고, 와도 읽지 않는다(결정 007).
+	@Test
+	fun `시각이 null 이면 placeId 가 없어도 되고 있어도 쓰지 않는다`() {
+		val withPlace = chart("""{"date":"1990-03-16","time":null,"placeId":$MAPO}""")
+		val withoutPlace = chart("""{"date":"1990-03-16","time":null}""")
+		assertEquals(false, withoutPlace["timeKnown"].asBoolean())
+		assertEquals(withPlace["positions"], withoutPlace["positions"])
+		assertEquals(withPlace, withoutPlace)
+		assertEquals(withPlace, chart("""{"date":"1990-03-16","time":null,"placeId":null}"""))
+		assertEquals(withPlace, chart("""{"date":"1990-03-16"}"""))
+		// 읽지 않으므로 목록에 없는 id 여도 같다
+		assertEquals(withPlace, chart("""{"date":"1990-03-16","time":null,"placeId":999}"""))
+	}
+
 	// 한국 시각 1990-03-15 하루 동안 달이 천칭자리에서 전갈자리로 넘어간다(ChartTest 와 같은 날).
 	@Test
 	fun `시각을 모르고 그날 달 별자리가 바뀔 때만 moonSignMayChange 를 보낸다`() {
@@ -154,6 +168,10 @@ class ChartApiIntegrationTest {
 		}
 		assertBadRequest("""{"date":"1990-03-15","time":"14:30","placeId":999}""", "UNKNOWN_PLACE")
 		assertBadRequest("""{"date":"1990-03-15","time":"14:30"}""", "UNKNOWN_PLACE")
+		assertBadRequest("""{"date":"1990-03-15","time":"14:30","placeId":null}""", "UNKNOWN_PLACE")
+		// 시각을 몰라 placeId 가 없어도 되는 요청도 나머지 검증은 그대로다
+		assertBadRequest("""{"date":"1990-02-30","time":null}""", "INVALID_DATE")
+		assertBadRequest("""{"time":null}""", "INVALID_DATE")
 		assertBadRequest("""{"date":"1990-03-15","time":"14:30","placeId":"마포"}""", "INVALID_REQUEST")
 		assertBadRequest("""{"date":"1990-02-30","time":"14:30","placeId":$MAPO}""", "INVALID_DATE")
 		assertBadRequest("""{"time":"14:30","placeId":$MAPO}""", "INVALID_DATE")

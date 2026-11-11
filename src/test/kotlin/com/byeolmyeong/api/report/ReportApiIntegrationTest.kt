@@ -425,6 +425,30 @@ class ReportApiIntegrationTest {
 		}
 	}
 
+	// 시각을 모르는 프로필에는 태어난 곳이 없다(결정 007). 곳을 보내 저장했던 때와 같은 차트다.
+	@Test
+	fun `태어난 곳이 없는 시각 모름 프로필로도 리포트를 만든다`() {
+		val token = tokenWithProfile("""{"date":"1990-03-15","time":null}""")
+		assertNull(jdbc.queryForObject("select place_id from profiles", Int::class.java))
+		assertEquals(NONE, get(token).body())
+
+		assertEquals(202, post(token).statusCode())
+		val done = await(token, "DONE")
+		assertEquals(AREAS, done["report"]["sections"].values().map { it["area"].asString() })
+		assertEquals(4, generator.requests.size)
+		for (request in generator.requests) {
+			assertTrue(request.userText.contains("태양: 물고기"))
+			for (word in TIME_ONLY_WORDS) assertFalse(request.userText.contains(word), "차트 사실에 '$word' 가 있다")
+		}
+
+		// placeId 를 보내도 같은 차트라 저장된 리포트를 그대로 준다(다시 생성하지 않는다)
+		settle()
+		assertEquals(200, http(port, "PUT", "/profile", UNKNOWN, token).statusCode())
+		assertEquals(DONE, post(token).body())
+		assertEquals(4, generator.requests.size)
+		assertEquals(1, rows())
+	}
+
 	@Test
 	fun `영역마다 그 영역의 지시문이 가고 공통 글쓰기 규칙이 함께 간다`() {
 		val token = tokenWithProfile(KNOWN)

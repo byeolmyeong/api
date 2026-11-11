@@ -15,6 +15,7 @@ class ChartController(private val parser: BirthRequestParser) {
 	@PostMapping("/charts")
 	fun create(@RequestBody request: BirthRequest): ChartResponse {
 		val birth = parser.parse(request)
-		return computeChart(birth.utc, birth.place.lat, birth.place.lon, timeKnown = birth.time != null).toResponse()
+		// 시각을 모르면 곳이 없고 위경도는 계산에 쓰이지 않는다(0.0 은 자리만 채운다).
+		return computeChart(birth.utc, birth.place?.lat ?: 0.0, birth.place?.lon ?: 0.0, timeKnown = birth.time != null).toResponse()
 	}
 }

@@ -12,8 +12,8 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 import java.time.format.DateTimeFormatter
 
-/** `GET /profile` · `PUT /profile` 의 응답. 요청과 같은 모양이다. `time` 은 모르면 null 로 보낸다. */
-data class ProfileResponse(val date: String, val time: String?, val placeId: Int)
+/** `GET /profile` · `PUT /profile` 의 응답. 요청과 같은 모양이다. `time` 은 모르면 null 로 보내고, 그때는 `placeId` 도 null 이다. */
+data class ProfileResponse(val date: String, val time: String?, val placeId: Int?)
 
 private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -31,7 +31,7 @@ class ProfileController(
 	@PutMapping("/profile")
 	fun put(@RequestBody request: BirthRequest): ProfileResponse {
 		val birth = parser.parse(request)
-		val profile = BirthProfile(birth.date, birth.time, birth.place.id)
+		val profile = BirthProfile(birth.date, birth.time, birth.place?.id)
 		profiles.save(owner.id(), profile)
 		return profile.toResponse()
 	}
