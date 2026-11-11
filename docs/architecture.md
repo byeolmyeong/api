@@ -19,10 +19,10 @@ last_reviewed: 2026-11-11
 
 ## 모듈 (패키지) — 기능별. 결정: docs/decisions/004-module-boundaries-archunit.md
 - `chart` — 계산. 순수 함수만 둔다(입력: UTC 시각·위경도 → 출력: 차트·변곡점 구간·궁합 점수). DB·HTTP·AI·Spring 을 모른다. 이유: 계산 정확도가 제품의 신뢰이고 기준값 테스트로 혼자 검증돼야 한다.
-- `birth` — 출생지 목록과 시각 변환. `java.time` 의 시간대 이력을 쓴다.
-- `web` — HTTP 공통: 오류 응답 모양, 요청 속도 제한, 세션 인증 필터, 지금의 `POST /charts`·`GET /places` 컨트롤러.
-- `auth` — 세션 발급·검증, 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 나중에 구글·애플·카카오 토큰 검증과 만 14세 판정, 계정 삭제.
-- `profile` — 내 출생 정보 저장·조회.
+- `birth` — 출생지 목록과 시각 변환(`java.time` 의 시간대 이력), 그리고 저장된 출생 정보를 읽고 쓰는 한 곳(`BirthProfileService`). 해석·리포트·궁합이 모두 소유자의 출생 정보를 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다.
+- `web` — HTTP 공통: 오류 응답 모양(`ErrorResponse`·`BadRequestException`·`NotFoundException`), 출생 정보 요청 검증(`BirthRequestParser`), 요청 속도 제한, CORS, 지금의 `POST /charts` 컨트롤러. `auth` 를 모른다.
+- `auth` — 세션 발급·검증, 세션 검사(`SessionInterceptor`: 로그인 전에 쓰는 경로 목록에 없으면 모두 세션 필요), 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 계정 삭제(`DELETE /account`), 나중에 구글·애플·카카오 토큰 검증과 만 14세 판정.
+- `profile` — 내 출생 정보 저장·조회의 HTTP 입구(`GET`·`PUT /profile`). 저장 자체는 `birth.BirthProfileService` 가 한다.
 - `reading` — 요약 해석 생성·저장, 근거 대조. 생성 공급자는 `TextGenerator` 인터페이스 하나 뒤에 둔다.
 - `report` — 심층 리포트(비동기 생성), 시기 영역의 마디·구간을 `chart` 에서 받아 글을 붙인다.
 - `synastry` — 직접 입력, 초대, 수락, 나 기준 점수(`chart` 계산), 랭킹, 궁합 글·궁합 리포트.
@@ -34,10 +34,10 @@ last_reviewed: 2026-11-11
 ```
 src/main/kotlin/com/byeolmyeong/api/
   chart/       Positions · Houses · Aspects · Points · Timeline(마디·구간) · SynastryScore   ← 순수 계산
-  birth/       Places · BirthTime
-  web/         ErrorResponse · RateLimiter · SessionFilter · ChartController · PlacesController
-  auth/        AuthController · SessionService · CurrentOwner · DevAuth(개발 설정에서만)
-  profile/     ProfileController · ProfileService · ProfileRepository
+  birth/       Places · BirthTime · BirthProfile(Service·Repository) · PlacesController
+  web/         ErrorResponse · BirthRequest(Parser) · RateLimiter · CorsConfig · ChartController
+  auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor)
+  profile/     ProfileController
   reading/     ReadingController · ReadingService · ReadingRepository · TextGenerator(인터페이스) · OpenAiTextGenerator
   report/      ReportController · ReportService · ReportRepository · ReportDone(이벤트)
   synastry/    SynastryController · SynastryService · InviteService · SynastryRepository · InviteAccepted(이벤트)
@@ -81,7 +81,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /charts` | 세션 | `{ date, time \| null, placeId }` | `Chart` |
 | `POST /auth/dev` | 없음 | 없음 | `{ token }` · 개발 설정에서만, 운영 404 (결정 005) |
 | `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken }` | `{ token }` · 만 14세 미만 403 `UNDER_AGE` · 브랜딩 뒤 구현 |
-| `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId }` | 같은 형태 |
+| `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId }` | 같은 형태 · 저장한 적 없으면 `GET` 은 404 `NO_PROFILE` · `PUT` 의 400 은 `POST /charts` 와 같다 |
 | `DELETE /account` | 세션 | 없음 | 204 |
 | `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` |
 | `POST /reports` | 세션 | 없음 | 202 `{ status }` |
@@ -97,7 +97,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /shared/{shareId}` | 없음 | 없음 | 요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나(글과 숫자만) |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
 
-- 세션: 요청 헤더 `Authorization: Bearer <token>`. 없거나 틀리면 401 `UNAUTHORIZED`.
+- 세션: 요청 헤더 `Authorization: Bearer <token>`. 없거나 틀리면 401 `UNAUTHORIZED`. 표에서 인증이 "없음" 인 경로와 `GET /health` 말고는 모두 세션이 필요하다(새 경로는 기본이 세션 필요다). 토큰은 서버가 원문을 저장하지 않는다(해시만).
 - 브라우저의 다른 출처 요청(CORS): 설정 `byeolmyeong.cors.allowed-origins`(환경 변수 `ALLOWED_ORIGINS`, 쉼표 구분)에 적힌 주소만 허용한다. 비어 있으면 허용하지 않는다. 허용 메서드 GET·POST·PUT·DELETE, 허용 헤더 `Authorization`·`Content-Type`. 쿠키는 쓰지 않는다.
 - `Chart` = `{ timeKnown, houseSystem: "PLACIDUS", moonSignMayChange?, positions[{ body, sign, degree, minute, longitude, house?, retrograde }], points[{ point, sign, degree, minute, longitude, house? }], houses?[12 × { house, sign, degree, minute, longitude }], angles?{ asc{ sign, degree, minute, longitude }, mc{ sign, degree, minute, longitude } }, aspects[{ a, b, type, orb, applying }] }`
   - `longitude` 는 황경 0 이상 360 미만(소수 둘째 자리, 도·분처럼 올리지 않고 버린다). 앱이 휠을 그릴 때 쓴다. `moonSignMayChange: true` 는 시각을 모르고 그날 안에 달 별자리가 바뀔 때만 보낸다. 상승점·중천은 `angles` 에만 온다. `houses` 는 1번부터 순서대로. `houseSystem` 은 시각을 몰라도 보낸다. (2026-11-11 확정·구현)
