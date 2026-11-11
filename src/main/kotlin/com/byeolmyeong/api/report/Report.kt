@@ -13,7 +13,7 @@ import com.fasterxml.jackson.annotation.JsonInclude
 import tools.jackson.databind.JsonNode
 
 // 심층 리포트의 모양과, 리포트에만 있는 것: 영역별 지시문, 돌려받을 구조, 응답을 글로 읽기, 검증.
-// 응답 형태의 원본은 docs/architecture.md "API 계약". 시기 영역(timing)은 태스크 8b 에서 더한다.
+// 응답 형태의 원본은 docs/architecture.md "API 계약". 시기 영역(timing)은 ReportTiming.kt 에 있다.
 
 /** 글로 쓰는 네 영역. 응답의 `sections` 는 이 순서다. */
 enum class ReportArea { PERSONALITY, RELATIONSHIP, WORK, EMOTION }
@@ -23,7 +23,7 @@ data class ReportParagraph(val title: String, val body: String, val basis: List<
 
 data class ReportSection(val area: ReportArea, val title: String, val paragraphs: List<ReportParagraph>)
 
-data class Report(val sections: List<ReportSection>)
+data class Report(val sections: List<ReportSection>, val timing: ReportTiming)
 
 /** `NONE` 은 행이 없다는 뜻이라 저장하지 않는다. `FAILED` 는 만들지 못했거나 쓰다가 멈췄다는 뜻이고 다시 요청하면 새로 시작한다. */
 enum class ReportStatus { NONE, WRITING, FAILED, DONE }

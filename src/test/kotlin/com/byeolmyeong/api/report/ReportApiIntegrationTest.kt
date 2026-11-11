@@ -66,17 +66,52 @@ fun paragraphs(request: GenerationRequest, call: Int, count: Int = 4): List<Map<
 /** 검증을 통과하는 한 영역의 글. 본문에 몇 번째 호출의 답인지 적는다. */
 fun validArea(request: GenerationRequest, call: Int): JsonNode? = areaJson(paragraphs = paragraphs(request, call))
 
-/** 실제 생성기 대신 끼우는 가짜. 받은 요청을 기억하고, 문([gate])이 닫혀 있으면 열릴 때까지 답하지 않는다. */
+/** 시기 요청의 "[시기 목록]" 한 줄: `- id | 시작 해~끝 해 | …`. */
+data class TimingLine(val id: String, val fromYear: Int, val toYear: Int)
+
+private val TIMING_LINE = Regex("""^- (\S+) \| (\d{4})~(\d{4}) \| """)
+
+fun timingLines(request: GenerationRequest): List<TimingLine> = request.userText.lines().mapNotNull { line ->
+	TIMING_LINE.find(line)?.destructured?.let { (id, from, to) -> TimingLine(id, from.toInt(), to.toInt()) }
+}
+
+/** 검증을 통과하는 시기 글: 받은 줄마다 해를 그대로 옮겨 적는다. [change] 로 한 줄씩 고쳐 틀린 답을 만든다. */
+fun timingJson(request: GenerationRequest, change: (TimingLine, MutableMap<String, Any>) -> Unit = { _, _ -> }): JsonNode =
+	mapper.valueToTree(
+		mapOf(
+			"items" to timingLines(request).map { line ->
+				mutableMapOf<String, Any>(
+					"id" to line.id, "fromYear" to line.fromYear, "toYear" to line.toYear,
+					"title" to "가짜시기제목-${line.id}", "body" to "가짜시기본문-${line.id}",
+				).also { change(line, it) }
+			},
+		),
+	)
+
+/**
+ * 실제 생성기 대신 끼우는 가짜. 받은 요청을 기억하고, 문([gate])이 닫혀 있으면 열릴 때까지 답하지 않는다.
+ * 네 영역의 요청은 [requests] 에, 시기 글의 요청(`report_timing`)은 [timingRequests] 에 따로 둔다.
+ */
 class FakeReportGenerator : TextGenerator {
 	val requests = CopyOnWriteArrayList<GenerationRequest>()
+	val timingRequests = CopyOnWriteArrayList<GenerationRequest>()
 
 	@Volatile
 	var respond: (GenerationRequest, Int) -> JsonNode? = ::validArea
 
 	@Volatile
+	var respondTiming: (GenerationRequest, Int) -> JsonNode? = { request, _ -> timingJson(request) }
+
+	@Volatile
 	var gate: CountDownLatch? = null
 
 	override fun generate(request: GenerationRequest): JsonNode? {
+		if (request.purpose == "report_timing") {
+			timingRequests += request
+			val call = timingRequests.size
+			gate?.await(30, TimeUnit.SECONDS)
+			return respondTiming(request, call)
+		}
 		requests += request
 		val call = requests.size
 		gate?.await(30, TimeUnit.SECONDS)
@@ -87,7 +122,9 @@ class FakeReportGenerator : TextGenerator {
 
 	fun reset() {
 		requests.clear()
+		timingRequests.clear()
 		respond = ::validArea
+		respondTiming = { request, _ -> timingJson(request) }
 		gate = null
 	}
 }
@@ -202,7 +239,7 @@ class ReportApiIntegrationTest {
 
 		assertEquals(listOf("status", "report"), done.propertyNames().toList())
 		val report = done["report"]
-		assertEquals(listOf("sections"), report.propertyNames().toList(), "timing 은 태스크 8b 에서 온다")
+		assertEquals(listOf("sections", "timing"), report.propertyNames().toList())
 		assertEquals(AREAS, report["sections"].values().map { it["area"].asString() }, "네 영역, 이 순서")
 		for (section in report["sections"].values()) {
 			assertEquals(listOf("area", "title", "paragraphs"), section.propertyNames().toList())
@@ -212,6 +249,7 @@ class ReportApiIntegrationTest {
 			assertEquals(listOf("태양", "달"), section["paragraphs"][0]["basis"].values().map { it.asString() })
 		}
 		assertEquals(AREAS.sorted(), generator.requests.map(::areaOf).sorted(), "영역마다 한 번씩 부른다")
+		assertEquals(1, generator.timingRequests.size, "시기 글은 한 번 부른다")
 		assertEquals(done, mapper.readTree(get(token).body()), "다시 열면 같은 글")
 
 		val owner = jdbc.queryForObject("select id from accounts", UUID::class.java)
@@ -537,7 +575,12 @@ class ReportApiIntegrationTest {
 		assertEquals("DONE", row["status"])
 		assertTrue(Regex("[0-9a-f]{64}").matches(row["chart_hash"] as String))
 		val stored = row.values.joinToString("\n")
-		for (secret in listOf("1977", "07-07", "07:07")) assertFalse(stored.contains(secret), "'$secret' 이 저장됐다")
+		// 시기 영역은 마디의 해와 만 나이, 구간의 날짜를 담는다(F4). 그래서 태어난 해는 짐작할 수 있고 "1977" 같은 해나
+		// 어느 해의 "07-07" 이 날짜로 나올 수 있다. 출생 날짜 그 자체와 시각은 없어야 한다(구간은 생일에서 시작하지도 끝나지도 않는다).
+		for (secret in listOf("1977-07-07", "07:07")) assertFalse(stored.contains(secret), "'$secret' 이 저장됐다")
+		val dates = Regex("\\d{4}-\\d{2}-\\d{2}").findAll(stored).map { it.value }.toList()
+		assertTrue(dates.size > 100)
+		assertTrue(dates.none { it == "2057-07-07" }, "만 80세 생일에서 자른 구간이 없다")
 	}
 
 	@Test
@@ -568,6 +611,191 @@ class ReportApiIntegrationTest {
 		assertTrue(Regex("event=report_area_failed area=[A-Z]+ reason=ATTEMPTS_EXHAUSTED attempt=3").containsMatchIn(output.all))
 		assertTrue(Regex("event=report_area_failed area=[A-Z]+ reason=HTTP_500 attempt=1").containsMatchIn(output.all))
 		assertTrue(output.all.contains("event=report_failed"))
+	}
+
+	@Test
+	fun `완성된 리포트에는 시기가 있다 - 마디와 구간과 읽을 때 가린 지금`() {
+		val token = tokenWithProfile(KNOWN)
+		post(token)
+		val done = await(token, "DONE")
+
+		val timing = done["report"]["timing"]
+		assertEquals(listOf("timeKnown", "milestones", "intervals", "current"), timing.propertyNames().toList())
+		assertTrue(timing["timeKnown"].asBoolean())
+
+		// 마디: 1990-03-15 14:30 서울(chart/ChartReference.kt 의 SEOUL_1990). 기준값은 JPL Horizons(chart/timeline-horizons-reference.tsv 의 A)
+		val milestones = timing["milestones"].values().toList()
+		assertEquals(
+			listOf("kind", "date", "year", "age", "from", "to", "size", "title", "body"),
+			milestones[0].propertyNames().toList(),
+		)
+		assertEquals(
+			listOf("SATURN_SQUARE", "SATURN_RETURN", "URANUS_OPPOSITION", "SECOND_SATURN_RETURN"),
+			milestones.map { it["kind"].asString() },
+		)
+		assertEquals(listOf("2011-11-09", "2020-01-17", "2034-08-20", "2049-02-21"), milestones.map { it["date"].asString() })
+		assertEquals(listOf(2011, 2020, 2034, 2049), milestones.map { it["year"].asInt() })
+		assertEquals(listOf(21, 29, 44, 58), milestones.map { it["age"].asInt() })
+		assertEquals(listOf("SMALL", "BIG", "BIG", "BIG"), milestones.map { it["size"].asString() })
+		assertEquals("2011-10-31", milestones[0]["from"].asString())
+		assertEquals("2012-08-08", milestones[0]["to"].asString())
+		assertTrue(milestones.all { it["title"].asString() == "가짜시기제목-${it["kind"].asString()}" }, "마디의 글은 모델이 쓴다")
+
+		// 구간
+		val intervals = timing["intervals"].values().toList()
+		assertTrue(intervals.size > 150, "평생 구간: ${intervals.size}")
+		val isoDate = Regex("\\d{4}-\\d{2}-\\d{2}")
+		for (interval in intervals) {
+			val keys = interval.propertyNames().toList()
+			val change = interval["kind"].asString() == "CHANGE"
+			val expectedKeys = listOf("id", "kind", "from", "to", "area") + (if (change) listOf("size") else emptyList()) + listOf("title", "body")
+			assertEquals(expectedKeys, keys)
+			assertTrue(interval["kind"].asString() in listOf("CHANGE", "OPPORTUNITY", "FATED"))
+			assertTrue(interval["area"].asString() in listOf("PEOPLE", "WORK", "MONEY", "SELF"))
+			if (change) assertTrue(interval["size"].asString() in listOf("BIG", "SMALL"))
+			assertTrue(isoDate.matches(interval["from"].asString()) && isoDate.matches(interval["to"].asString()))
+			assertTrue(interval["from"].asString() <= interval["to"].asString())
+			assertTrue(interval["title"].asString().isNotBlank() && interval["body"].asString().isNotBlank())
+		}
+		assertEquals(intervals.map { it["from"].asString() }.sorted(), intervals.map { it["from"].asString() }, "시작 순서")
+		assertTrue(intervals.any { it["kind"].asString() == "FATED" })
+		// 기준값 파일의 A: 명왕성이 달과 직각 2027-02-07~2028-12-29 (작은 변화). 달은 출생지와 무관해서 이 프로필(마포)에서도 같다.
+		assertTrue(
+			intervals.any {
+				it["kind"].asString() == "CHANGE" && it["size"].asString() == "SMALL" &&
+					it["from"].asString().startsWith("2027-02") && it["to"].asString().startsWith("2028-12")
+			},
+		)
+
+		// 모델의 글은 맡긴 줄에만, 나머지는 표의 글
+		val asked = timingLines(generator.timingRequests.single()).map { it.id }.toSet()
+		assertEquals(4, asked.count { !it.startsWith("i") }, "마디 네 개")
+		val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
+		for (interval in intervals) {
+			val id = interval["id"].asString()
+			val near = interval["to"].asString() >= today.toString() && interval["from"].asString() <= today.plusYears(10).toString()
+			assertEquals(near, id in asked, "오늘 걸쳐 있거나 10년 안에 시작하는 구간만 맡긴다: $interval")
+			assertEquals(id in asked, interval["title"].asString() == "가짜시기제목-$id")
+		}
+
+		// 지금: 저장하지 않고 읽을 때 만든다
+		val current = timing["current"]
+		assertEquals(today.toString(), current["date"].asString())
+		val expectedNow = intervals.filter { it["from"].asString() <= today.toString() && today.toString() <= it["to"].asString() }
+		assertEquals(expectedNow, current["intervals"].values().toList())
+		assertTrue(current["nearestMilestone"].asString() in milestones.map { it["kind"].asString() })
+		val nextMilestone = milestones.firstOrNull { it["date"].asString() > today.toString() }
+		assertEquals(nextMilestone, current["nextMilestone"])
+		assertEquals(intervals.firstOrNull { it["from"].asString() > today.toString() }, current["nextInterval"])
+		val stored = mapper.readTree(storedBody())
+		// jsonb 는 키 순서를 지키지 않으므로 모음으로 본다
+		assertEquals(setOf("timeKnown", "milestones", "intervals"), stored["timing"].propertyNames().toSet(), "지금은 저장하지 않는다")
+	}
+
+	@Test
+	fun `시각을 모르면 시기에 운명적 만남 구간이 없고 timeKnown 이 false 다`() {
+		val token = tokenWithProfile(UNKNOWN)
+		post(token)
+		val timing = await(token, "DONE")["report"]["timing"]
+
+		assertFalse(timing["timeKnown"].asBoolean())
+		assertEquals(4, timing["milestones"].size())
+		assertTrue(timing["intervals"].size() > 50)
+		assertEquals(0, timing["intervals"].values().count { it["kind"].asString() == "FATED" })
+		val request = generator.timingRequests.single()
+		for (word in TIME_ONLY_WORDS) assertFalse(request.userText.contains(word), "시기 요청에 '$word' 가 있다")
+		assertTrue(request.instructions.contains("하우스·상승점·중천·행운점·버텍스는 계산되지 않았습니다"))
+	}
+
+	@Test
+	fun `시기 글의 해가 계산값과 다르면 버리고 다시 생성한다`() {
+		val token = tokenWithProfile(KNOWN)
+		generator.respondTiming = { request, call ->
+			if (call == 1) timingJson(request) { line, map -> if (line.id == "SATURN_RETURN") map["fromYear"] = line.fromYear + 1 } else timingJson(request)
+		}
+
+		post(token)
+		val done = await(token, "DONE")
+
+		assertEquals(2, generator.timingRequests.size)
+		assertEquals(generator.timingRequests[0], generator.timingRequests[1], "같은 요청으로 다시 부른다")
+		assertEquals(4, generator.requests.size, "네 영역은 다시 부르지 않는다")
+		assertEquals(2020, done["report"]["timing"]["milestones"][1]["year"].asInt(), "해는 서버가 계산한 값이다")
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension::class)
+	fun `시기 글이 세 번 틀리면 FAILED 이고 아무것도 저장하지 않는다`(output: CapturedOutput) {
+		val token = tokenWithProfile(KNOWN)
+		val broken: List<Pair<String, (GenerationRequest) -> JsonNode?>> = listOf(
+			"끝 해가 다름" to { r -> timingJson(r) { line, map -> if (line.id == "URANUS_OPPOSITION") map["toYear"] = line.toYear + 1 } },
+			"글 안에 기간 밖의 해" to { r -> timingJson(r) { line, map -> if (line.id == "SATURN_RETURN") map["body"] = "2031년에 큰 변화가 와요" } },
+			"줄이 빠짐" to { r -> mapper.valueToTree(mapOf("items" to timingJson(r)["items"].values().drop(1))) },
+			"빈 글" to { r -> timingJson(r) { _, map -> map["body"] = " " } },
+			"응답을 쓸 수 없음" to { _ -> null },
+			"필드가 빠짐" to { _ -> mapper.readTree("""{"items":[{"id":"SATURN_RETURN"}]}""") },
+		)
+		for ((name, breakIt) in broken) {
+			generator.reset()
+			generator.respondTiming = { request, _ -> breakIt(request) }
+
+			assertEquals(WRITING, post(token).body(), name)
+			await(token, "FAILED")
+			settle()
+
+			assertEquals(3, generator.timingRequests.size, "$name: 처음 1번 + 다시 2번")
+			assertNull(storedBody(), "$name: 네 영역이 맞아도 저장하지 않는다")
+			assertTrue(events.owners.isEmpty(), name)
+		}
+		assertTrue(Regex("event=report_attempt_rejected area=TIMING reason=YEAR_MISMATCH attempt=1").containsMatchIn(output.all))
+		assertTrue(Regex("event=report_attempt_rejected area=TIMING reason=MALFORMED attempt=1").containsMatchIn(output.all))
+		assertTrue(Regex("event=report_area_failed area=TIMING reason=ATTEMPTS_EXHAUSTED attempt=3").containsMatchIn(output.all))
+		for (secret in listOf("가짜시기", "2031년", "1990")) assertFalse(output.all.contains(secret), "로그에 '$secret' 이 있다")
+
+		generator.reset()
+		assertEquals(WRITING, post(token).body())
+		await(token, "DONE")
+	}
+
+	@Test
+	fun `시기 프롬프트에 출생 날짜와 시각과 장소와 태어난 해가 없다`() {
+		val token = tokenWithProfile("""{"date":"1977-07-07","time":"07:07","placeId":$MAPO}""")
+		post(token)
+		await(token, "DONE")
+
+		val request = generator.timingRequests.single()
+		val all = request.instructions + "\n" + request.userText + "\n" + mapper.writeValueAsString(request.schema)
+		for (secret in listOf("1977", "07-07", "07:07", "7월", "마포", "서울", "37.5", "126.9", MAPO.toString())) {
+			assertFalse(all.contains(secret), "프롬프트에 '$secret' 이 있다")
+		}
+		assertTrue(request.userText.contains("[시기 목록]"))
+		assertTrue(timingLines(request).size >= 4)
+	}
+
+	@Test
+	fun `시기가 없는 예전 리포트는 만든 적 없는 것으로 보고 다시 만들면 그 행을 덮어쓴다`() {
+		val token = tokenWithProfile(KNOWN)
+		post(token)
+		await(token, "DONE")
+		settle()
+		// 이 변경 전에 저장된 모양으로 되돌린다: 본문에 sections 만 있다
+		jdbc.update("update reports set body = body - 'timing'")
+		generator.reset()
+		events.owners.clear()
+
+		assertEquals(NONE, get(token).body(), "예전 리포트는 보여 주지 않는다")
+		val posted = post(token)
+		assertEquals(202, posted.statusCode())
+		assertEquals(WRITING, posted.body(), "다시 만든다")
+		val done = await(token, "DONE")
+		settle()
+
+		assertEquals(1, rows(), "같은 행을 덮어쓴다")
+		assertEquals(4, generator.requests.size)
+		assertEquals(1, generator.timingRequests.size)
+		assertEquals(4, done["report"]["timing"]["milestones"].size())
+		assertEquals(1, events.owners.size)
+		assertEquals(DONE, post(token).body(), "이제는 다시 만들지 않는다")
 	}
 
 	private fun sha256(text: String): String =
