@@ -2,6 +2,7 @@ package com.byeolmyeong.api.reading
 
 import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.generation.GenerationRequest
+import com.byeolmyeong.api.generation.WRITING_RULES
 import com.byeolmyeong.api.generation.basisSchema
 import com.byeolmyeong.api.generation.basisVocabulary
 import com.byeolmyeong.api.generation.chartFacts
@@ -18,13 +19,13 @@ const val SECTIONS_WITHOUT_TIME = 4
 const val STRENGTH_COUNT = 3
 const val CAUTION_COUNT = 3
 
-private val COMMON: String by lazy { promptResource("reading-summary.md") }
+private val SUMMARY_RULES: String by lazy { promptResource("reading-summary.md") }
 private val TIME_KNOWN: String by lazy { promptResource("reading-summary-time-known.md") }
 private val TIME_UNKNOWN: String by lazy { promptResource("reading-summary-time-unknown.md") }
 
 fun readingRequest(chart: Chart): GenerationRequest = GenerationRequest(
 	purpose = "reading_summary",
-	instructions = COMMON + "\n\n" + if (chart.timeKnown) TIME_KNOWN else TIME_UNKNOWN,
+	instructions = WRITING_RULES + "\n\n" + SUMMARY_RULES + "\n\n" + if (chart.timeKnown) TIME_KNOWN else TIME_UNKNOWN,
 	userText = chartFacts(chart),
 	schema = readingSchema(basisVocabulary(chart)),
 )
