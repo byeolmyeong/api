@@ -7,7 +7,7 @@ superseded_by:
 ---
 # 002. 차트는 서버에서 astronomy-engine 위에 직접 계산한다
 
-> 상태: 활성 · 결정일 2026-11-10 · 앱 쪽 기록: 앱 저장소 `docs/decisions/006-server-side-chart.md`
+> 상태: 활성 · 결정일 2026-11-10 · 앱 쪽 기록: 앱 저장소 `docs/decisions/006-server-side-chart.md` · 일부 대체: "로그인 없이 받는다"는 docs/decisions/003-follow-app-decisions-2026-11-11.md 가 대체
 
 ## 맥락
 궁합 초대에서는 상대의 생년월일이 나에게 보이면 안 되고, 리포트는 사용자가 화면을 떠난 뒤 서버가 쓴다. 그래서 계산은 서버에 있어야 한다. 업계 표준인 Swiss Ephemeris 는 AGPL 이라 무료로 쓰면 서버 코드를 공개해야 하고, 상용 라이선스는 유료다(2026-11 기준 6년에 700 스위스 프랑으로 확인, 구매 전 재확인 필요).
