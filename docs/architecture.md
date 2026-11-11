@@ -1,6 +1,6 @@
 ---
 type: architecture
-tags: [서버 아키텍처, API 계약, 차트 계산, 해석 생성, 로그인]
+tags: [서버 아키텍처, API 계약, 차트 계산, 해석 생성, 로그인, 의존 규칙, ArchUnit, 용어]
 status: active
 last_reviewed: 2026-11-11
 ---
@@ -17,23 +17,70 @@ last_reviewed: 2026-11-11
 - 궁합: 직접 입력과 초대 링크. 두 차트를 겹치는 계산과 나 기준 점수(40~100, 관계 유형별)는 서버에서만 한다. 나 기준으로 여러 명과 1:1 매칭한 결과를 랭킹으로 돌려준다(인원 제한 없음). 규칙: 앱 저장소 release-1.0.0 F5.
 - 공유 조회, 요청 속도 제한(남용 방지), 푸시 알림 발송, 계정 삭제.
 
-## 모듈 (패키지)
-- `chart` — 계산. 순수 함수만 둔다(입력: UTC 시각·위경도 → 출력: 차트). DB·HTTP·AI 를 모른다. 이유: 계산 정확도가 제품의 신뢰이고 기준값 테스트로 혼자 검증돼야 한다.
+## 모듈 (패키지) — 기능별. 결정: docs/decisions/004-module-boundaries-archunit.md
+- `chart` — 계산. 순수 함수만 둔다(입력: UTC 시각·위경도 → 출력: 차트·변곡점 구간·궁합 점수). DB·HTTP·AI·Spring 을 모른다. 이유: 계산 정확도가 제품의 신뢰이고 기준값 테스트로 혼자 검증돼야 한다.
 - `birth` — 출생지 목록과 시각 변환. `java.time` 의 시간대 이력을 쓴다.
-- `web` — `POST /charts`·`GET /places` 의 HTTP 층(입력 검증·응답 변환)과 요청 속도 제한. `chart`·`birth` 를 부른다.
-- `auth` — 구글·애플·카카오 토큰 검증, 만 14세 판정, 세션, 계정 삭제.
-- `reading` — 요약 해석·리포트·방향성 제시 생성과 저장, 근거 대조.
-- `synastry` — 직접 입력, 초대, 수락, 나 기준 점수, 랭킹, 궁합 글.
-- `share` — 공유 조회.
+- `web` — HTTP 공통: 오류 응답 모양, 요청 속도 제한, 세션 인증 필터, 지금의 `POST /charts`·`GET /places` 컨트롤러.
+- `auth` — 세션 발급·검증, 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 나중에 구글·애플·카카오 토큰 검증과 만 14세 판정, 계정 삭제.
+- `profile` — 내 출생 정보 저장·조회.
+- `reading` — 요약 해석 생성·저장, 근거 대조. 생성 공급자는 `TextGenerator` 인터페이스 하나 뒤에 둔다.
+- `report` — 심층 리포트(비동기 생성), 시기 영역의 마디·구간을 `chart` 에서 받아 글을 붙인다.
+- `synastry` — 직접 입력, 초대, 수락, 나 기준 점수(`chart` 계산), 랭킹, 궁합 글·궁합 리포트.
+- `direction` — 방향성 제시.
+- `share` — 공유 조회(공유 카드 4종).
 - `push` — 기기 토큰과 알림 발송.
-- 의존 방향: `reading`·`synastry` → `chart`·`birth`. `chart` 는 아무것도 의존하지 않는다.
+
+## 디렉터리 구조
+```
+src/main/kotlin/com/byeolmyeong/api/
+  chart/       Positions · Houses · Aspects · Points · Timeline(마디·구간) · SynastryScore   ← 순수 계산
+  birth/       Places · BirthTime
+  web/         ErrorResponse · RateLimiter · SessionFilter · ChartController · PlacesController
+  auth/        AuthController · SessionService · CurrentOwner · DevAuth(개발 설정에서만)
+  profile/     ProfileController · ProfileService · ProfileRepository
+  reading/     ReadingController · ReadingService · ReadingRepository · TextGenerator(인터페이스) · OpenAiTextGenerator
+  report/      ReportController · ReportService · ReportRepository · ReportDone(이벤트)
+  synastry/    SynastryController · SynastryService · InviteService · SynastryRepository · InviteAccepted(이벤트)
+  direction/   DirectionController · DirectionService · DirectionRepository
+  share/       ShareController · ShareService
+  push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
+src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
+src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
+```
+- 기능 안의 계층은 파일 이름 끝(`Controller`·`Service`·`Repository`)으로 나눈다. 하위 디렉터리(controller/·service/)는 만들지 않는다.
+- 컨트롤러는 요청 검증과 응답 변환만, 서비스는 소유자 검사와 흐름, 리포지토리는 저장만 한다. 계산은 `chart` 를 부른다.
+
+## 의존 규칙 (ArchUnit 테스트 `ArchitectureTest.kt` 가 강제한다)
+| 규칙 | 이유 |
+|---|---|
+| `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
+| `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`)로만 한다 | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
+| 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
+| `auth`·`web` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
+| `*Repository` 는 같은 패키지의 `*Service` 에서만 부른다(컨트롤러에서 부르지 않는다) | 소유자 검사를 서비스 한 곳에서 한다 |
+| 패키지 사이 순환 의존 0 | |
+| OpenAI·소셜 로그인 같은 외부 호출은 인터페이스 하나 뒤에만 둔다 | 공급자를 바꿀 수 있게 |
+
+## 용어 (코드·문서·화면에서 같은 말을 쓴다)
+| 화면 말 | 코드 이름 | 뜻 |
+|---|---|---|
+| 요약 해석 | `Reading` | 버튼 하나로 받는 짧은 해석 |
+| 심층 리포트 | `Report` | 성격·관계·일·감정·시기 다섯 영역 |
+| 마디 | `Milestone` | 누구에게나 오는 변곡점(토성 귀환 등) |
+| 변화·기회·운명적 만남 구간 | `Interval(kind = CHANGE \| OPPORTUNITY \| FATED)` | 사람마다 다른 변곡점 기간 |
+| 나 기준 점수 | `Synastry.score` | 상대 행성이 내 개인 행성에 만드는 각도로 계산한 40~100 |
+| 랭킹 | `Ranking` | 나 기준으로 여러 명과 1:1 궁합을 점수순으로 |
+| 방향성 제시 | `Direction` | 해 볼 만한 것 3개 |
+| 공유 카드 | `ShareCard(kind = READING \| SCORE \| RANKING \| NEXT_TURN)` | 스토리용 카드 |
 
 ## API 계약 (앱 저장소와 맞춘다. 바꾸면 이 표를 같은 커밋에서 고친다)
 | 메서드·경로 | 인증 | 요청 | 응답 |
 |---|---|---|---|
 | `GET /places?q=` | 없음 | 검색어 | `[{ id, name, lat, lon }]` |
 | `POST /charts` | 세션 | `{ date, time \| null, placeId }` | `Chart` |
-| `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken }` | `{ token }` · 만 14세 미만 403 `UNDER_AGE` |
+| `POST /auth/dev` | 없음 | 없음 | `{ token }` · 개발 설정에서만, 운영 404 (결정 005) |
+| `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken }` | `{ token }` · 만 14세 미만 403 `UNDER_AGE` · 브랜딩 뒤 구현 |
 | `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId }` | 같은 형태 |
 | `DELETE /account` | 세션 | 없음 | 204 |
 | `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` |
@@ -50,7 +97,9 @@ last_reviewed: 2026-11-11
 | `GET /shared/{shareId}` | 없음 | 없음 | 요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나(글과 숫자만) |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
 
-- `Chart` = `{ timeKnown, positions[{ body, sign, degree, minute, house?, retrograde }], points[{ point, sign, degree, minute, house? }], houses?[12 × { house, sign, degree, minute }], angles?{ asc{ sign, degree, minute }, mc{ sign, degree, minute } }, aspects[{ a, b, type, orb, applying }] }`
+- 세션: 요청 헤더 `Authorization: Bearer <token>`. 없거나 틀리면 401 `UNAUTHORIZED`.
+- `Chart` = `{ timeKnown, houseSystem: "PLACIDUS", moonSignMayChange?, positions[{ body, sign, degree, minute, longitude, house?, retrograde }], points[{ point, sign, degree, minute, longitude, house? }], houses?[12 × { house, sign, degree, minute, longitude }], angles?{ asc{ sign, degree, minute, longitude }, mc{ sign, degree, minute, longitude } }, aspects[{ a, b, type, orb, applying }] }`
+  - `longitude` 는 황경 0 이상 360 미만(소수 둘째 자리). 앱이 휠을 그릴 때 쓴다. `moonSignMayChange: true` 는 시각을 모르고 그날 안에 달 별자리가 바뀔 때만 보낸다. 상승점·중천은 `angles` 에만 온다. `houses` 는 1번부터 순서대로. (2026-11-11 확정, 서버 구현은 계획 태스크 15)
   - `body`: `SUN`·`MOON`·`MERCURY`·`VENUS`·`MARS`·`JUPITER`·`SATURN`·`URANUS`·`NEPTUNE`·`PLUTO`. `point`: `NORTH_NODE`·`LILITH`·`FORTUNE`·`VERTEX`. `sign`: `ARIES`…`PISCES`. `type`: `CONJUNCTION`·`SEXTILE`·`SQUARE`·`TRINE`·`OPPOSITION`.
   - `degree`(0~29)·`minute`(0~59)는 별자리 안 도수이고 올리지 않고 버린다. `house` 는 1~12. `orb` 는 도(소수 둘째 자리). `aspects` 는 행성 10개 사이만.
   - 시각이 `null`(모름)이면 `timeKnown: false` 이고 `house`·`houses`·`angles` 키와 `FORTUNE`·`VERTEX` 점이 없다(값이 `null` 인 키를 보내지 않는다).
@@ -60,7 +109,10 @@ last_reviewed: 2026-11-11
 - `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`
 - `Synastry` = `{ id, names[2], relation, score(40~100, 나 기준), headline, keywords[3], overlay(나의 차트와 상대 점의 화면 좌표용 황경), shareId, reportStatus }`.
 - `Direction` = `{ topic, title, items[3] }` (조언형, 단정 금지).
-- `Report` 의 시기 영역 = `{ milestones[{ kind, year, age }], intervals[{ kind: CHANGE \| OPPORTUNITY \| FATED, from, to, area: PEOPLE \| WORK \| MONEY \| SELF, size: BIG \| SMALL, title, body }], current? }`. `FATED` 는 시각을 알 때만. 초대로 연결된 궁합의 `overlay` 에서 상대 쪽 황경은 내려보내지 않는다. 이유: 행성 위치로 생일을 역산할 수 있다.
+- `Synastry.overlay` = `{ mine[{ body, longitude }], theirs?[{ body, longitude }], lines[{ a, b, type }] }`. 초대로 연결된 궁합에서는 `theirs` 를 내려보내지 않는다. 이유: 행성 위치로 생일을 역산할 수 있다.
+- `GET /synastry` 목록 원소 = `{ id, names[2], relation, score, headline, createdAt }`. `GET /invites/{inviteId}` 의 `status` = `PENDING \| ACCEPTED \| EXPIRED`.
+- `Report` = `{ sections[{ area: PERSONALITY \| RELATIONSHIP \| WORK \| EMOTION, title, paragraphs[{ title, body, basis[] }] }], timing }`. `timing`(시기 영역) = `{ milestones[{ kind, year, age }], intervals[{ kind: CHANGE \| OPPORTUNITY \| FATED, from, to, area: PEOPLE \| WORK \| MONEY \| SELF, size: BIG \| SMALL, title, body }], current? }`. `from`·`to` 는 `YYYY-MM`. `FATED` 는 시각을 알 때만.
+- `GET /shared/{shareId}` = `{ kind: READING \| SCORE \| RANKING \| NEXT_TURN, title, lines[], score?, items?[{ name, score }] }` (글과 숫자만, 출생 정보·근거 없음).
 
 ## 데이터
 - `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태, 본문) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자, 주제, 대상, 본문) · `push_tokens`.
