@@ -62,20 +62,25 @@ private fun aspectTo(target: SynastryTarget, longitude: Double, planet: PlanetPo
 
 private fun Rule.angle(): Double = type.angle
 
-/** 관계 유형별 가중치. 적히지 않은 조합은 1 이다. "A-B" 는 어느 쪽이 누구 것이든 같다(토성-태양은 상대의 토성과 내 태양뿐이다). */
-private fun weight(relation: Relation, mine: SynastryTarget, theirs: Body): Double {
-	fun pair(a: Body, b: Body) = (mine.body == a && theirs == b) || (mine.body == b && theirs == a)
+/**
+ * 관계 유형별 가중치. 적히지 않은 조합은 1 이다.
+ * "A-B" 는 어느 쪽이 누구 것이든 같다(토성-태양은 상대의 토성과 내 태양뿐이다 — 내 쪽에서는 토성을 보지 않는다).
+ */
+fun synastryWeight(relation: Relation, aspect: SynastryAspect): Double {
+	val mine = aspect.mine.body
+	val theirs = aspect.theirs
+	fun pair(a: Body, b: Body) = (mine == a && theirs == b) || (mine == b && theirs == a)
 	return when (relation) {
 		Relation.LOVE -> if (pair(Body.VENUS, Body.MARS) || pair(Body.SUN, Body.MOON)) 2.0 else 1.0
 		Relation.FRIEND -> if (pair(Body.MERCURY, Body.MERCURY)) 2.0 else if (pair(Body.MOON, Body.MOON)) 1.5 else 1.0
-		Relation.WORK -> if (pair(Body.MERCURY, Body.MERCURY)) 2.0 else if (mine == SynastryTarget.SUN && theirs == Body.SATURN) 1.5 else 1.0
+		Relation.WORK -> if (pair(Body.MERCURY, Body.MERCURY)) 2.0 else if (mine == Body.SUN && theirs == Body.SATURN) 1.5 else 1.0
 		Relation.FAMILY -> if (pair(Body.MOON, Body.MOON)) 2.0 else if (pair(Body.SUN, Body.MOON)) 1.5 else 1.0
 	}
 }
 
 /** 가중치를 곱해 모두 더한 값. 40~100 으로 바꾸기 전이다. */
 fun synastrySum(aspects: List<SynastryAspect>, relation: Relation): Double =
-	aspects.sumOf { it.points * weight(relation, it.mine, it.theirs) }
+	aspects.sumOf { it.points * synastryWeight(relation, it) }
 
 /** 나([mine]) 기준으로 본 상대([theirs])의 점수(40~100). 같은 입력에는 늘 같은 값이다. */
 fun synastryScore(mine: Chart, theirs: Chart, relation: Relation): Int =

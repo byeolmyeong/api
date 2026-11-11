@@ -26,7 +26,7 @@ last_reviewed: 2026-11-11
 - `generation` — 글 생성 공통: 공급자를 가리는 인터페이스 `TextGenerator`(지시문·차트 글·JSON 구조를 받아 JSON 을 돌려준다)와 그 Claude 구현, 차트를 프롬프트 글로 옮기는 `chartFacts`, 근거에 쓰는 말(`Basis.kt`). 해석·리포트·궁합 글이 모두 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다. `chart` 만 안다(소유자·저장·HTTP 를 모른다).
 - `reading` — 요약 해석 생성·저장. 요약 해석에만 있는 것(지시문, 돌려받을 구조, 문단·강점·보완점 개수 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다.
 - `report` — 심층 리포트. 요청은 자리만 잡고 202 로 답하고, 글은 뒤에서 영역(성격·관계·일·감정)마다 따로 생성해 네 영역이 모두 검증을 통과하면 저장한다. 완성되면 `ReportDone` 이벤트를 낸다. 시기 영역(마디·구간을 `chart` 에서 받아 글을 붙인다)은 태스크 8b 에서 더한다.
-- `synastry` — 직접 입력, 초대, 수락, 나 기준 점수(`chart` 계산), 랭킹, 궁합 글·궁합 리포트.
+- `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹. 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 008). 초대·수락은 아직 없다(태스크 9 의 나머지).
 - `direction` — 방향성 제시.
 - `share` — 공유 조회(공유 카드 4종).
 - `push` — 기기 토큰과 알림 발송.
@@ -42,7 +42,7 @@ src/main/kotlin/com/byeolmyeong/api/
   generation/  TextGenerator(인터페이스) · ClaudeTextGenerator · ChartFacts · Basis
   reading/     ReadingController · ReadingService · ReadingRepository · ReadingDraft(지시문·구조·검증)
   report/      ReportController · ReportService(+ 일꾼 설정 ReportExecutorConfig) · ReportRepository · Report(모양·지시문·구조·검증) · ReportDone(이벤트)
-  synastry/    SynastryController · SynastryService · InviteService · SynastryRepository · InviteAccepted(이벤트)
+  synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·두 차트 사이 연결의 글·지시문·구조·검증) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository
   share/       ShareController · ShareService
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
@@ -89,12 +89,12 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트는 저장된 글을 바로 준다 |
 | `POST /reports` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "리포트 상태" |
 | `GET /reports/me` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report? }` · 지금 프로필의 차트 기준 · `report` 는 `DONE` 일 때만 · 저장한 출생 정보가 없으면 `NONE` |
-| `POST /synastry/direct` | 세션 | `{ name, relation: LOVE \| FRIEND \| WORK, date, time \| null, placeId }` | `Synastry` |
+| `POST /synastry/direct` | 세션 | `{ name, relation: LOVE \| FRIEND \| WORK \| FAMILY, date, time \| null, placeId? }` (상대의 출생 정보) | 200 `Synastry` + `overlay` · 아래 "궁합(직접 입력)" |
 | `POST /synastry/invites` | 세션 | `{ name }` | `{ inviteId, expiresAt }` |
 | `GET /invites/{inviteId}` | 없음 | 없음 | `{ inviterName, status }` |
 | `POST /invites/{inviteId}/accept` | 세션 | `{ name }` | `Synastry` |
-| `GET /synastry` · `GET /synastry/{id}` | 세션 | 없음 | 목록 · `Synastry` |
-| `GET /synastry/ranking?relation=` | 세션 | 관계 유형 | `[{ id, name, score, keywords[3] }]` 점수순, 인원 제한 없음 |
+| `GET /synastry` · `GET /synastry/{id}` | 세션 | 없음 | `[Synastry]` 새것부터 · `Synastry` · 둘 다 `overlay` 없음 · 남의 것·없는 것 404 `NOT_FOUND` |
+| `GET /synastry/ranking?relation=` | 세션 | 관계 유형(필수) | `[{ id, name, score, scoreLabel?, keywords[3] }]` 점수가 높은 순(같으면 먼저 만든 것), 인원 제한 없음 · 유형이 없거나 틀리면 400 `INVALID_RELATION` |
 | `POST /directions` | 세션 | `{ topic: FUTURE \| LOVE \| SYNASTRY, synastryId? }` | `Direction` |
 | `POST /synastry/{id}/report` | 세션 | 없음 | 202 `{ status }` |
 | `GET /shared/{shareId}` | 없음 | 없음 | 요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나(글과 숫자만) |
@@ -111,10 +111,14 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`·`UNKNOWN_PLACE`. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
 - `GET /places?q=`: 검색어를 공백으로 나눈 낱말이 이름에 모두 든 곳을 20개까지. `q` 가 없으면 전체 목록(229곳)을 준다. 앱의 출생지 고르기 화면이 쓴다. `name` 은 `시·도 시·군·구` 꼴이고 세종만 `세종특별자치시` 한 낱말이다.
 - `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`
-- `Synastry` = `{ id, names[2], relation, score(40~100, 나 기준), headline, keywords[3], overlay(나의 차트와 상대 점의 화면 좌표용 황경), shareId, reportStatus }`.
+- 궁합(직접 입력) (2026-11-11 구현, 결정 008. 초대로 연결된 궁합은 아직 없다)
+  - `Synastry` = `{ id, name, relation: LOVE | FRIEND | WORK | FAMILY, score, scoreLabel?, headline, keywords[3], reportStatus: NONE | WRITING | FAILED | DONE, createdAt, overlay? }`. `id` 는 UUID, `name` 은 상대를 부를 이름, `score` 는 나 기준 40~100 의 정수(서버 계산), `headline` 은 한 줄 요약, `createdAt` 은 UTC `YYYY-MM-DDTHH:mm:ssZ`. 값이 없는 키는 보내지 않는다(`null` 로 보내지 않는다).
+  - `scoreLabel`: 점수가 60 미만이면 `"다른 결의 사이"`, 60 이상이면 키가 없다. 앱은 이 키가 있으면 점수 옆에 그대로 붙인다(60 을 앱에서 다시 판정하지 않는다). 그때 키워드와 한 줄 요약은 끌리는 점부터 쓰여 있다.
+  - `overlay`(겹친 휠) = `{ mine[{ body, longitude }], mineAsc?, theirs[{ body, longitude }], lines[{ mine, theirs, type }] }`. **`POST /synastry/direct` 의 응답에만 있다.** 상대의 행성 위치라 서버가 저장하지 않으므로 `GET` 에는 없다. `mine`·`theirs` 는 행성 10개(`body` 순서는 `Chart` 와 같다), `longitude` 는 `Chart` 와 같은 황경(소수 둘째 자리, 버림). `mineAsc` 는 내 상승점의 황경이고 내 태어난 시각을 알 때만 있다. `lines` 는 점수에 쓴 각도다: `mine` 은 `SUN`·`MOON`·`MERCURY`·`VENUS`·`MARS`·`ASC`(내 쪽), `theirs` 는 `body`(상대 쪽), `type` 은 `Chart` 의 각도 종류.
+  - `POST /synastry/direct` 요청: `name` 은 앞뒤 공백을 뗀 1~20자, `date`·`time`·`placeId` 는 **상대의** 출생 정보이고 형식은 `POST /charts` 와 같다. `placeId` 는 `time` 이 있을 때만 필수이고 `time` 이 `null` 이면 없어도 된다(와도 읽지 않는다, 앱 결정 020). 나는 저장된 프로필이다. 같은 상대를 다시 보내면 새 궁합이 하나 더 생긴다(서버는 같은 사람인지 알 수 없다).
+  - `POST /synastry/direct` 오류: 400 `INVALID_REQUEST`(본문 형식)·`INVALID_NAME`·`INVALID_RELATION`·`INVALID_DATE`·`INVALID_TIME`·`UNKNOWN_PLACE`(시각이 있는데 곳이 없거나 목록에 없다) · 404 `NO_PROFILE`(내 출생 정보를 저장한 적 없다) · 429 `RATE_LIMITED` · 502 `GENERATION_FAILED`(글을 만들지 못했다. 아무것도 저장하지 않는다. 다시 보내면 된다). 글을 받을 때까지 기다렸다 답하므로 수십 초가 걸릴 수 있다.
 - `Direction` = `{ topic, title, items[3] }` (조언형, 단정 금지).
-- `Synastry.overlay` = `{ mine[{ body, longitude }], theirs?[{ body, longitude }], lines[{ a, b, type }] }`. 초대로 연결된 궁합에서는 `theirs` 를 내려보내지 않는다. 이유: 행성 위치로 생일을 역산할 수 있다.
-- `GET /synastry` 목록 원소 = `{ id, names[2], relation, score, headline, createdAt }`. `GET /invites/{inviteId}` 의 `status` = `PENDING \| ACCEPTED \| EXPIRED`.
+- 초대(아직 구현 전): 초대로 연결된 궁합에서는 `overlay.theirs` 를 내려보내지 않는다. 이유: 행성 위치로 생일을 역산할 수 있다. `GET /invites/{inviteId}` 의 `status` = `PENDING \| ACCEPTED \| EXPIRED`. 두 사람의 이름(`names[2]`)·`shareId` 를 `Synastry` 에 더할지는 초대·공유(태스크 9 의 나머지·10)에서 정한다.
 - `Report` = `{ sections[{ area: PERSONALITY \| RELATIONSHIP \| WORK \| EMOTION, title, paragraphs[{ title, body, basis[] }] }] }`. `sections` 는 정확히 이 네 영역이 이 순서로 오고, 영역마다 문단 4~6개다. `basis` 는 `Reading` 과 같은 말이다. **`timing` 필드는 아직 없다 — 태스크 8b 에서 더한다.** (2026-11-11 구현)
 - 리포트 상태(`POST /reports` · `GET /reports/me`): `NONE` 지금 차트의 리포트를 만든 적이 없다(`GET` 만) · `WRITING` 쓰는 중 · `DONE` 완성 · `FAILED` 만들지 못했다(다시 `POST` 하면 새로 시작한다).
   - `POST`: 없거나 `FAILED` 면 생성을 시작하고 `WRITING`. 이미 `DONE` 이면 다시 만들지 않고 `DONE`. 쓰는 중이면 두 번째 생성을 시작하지 않고 `WRITING`. 뒤에서 일할 자리가 꽉 차 시작하지 못하면 `FAILED`(잠시 뒤 다시 `POST`).
@@ -124,8 +128,8 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - `GET /shared/{shareId}` = `{ kind: READING \| SCORE \| RANKING \| NEXT_TURN, title, lines[], score?, items?[{ name, score }] }` (글과 숫자만, 출생 정보·근거 없음).
 
 ## 데이터
-- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자, 주제, 대상, 본문) · `push_tokens`.
-- 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.
+- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때·상태가 바뀐 때) · `synastries`(소유자, 부를 이름, 관계 유형, 나 기준 점수, 한 줄 요약, 키워드, 계산할 때의 내 차트 해시 — 직접 입력. 초대로 연결된 두 참여자는 초대 때 더한다) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자, 주제, 대상, 본문) · `push_tokens`.
+- 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다. 상대의 행성 황경·별자리와 두 차트 사이의 각도 목록도 저장하지 않는다(내 차트와 겹쳐 보면 생일을 좁힐 수 있다, 결정 008).
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
 
 ## 글 생성 규칙
@@ -138,11 +142,12 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 지시문은 공통 글쓰기 규칙(`prompts/writing-rules.md`: 말투·용어 금지·단정 금지·근거) 뒤에 글마다의 지시문을 붙여 만든다. 요약 해석: `reading-summary*.md`. 리포트: `report.md` + 영역별 `report-<영역>.md` + 시각을 모르면 `report-time-unknown.md`.
 - 리포트의 모양과 생성: 영역(성격·관계·일·감정)마다 모델을 따로 부른다(네 호출을 한꺼번에). 영역마다 제목 하나와 문단 4~6개, 문단마다 근거. 틀린 영역(빈 글·문단 수·근거 없는 문단·차트에 없는 근거)은 그 영역만 다시 생성한다(영역마다 다시 2회까지). 한 영역이라도 끝내 못 만들거나 호출이 실패하면 리포트 전체가 `FAILED` 이고 아무것도 저장하지 않는다. 관계 영역은 "나는 사람을 어떻게 대하는 사람인가"(친구·가족·연인 전반)이고 연애 조언이 아니다.
 - 리포트의 글은 요청 스레드가 아니라 정해진 수의 일꾼(`byeolmyeong.report.worker-threads`·`queue-capacity`)이 쓴다. 로그에는 이벤트 이름·영역·사유 코드·시도 횟수·토큰 수만 남긴다.
+- 궁합 글: 지시문은 `writing-rules.md` + `synastry.md`(두 사람 글의 규칙) + 글마다의 파일(`synastry-summary.md`). 모델에게 주는 것은 관계 유형, 서버가 계산한 점수(60 미만이면 "다른 결의 사이" 표시), 두 차트 사이의 연결("나의 금성(황소) – 상대의 화성(염소): 결", 강한 것부터)뿐이다. 부를 이름·출생 정보·도수는 주지 않는다. 키워드 3개(겹치지 않게)와 한 줄 요약을 받고, 개수·빈 글·길이가 틀리거나 글에 숫자가 있으면 버리고 다시 생성한다(다시 2회까지, 끝내 못 만들면 502 이고 저장하지 않는다). 점수는 응답 구조에 칸이 없다.
 - 근거에 쓸 수 있는 말(`generation/Basis.kt` 가 단일 출처, 글자까지 같아야 한다): 천체 이름(태양·달·수성·금성·화성·목성·토성·천왕성·해왕성·명왕성), 지점 이름(북쪽 교점·릴리스, 시각을 알면 행운점·버텍스), 시각을 알면 `상승점`·`중천`, 그 차트에서 천체·지점·상승점·중천이 하나라도 놓인 별자리(양·황소·…·물고기, "자리"를 붙이지 않는다), 천체가 하나라도 놓인 하우스(`N하우스`, 시각을 알 때만).
 
 ## 요청 속도 제한 (남용 방지, 서버에서만 판정한다)
 - 리포트·궁합·방향성 제시에 기능 횟수 제한은 없다(앱 결정 011). 같은 차트·같은 두 사람의 글은 한 번만 만든다.
-- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리).
+- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다).
 - 광고 시청 판정은 1.1.0 에 더한다(앱 결정 015).
 
 ## 외부 시스템
