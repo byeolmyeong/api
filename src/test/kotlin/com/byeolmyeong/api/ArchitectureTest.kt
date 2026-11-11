@@ -34,7 +34,7 @@ class ArchitectureTest {
         private val EVENTS = setOf("$ROOT.report.ReportDone", "$ROOT.synastry.InviteAccepted")
 
         /** 외부 공급자 SDK·HTTP 클라이언트. 이것을 쓰는 클래스는 우리 인터페이스 하나 뒤에 있어야 한다. */
-        private val EXTERNAL_CLIENTS = arrayOf("com.openai..", "java.net.http..", "org.springframework.web.client..", "org.springframework.web.reactive.function.client..")
+        private val EXTERNAL_CLIENTS = arrayOf("com.anthropic..", "com.openai..", "java.net.http..", "org.springframework.web.client..", "org.springframework.web.reactive.function.client..")
 
         private fun pkg(name: String) = "$ROOT.$name.."
 

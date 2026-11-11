@@ -18,7 +18,7 @@
 - `docs/` agent가 참고할 문서 · `docs/raw/` 원본(던지는 곳, 고치지 않음) · `.claude/` 설정·규칙·스킬·에이전트·훅 · `build/` 생성물(커밋 안 함)
 
 ## 스택
-Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · OpenAI API. 버전은 docs/decisions/001-spring-boot-postgres.md
+Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · Claude API(글 생성, 결정 006). 버전은 docs/decisions/001-spring-boot-postgres.md
 
 ## 명령어
 - 개발: `./gradlew bootRun` · 빌드·테스트: `./gradlew build` · 테스트만: `./gradlew test`
