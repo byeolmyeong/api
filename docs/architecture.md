@@ -198,7 +198,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `GET /shared/{shareId}`: 세션 없이 열린다. 저장된 `ShareCard` 를 그대로 준다. 없는(지워진) 식별자는 404 `NOT_FOUND`. 주소별 분당 한도를 넘으면 429 `RATE_LIMITED`. CORS 는 다른 경로와 같다(`ALLOWED_ORIGINS` 에 적힌 앱의 웹 주소만).
   - 이니셜(서버가 만든다): 한글 음절은 첫소리 글자로(지영 → `ㅈㅇ`, 쌍자음은 그대로), 이미 낱자인 한글은 그대로, 그 밖의 글자·숫자는 이어진 덩어리의 첫 글자만 대문자로(`Mike` → `M`, `김 Min` → `ㄱM`), 공백·기호·그림 문자는 뺀다. 남는 것이 없으면 `○`.
 
-## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016·017)
+## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016·017·018)
 관리 화면(웹)이 부르는 API 다. 앱은 부르지 않는다. 경로는 모두 `/admin/` 아래다.
 
 ### 공통
@@ -221,6 +221,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /admin/admins` | 없음 | 200 `[AdminAccount]` 먼저 만든 관리자부터 |
 | `POST /admin/admins` | `{ loginId, name, password }` | 201 `AdminAccount` |
 | `PATCH /admin/admins/{id}` | `{ active }` | 200 `AdminAccount` |
+| `PUT /admin/admins/{id}/password` | `{ password }` | 204 |
 | `GET /admin/inquiries?status=&category=&page=&size=` | 쿼리(모두 선택) | 200 `{ items: [Inquiry], page, size, total }` 새것부터 |
 | `GET /admin/inquiries/{id}` | 없음 | 200 `Inquiry` |
 | `PATCH /admin/inquiries/{id}` | `{ status?, memo? }` | 200 `Inquiry` |
@@ -243,17 +244,24 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - 400 `INVALID_REQUEST`: `loginId`·`password` 가 없거나 `null` 이거나 글자가 아니다.
   - 429 `RATE_LIMITED`: 로그인 시도는 10분(서버 시계의 10분 단위 창)에 아이디별 5번·주소(IP)별 20번까지다. 성공한 로그인도 센다. 넘으면 맞는 비밀번호여도 그 창이 끝날 때까지 429 다.
 - `POST /admin/auth/logout`: 이 요청의 토큰만 끝낸다(같은 관리자의 다른 세션은 그대로). 204. 그 뒤 그 토큰은 401 이다.
-- `PUT /admin/me/password`: 자기 비밀번호만 바꾼다. 204. 바꾸면 이 요청의 세션은 그대로이고 **같은 관리자의 다른 세션은 모두 끝난다**.
+- `PUT /admin/me/password`: 자기 비밀번호를 바꾼다(남의 것은 "관리자 관리" 의 `PUT /admin/admins/{id}/password`). 204. 바꾸면 이 요청의 세션은 그대로이고 **같은 관리자의 다른 세션은 모두 끝난다**.
   - 400 `INVALID_CURRENT_PASSWORD`(지금 비밀번호가 틀리다) · `INVALID_PASSWORD`(새 비밀번호가 규칙에 안 맞다) · `INVALID_REQUEST`(둘 중 하나가 없거나 글자가 아니다) · 429 `RATE_LIMITED`(지금 비밀번호 확인도 아이디별 로그인 시도에 같이 센다).
 - 비밀번호 규칙: 10자 이상, UTF-8 로 72바이트 이하(영문·숫자·기호만이면 72자, 한글만이면 24자까지). 앞뒤 공백을 떼지 않는다. 그 밖의 조합 규칙은 없다.
 
 ### 관리자 관리
-- 역할 구분은 없다. 관리자는 누구나 다른 관리자를 만들고 끄고 켤 수 있다. 관리자를 지우거나, 이름·아이디를 고치거나, 남의 비밀번호를 다시 정하는 경로는 없다.
+- 역할 구분은 없다. 관리자는 누구나 다른 관리자를 만들고 끄고 켤 수 있다. 관리자를 지우거나 이름·아이디를 고치는 경로는 없다. 남의 비밀번호는 다시 정해 줄 수 있다(아래 `PUT /admin/admins/{id}/password`, 결정 018).
 - `POST /admin/admins`: `loginId` 는 앞뒤 공백을 떼고 소문자로 바꾼 뒤 소문자·숫자·`.`·`_`·`-` 3~32자(첫 글자는 소문자나 숫자). `name` 은 앞뒤 공백을 뗀 1~40자. `password` 는 위 규칙(처음 비밀번호이고, 받은 관리자가 `PUT /admin/me/password` 로 바꾼다). 201 `AdminAccount`(`active: true`).
   - 400 `INVALID_LOGIN_ID` · `INVALID_NAME` · `INVALID_PASSWORD`(없거나 `null` 이어도 이 코드. 여러 개가 틀리면 이 순서로 처음 걸린 것 하나) · `INVALID_REQUEST`(타입이 틀리다) · 409 `LOGIN_ID_TAKEN`(이미 있는 아이디 — 꺼진 관리자의 아이디도 다시 쓸 수 없다).
 - `PATCH /admin/admins/{id}`: `{ "active": false }` 로 끄고 `{ "active": true }` 로 켠다. 200 바뀐 `AdminAccount`. 이미 그 상태여도 200 이다.
   - 끄면 그 관리자의 세션이 모두 지워져 그 사람의 다음 요청부터 401 이고, 로그인도 401 `INVALID_CREDENTIALS` 다. 다시 켜면 로그인할 수 있다(예전 토큰은 되살아나지 않는다). 그 관리자가 남긴 처리 기록은 그대로다.
   - 409 `CANNOT_DEACTIVATE_SELF`(자기 자신은 끌 수 없다) · 409 `LAST_ACTIVE_ADMIN`(마지막 남은 활성 관리자는 끌 수 없다 — 두 관리자가 동시에 서로를 끌 때만 나온다) · 400 `INVALID_REQUEST`(`active` 가 없거나 `null` 이거나 불리언이 아니다 — `"false"`·`0` 도 틀리다) · 404 `NOT_FOUND`.
+- `PUT /admin/admins/{id}/password`: **다른** 관리자의 비밀번호를 다시 정한다(비밀번호를 잊은 관리자에게 쓴다). 본문 `{ "password": string }`, 규칙은 위 "비밀번호 규칙" 과 같다. 204(본문 없음). 지금 비밀번호는 묻지 않는다.
+  - **그 관리자의 세션이 모두 끝난다**(그 사람의 다음 요청부터 401). 예전 비밀번호로는 로그인할 수 없다. 요청한 관리자의 세션은 그대로다.
+  - 새 비밀번호는 서버가 알려 주지 않는다 — 정한 관리자가 직접 전하고, 받은 관리자는 로그인해 `PUT /admin/me/password` 로 바꾼다(화면이 그렇게 안내한다).
+  - 꺼진 관리자에게도 된다. 켜지지는 않는다(켜려면 `PATCH /admin/admins/{id}`).
+  - 409 `USE_OWN_PASSWORD_CHANGE`: `id` 가 자기 자신이다 — 자기 비밀번호는 지금 비밀번호를 확인하는 `PUT /admin/me/password` 로만 바꾼다. 화면은 자기 줄에 이 버튼을 보이지 않는다.
+  - 400 `INVALID_PASSWORD`(규칙에 안 맞다. 없거나 `null` 이어도 이 코드) · 400 `INVALID_REQUEST`(본문이 객체가 아니거나 `password` 가 글자가 아니다) · 404 `NOT_FOUND`(그런 관리자가 없거나 `id` 가 UUID 가 아니다). 순서: `id` 가 UUID 가 아니면 404 → 본문이 틀리면 400 → 자기 자신이면 409 → 없는 관리자면 404. 거절된 요청은 아무것도 바꾸지 않는다(세션도 그대로).
+  - 감사 기록 `ADMIN_PASSWORD_RESET`(누가 누구의 것을 — 비밀번호는 없다).
 
 ### 문의
 - `Inquiry` = `{ id, category, body, replyEmail, createdAt, status, memo, handledBy, handledAt, ownerRef }`. 목록의 원소와 한 건 조회와 `PATCH` 의 응답이 모두 이 모양이다(목록에도 글 전체가 온다).
@@ -334,6 +342,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `ADMIN_LOGIN` | 관리자 로그인. **실패도 남는다**(401 `INVALID_CREDENTIALS`): 그때는 `actorType: SYSTEM`·`actor: null`·`outcome: FAILURE` 이고 시도한 아이디는 남지 않는다. 형식이 틀린 요청(400)과 제한에 걸린 요청(429)은 남지 않는다 | `ADMIN` / `SYSTEM` | 없음 | `null` |
   | `ADMIN_LOGOUT` | `POST /admin/auth/logout` | `ADMIN` | 없음 | `null` |
   | `ADMIN_PASSWORD_CHANGED` | `PUT /admin/me/password` 성공 | `ADMIN` | 없음 | `null` |
+  | `ADMIN_PASSWORD_RESET` | `PUT /admin/admins/{id}/password` 성공(다른 관리자의 비밀번호를 다시 정했다) | `ADMIN`(정해 준 관리자) | `ADMIN` 그 관리자의 id | `null` |
   | `ADMIN_CREATED` | `POST /admin/admins` | `ADMIN` | `ADMIN` 만든 관리자의 id | `null` |
   | `ADMIN_DEACTIVATED` · `ADMIN_REACTIVATED` | `PATCH /admin/admins/{id}` 로 끄거나 켰을 때. 이미 그 상태였으면 남지 않는다 | `ADMIN` | `ADMIN` 그 관리자의 id | `null` |
   | `ADMIN_BOOTSTRAPPED` | 서버가 뜨면서 첫 관리자를 만들었을 때 | `SYSTEM` | `ADMIN` 첫 관리자의 id | `null` |

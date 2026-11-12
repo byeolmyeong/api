@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
@@ -42,6 +43,16 @@ class AdminAccountController(
 		val targetId = pathId(id)
 		val active = body.requireObject().booleanOrNull("active") ?: throw BadRequestException("INVALID_REQUEST")
 		return accounts.setActive(current.get().id, targetId, active)
+	}
+
+	/** 다른 관리자의 비밀번호를 다시 정한다(결정 018). 자기 것은 `PUT /admin/me/password` 로만 바꾼다. 그 관리자의 세션은 모두 끝난다. */
+	@PutMapping("/admin/admins/{id}/password")
+	fun resetPassword(@PathVariable id: String, @RequestBody body: JsonNode): ResponseEntity<Void> {
+		val targetId = pathId(id)
+		val password = body.requireObject().textOrNull("password")
+		if (password == null || !passwords.acceptable(password)) throw BadRequestException("INVALID_PASSWORD")
+		accounts.resetPassword(current.get().id, targetId, password)
+		return ResponseEntity.noContent().build()
 	}
 }
 

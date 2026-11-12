@@ -97,6 +97,21 @@ class AdminAccountService(
 		if (target.active != active) audit.record(if (active) AuditAction.ADMIN_REACTIVATED else AuditAction.ADMIN_DEACTIVATED, "ADMIN", targetId)
 		return accounts.findById(targetId)!!.toAccount()
 	}
+
+	/**
+	 * 다른 관리자의 비밀번호를 다시 정하고 그 관리자의 세션을 모두 지운다(결정 018). [password] 는 검증을 거친 값이다.
+	 * 자기 자신에게는 쓸 수 없다(409 `USE_OWN_PASSWORD_CHANGE` — 자기 것은 지금 비밀번호를 확인하는 길로만 바꾼다).
+	 * 꺼진 관리자에게도 되고 켜지지는 않는다. 비밀번호는 로그와 감사 기록에 남기지 않는다.
+	 */
+	@Transactional
+	fun resetPassword(actorId: UUID, targetId: UUID, password: String) {
+		if (targetId == actorId) throw AdminRejectedException(409, "USE_OWN_PASSWORD_CHANGE")
+		accounts.findById(targetId) ?: throw NotFoundException("NOT_FOUND")
+		accounts.updatePassword(targetId, passwords.hash(password))
+		sessions.deleteAllOf(targetId)
+		log.info("event=admin_password_reset")
+		audit.record(AuditAction.ADMIN_PASSWORD_RESET, "ADMIN", targetId)
+	}
 }
 
 @Repository
