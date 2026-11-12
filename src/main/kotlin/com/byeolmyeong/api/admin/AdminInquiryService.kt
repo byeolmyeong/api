@@ -1,17 +1,14 @@
 package com.byeolmyeong.api.admin
 
 import com.byeolmyeong.api.web.NotFoundException
+import com.byeolmyeong.api.web.ownerRef
 import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
-import java.security.MessageDigest
 import java.time.OffsetDateTime
-import java.util.HexFormat
 import java.util.UUID
-
-private const val OWNER_REF_LENGTH = 12
 
 /** 문의를 처리한 관리자. */
 data class AdminRef(val id: UUID, val name: String)
@@ -100,7 +97,4 @@ class AdminInquiryRepository(private val jdbc: JdbcTemplate) {
 			""",
 			status, changeMemo, memo, adminId, id,
 		) == 1
-
-	private fun ownerRef(ownerId: UUID): String =
-		HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(ownerId.toString().toByteArray())).take(OWNER_REF_LENGTH)
 }
