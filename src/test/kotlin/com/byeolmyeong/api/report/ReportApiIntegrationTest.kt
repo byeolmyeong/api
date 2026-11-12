@@ -528,7 +528,8 @@ class ReportApiIntegrationTest {
 			await(token, "FAILED")
 			settle()
 			assertEquals(3, AREAS.maxOf(generator::calls), "$basis: 세 번 시도하고 그만둔다")
-			assertEquals(0, jdbc.queryForObject("select count(*) from reports where status <> 'DONE' and body is not null", Int::class.java))
+			assertEquals(FAILED, get(token).body(), "$basis: 이 차트의 리포트는 만들지 못했다")
+			assertEquals(2, jdbc.queryForObject("select count(*) from reports where body is not null", Int::class.java), "$basis: 글이 있는 것은 앞의 두 차트뿐이다")
 		}
 	}
 
