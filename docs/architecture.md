@@ -29,7 +29,7 @@ last_reviewed: 2026-11-12
 - `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹, 궁합 리포트(202 로 답하고 뒤에서 영역마다 쓴다). 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 010). 초대·수락은 아직 없다(태스크 9 의 나머지).
 - `direction` — 방향성 제시(해 볼 만한 것 3개). 주제는 이성·미래·궁합이다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형·숫자 검증, 미래 주제의 "지금의 시기" 가리기)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래 주제의 시기는 `chart` 로 직접 계산한다(`report` 의 저장본을 읽지 않는다). 궁합 주제는 상대의 출생 정보를 요청으로 다시 받아 그 안에서만 쓰고(결정 010), 글이 붙는 궁합의 소유자·관계 유형·점수·그때의 내 차트 해시는 `synastries` 표에서 읽기만 한다(`synastry` 의 클래스를 쓰지 않는다). 결정: docs/decisions/009-direction-storage-and-advice-check.md, docs/decisions/011-direction-future-and-synastry.md
 - `inquiry` — 문의하기. 설정의 문의 글을 검증해 저장만 한다(관리 화면·메일 발송 없음). 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md
-- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자), 현황 수치(개수만), FAQ 편집. 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
+- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자), 현황 수치(개수만), FAQ 편집, 앱 설정 편집(최소 버전·강제 업데이트, 결정 016). 한 일은 `AdminAudit` 으로 감사 기록에 알린다(결정 015). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
 - `audit` — 감사 기록(결정 015). 다른 기능과 `auth` 가 낸 `web.AuditEvent` 를 듣고(`AuditRecorder`, 커밋 뒤·자기 트랜잭션·실패는 삼킨다) `audit_logs` 에 넣기만 한다. 관리자가 읽는 경로(`GET /admin/audit-logs`)도 여기 있다 — 경로가 `/admin/` 아래라 관리자 세션 검사가 걸리지만 `admin` 의 코드는 쓰지 않는다. 다른 기능은 이 패키지를 모른다.
 - `appconfig` — 앱 설정의 공개 조회(`GET /app-config`)와 강제 업데이트(`AppUpdateInterceptor`: 앱이 보낸 플랫폼·버전 헤더를 보고 낮은 버전을 426 으로 막는다. 세션 검사보다 먼저, `/admin/**`·`/health`·`/app-config` 는 뺀다). `app_configs` 를 읽기만 하고 잠깐 캐시한다. 값을 쓰는 것은 `admin` 이다(결정 016).
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
@@ -50,7 +50,7 @@ src/main/kotlin/com/byeolmyeong/api/
   synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증) · DirectionFuture(미래: 지금의 시기·대상) · DirectionSynastry(궁합: 재료·지시문)
   inquiry/     InquiryController · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증)
-  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다) · AdminFaqController · AdminFaqService(+ AdminFaqRepository)
+  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다) · AdminFaqController · AdminFaqService(+ AdminFaqRepository) · AdminAppConfigController(+ AdminAppConfigService · AdminAppConfigRepository) · AppConfigChanged(이벤트) · AdminAudit(감사 기록에 알린다)
   audit/       AuditRecorder(이벤트를 듣는다) · AuditService(+ AuditRepository — 넣고 읽기만 한다) · AuditLogController(`GET /admin/audit-logs`)
   appconfig/   AppConfigController(+ AppConfigService: 캐시·막을지 판정 · AppConfigRepository) · AppUpdateInterceptor(+ AppUpdateConfig: 순서·빼는 경로)
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
@@ -67,7 +67,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
-| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
 | 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
 | `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
 | `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
@@ -195,7 +195,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `GET /shared/{shareId}`: 세션 없이 열린다. 저장된 `ShareCard` 를 그대로 준다. 없는(지워진) 식별자는 404 `NOT_FOUND`. 주소별 분당 한도를 넘으면 429 `RATE_LIMITED`. CORS 는 다른 경로와 같다(`ALLOWED_ORIGINS` 에 적힌 앱의 웹 주소만).
   - 이니셜(서버가 만든다): 한글 음절은 첫소리 글자로(지영 → `ㅈㅇ`, 쌍자음은 그대로), 이미 낱자인 한글은 그대로, 그 밖의 글자·숫자는 이어진 덩어리의 첫 글자만 대문자로(`Mike` → `M`, `김 Min` → `ㄱM`), 공백·기호·그림 문자는 뺀다. 남는 것이 없으면 `○`.
 
-## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015)
+## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016)
 관리 화면(웹)이 부르는 API 다. 앱은 부르지 않는다. 경로는 모두 `/admin/` 아래다.
 
 ### 공통
@@ -228,6 +228,8 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `DELETE /admin/faqs/{id}` | 없음 | 204 |
 | `PUT /admin/faqs/order` | `{ ids: [id, …] }` | 200 `[Faq]` 새 순서의 전체 목록 |
 | `GET /admin/audit-logs?actorType=&action=&from=&to=&actorRef=&page=&size=` | 쿼리(모두 선택) | 200 `{ items: [AuditLog], page, size, total }` 새것부터 |
+| `GET /admin/app-config` | 없음 | 200 `AppConfig`(두 플랫폼) |
+| `PUT /admin/app-config/{platform}` | `{ minVersion, storeUrl, message, blockNow }`(네 키 모두) | 200 `PlatformConfig`(바뀐 플랫폼) |
 
 ### 로그인·세션
 - `Admin` = `{ id, loginId, name }`. `AdminAccount` = `{ id, loginId, name, active, createdAt }`. 비밀번호와 그 해시는 어떤 응답에도 없다.
@@ -382,15 +384,48 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
     ```
 - 보관 기한이 없다(행이 계속 쌓인다). 수치(`Stats`)에는 감사 기록의 수가 없다.
 
+### 앱 설정 (최소 버전·강제 업데이트)
+- 앱(iOS·Android)이 써야 하는 가장 낮은 버전을 플랫폼마다 정하고, 급할 때는 그보다 낮은 버전의 요청을 서버가 막게 한다(결정 016). 플랫폼은 `ios`·`android` 둘뿐이고 더하거나 지울 수 없다.
+- `AppConfig` = `{ ios: PlatformConfig, android: PlatformConfig }`. `PlatformConfig` = `{ minVersion, storeUrl, message, blockNow, updatedAt, updatedBy }`. `GET` 의 응답은 `AppConfig`, `PUT` 의 응답은 바뀐 플랫폼의 `PlatformConfig` 하나다.
+  - `minVersion`: 최소 버전의 글자 또는 `null`(정하지 않음). 버전 규칙: 점으로 나눈 1~3개의 0 이상 정수 — `"1"`·`"1.2"`·`"1.2.3"`, 자리마다 숫자 9개까지. 빠진 자리는 0 으로 보고(`"1.2"` = `"1.2.0"`) 숫자로 견준다(`1.10.0` > `1.9.9`). 보낸 글자 그대로 저장한다(`"1.2"` 를 `"1.2.0"` 으로 바꾸지 않는다).
+  - `storeUrl`: 업데이트하러 갈 스토어 주소 또는 `null`. `https://` 로 시작하고 호스트가 있는 500자 이하의 주소다. 앞뒤 공백을 떼지 않는다(공백이 있으면 틀린 값이다).
+  - `message`: 앱이 업데이트 안내에 보여 줄 글 또는 `null`(앱의 기본 글을 쓴다). 앞뒤 공백을 뗀 200자 이하(코드 포인트)의 꾸밈 없는 글자이고 가운데 줄바꿈은 그대로 둔다.
+  - `blockNow`: `true` 면 그 플랫폼에서 `minVersion` 보다 낮은 버전의 앱이 보내는 **모든 요청이 426 `UPDATE_REQUIRED` 로 막힌다**(그 앱은 업데이트 화면만 보인다). `false` 면 서버는 막지 않고, 앱이 `minVersion` 을 보고 업데이트를 권하기만 한다. `minVersion` 이 `null` 이면 `true` 로 둘 수 없다.
+  - `updatedAt`: 마지막으로 고친 때(한 번도 고치지 않았으면 서버에 이 기능이 들어온 때). `updatedBy`: `{ id, name }`(고친 관리자, `name` 은 표시 이름) 또는 `null`(아무도 고치지 않았다).
+- `GET /admin/app-config`: 200 `AppConfig`. 두 플랫폼이 언제나 다 있다. 처음에는 둘 다 `{ "minVersion": null, "storeUrl": null, "message": null, "blockNow": false, "updatedAt": "…", "updatedBy": null }` 다.
+- `PUT /admin/app-config/{platform}`: `platform` 은 `ios` 또는 `android`(소문자). 본문은 `{ "minVersion": string | null, "storeUrl": string | null, "message": string | null, "blockNow": boolean }` 이고 **네 키를 모두 보낸다**(바꾸지 않는 값도 지금 값을 그대로 보낸다 — 화면은 `GET` 으로 받은 값을 폼에 채워 통째로 보낸다). 그 플랫폼의 네 값이 본문의 값으로 바뀐다. 200 바뀐 `PlatformConfig`. 다른 플랫폼은 그대로다.
+  - `message` 는 `null` 이거나 빈 글·공백뿐인 글이면 지워진다(`null`). `minVersion`·`storeUrl` 은 `null` 을 보내야 지워진다(빈 글은 틀린 값이다).
+  - 404 `NOT_FOUND`: `platform` 이 `ios`·`android` 가 아니다(`IOS` 도 틀리다).
+  - 400 `INVALID_REQUEST`: 본문이 객체가 아니거나, 네 키 가운데 하나라도 없거나, 타입이 틀리다(`minVersion`·`storeUrl`·`message` 가 글자도 `null` 도 아니다 — 숫자 `1.2` 도 틀리다. `blockNow` 가 불리언이 아니다 — `null`·`"true"`·`1` 도 틀리다).
+  - 400 `INVALID_VERSION`: `minVersion` 이 버전 규칙에 맞지 않는다(`""`·`"1.2.3.4"`·`"v1.2"`·`"1.2-beta"`·앞뒤 공백).
+  - 400 `INVALID_STORE_URL`: `storeUrl` 이 `https://` 주소가 아니거나(`http://`·`itms-apps://`·`market://`·스킴 없음), 호스트가 없거나, 공백이 있거나, 500자를 넘는다.
+  - 400 `INVALID_MESSAGE`: `message` 가 공백을 뗀 뒤 200자를 넘는다.
+  - 400 `BLOCK_REQUIRES_MIN_VERSION`: `blockNow` 가 `true` 인데 `minVersion` 이 `null` 이다.
+  - 여러 개가 틀리면 이 순서(`INVALID_REQUEST` → `INVALID_VERSION` → `INVALID_STORE_URL` → `INVALID_MESSAGE` → `BLOCK_REQUIRES_MIN_VERSION`)로 처음 걸린 것 하나다. 거절된 요청은 아무것도 바꾸지 않는다.
+- 언제 적용되나: 막기(426)는 고친 서버에서 **바로**, 서버가 여러 대면 다른 서버는 길어야 5초 뒤다. 앱이 읽는 공개 조회 `GET /app-config`(위 "API 계약" 의 "앱 설정과 강제 업데이트" — 여기서 `updatedAt`·`updatedBy` 를 뺀 네 값)는 60초 캐시될 수 있어 안내 글·주소가 앱에 보이기까지 1분쯤 걸릴 수 있다.
+- 막히는 것과 막히지 않는 것: 앱은 모든 요청에 `X-App-Platform`·`X-App-Version` 헤더를 보낸다. `blockNow` 가 켜진 플랫폼에서 버전이 `minVersion` 보다 낮은 요청만 막힌다. **관리자 API(`/admin/**`)는 어떤 경우에도 막히지 않는다** — 잘못 켰으면 같은 화면에서 끈다. 웹 빌드(헤더 없음)·모르는 플랫폼·읽을 수 없는 버전의 요청도 막히지 않는다. 버전이 `minVersion` 과 같으면 막히지 않는다.
+  - 화면에 권하는 확인: `blockNow` 를 켜기 전에 "`minVersion` 미만의 앱은 업데이트 전까지 아무것도 할 수 없게 된다" 를 한 번 묻는다. `minVersion` 을 스토어에 아직 없는 버전으로 넣으면 그 플랫폼의 모든 사용자가 막힌다(서버는 스토어에 그 버전이 있는지 모른다).
+- 고칠 때마다 감사 기록 `APP_CONFIG_UPDATED` 가 남는다(위 "감사 기록": 플랫폼·최소 버전·`blockNow` 만, 안내 글과 주소는 없다). 관리 화면의 출처는 `GET /app-config` 를 부를 수 없다(CORS) — 화면은 `GET /admin/app-config` 를 쓴다.
+- 예:
+  ```
+  PUT /admin/app-config/ios
+  { "minVersion": "1.2.0", "storeUrl": "https://apps.apple.com/kr/app/id0000000000", "message": "더 안정적인 새 버전이 나왔어요.", "blockNow": true }
+
+  200
+  { "minVersion": "1.2.0", "storeUrl": "https://apps.apple.com/kr/app/id0000000000", "message": "더 안정적인 새 버전이 나왔어요.", "blockNow": true,
+    "updatedAt": "2026-11-12T04:05:06Z", "updatedBy": { "id": "5f0c…", "name": "root-admin" } }
+  ```
+
 ### 브라우저 출처 (CORS)
 - 관리 화면이 열리는 주소를 서버의 환경 변수 `ADMIN_ALLOWED_ORIGINS`(설정 `byeolmyeong.cors.admin-allowed-origins`, 쉼표로 구분, 예 `https://admin.example.com,http://localhost:5173`)에 적어야 브라우저가 부를 수 있다. 주소는 `스킴://호스트[:포트]` 까지이고 끝에 `/` 를 붙이지 않는다.
 - `/admin/**` 는 이 주소만 허용한다. 허용 메서드 GET·POST·PUT·PATCH·DELETE, 허용 요청 헤더 `Authorization`·`Content-Type`. 쿠키·자격 증명 허용은 쓰지 않는다(`fetch` 에 `credentials` 를 주지 않는다).
 - 앱의 주소(`ALLOWED_ORIGINS`)는 `/admin/**` 를 부를 수 없고, 관리 화면의 주소는 `/admin/**` 밖의 경로를 부를 수 없다. 허용하지 않은 출처의 브라우저 요청은 맞는 토큰이 있어도 403(본문 `Invalid CORS request`, JSON 이 아니다)이다. 비워 두면 `/admin/**` 는 어떤 브라우저 출처에도 열리지 않는다(`Origin` 헤더가 없는 호출 — curl·서버 사이 — 은 CORS 와 상관없이 토큰만 본다).
 - 401 응답에도 허용 헤더가 붙으므로 화면이 401 을 읽을 수 있다.
+- 관리 화면은 `X-App-Platform`·`X-App-Version` 헤더를 보내지 않는다(허용 요청 헤더에 없다). 보내더라도 `/admin/**` 는 강제 업데이트에 걸리지 않는다.
 
 ### 첫 관리자와 환경 변수
 - 첫 관리자는 API 로 만들 수 없다. 서버가 뜰 때 **관리자가 한 명도 없고** 환경 변수 `ADMIN_BOOTSTRAP_ID`·`ADMIN_BOOTSTRAP_PASSWORD` 가 **둘 다** 있으면 그 값으로 만든다(표시 이름은 아이디와 같다). 아이디·비밀번호 규칙은 위와 같고, 규칙에 안 맞으면 만들지 않는다(로그 `event=admin_bootstrap_skipped reason=…`). 관리자가 한 명이라도 있으면 두 변수는 읽지 않는다(비밀번호를 덮어쓰지 않는다). 하나라도 없으면 관리자가 없는 채로 뜨고 `/admin/**` 는 전부 401 이다.
-- 설정(`application.properties`): `byeolmyeong.admin.session-hours`(12) · `byeolmyeong.admin.bcrypt-strength`(12) · `byeolmyeong.rate-limit.admin-login-per-ip`(20) · `byeolmyeong.rate-limit.admin-login-per-id`(5).
+- 설정(`application.properties`): `byeolmyeong.admin.session-hours`(12) · `byeolmyeong.admin.bcrypt-strength`(12) · `byeolmyeong.rate-limit.admin-login-per-ip`(20) · `byeolmyeong.rate-limit.admin-login-per-id`(5) · `byeolmyeong.app-config.cache-seconds`(5) · `byeolmyeong.rate-limit.app-config-per-minute`(120).
 
 ## 데이터
 - `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보. 태어난 곳은 시각을 알 때만 있다) · `readings`(소유자, 종류, 차트 해시, 본문, 더 쓰지 않는 공유 식별자 `share_id` — 결정 012) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만 — 네 영역의 글과 시기(`timing`: 마디·구간의 날짜와 글, "지금" 은 없음), 생성을 시작한 때(그 생성의 표식)·살아 있다는 표시를 마지막으로 적은 때(`active_at`, V9)·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자·주제·대상 unique, 본문. 대상의 뜻은 주제가 정한다: `LOVE` 는 차트 해시, `FUTURE` 는 `차트 해시|지금의 시기가 같은 동안의 첫날|마지막 날`, `SYNASTRY` 는 궁합 id — 결정 009·011. 궁합 주제의 행에도 상대의 출생 정보·행성 위치·연결은 없다) · `inquiries`(V11: 소유자, 종류, 글, 답장 받을 이메일 — 없으면 null, 만든 때. 기기 정보·주소는 없다 — 결정 013) · `push_tokens`.

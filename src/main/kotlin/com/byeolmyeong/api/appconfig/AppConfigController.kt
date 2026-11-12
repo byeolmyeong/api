@@ -1,7 +1,9 @@
 package com.byeolmyeong.api.appconfig
 
+import com.byeolmyeong.api.admin.AppConfigChanged
 import com.byeolmyeong.api.web.parseAppVersion
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.context.event.EventListener
 import org.springframework.http.ResponseEntity
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
@@ -31,7 +33,7 @@ class AppConfigController(private val configs: AppConfigService) {
 
 /**
  * 두 플랫폼의 설정을 서버 메모리에 잠깐 둔다(`byeolmyeong.app-config.cache-seconds`) — 모든 요청이 강제 업데이트를 확인하므로
- * 요청마다 DB 를 읽지 않게 한다.
+ * 요청마다 DB 를 읽지 않게 한다. 관리자가 고치면(`admin.AppConfigChanged`) 바로 비운다.
  */
 @Service
 class AppConfigService(
@@ -51,6 +53,12 @@ class AppConfigService(
 		val rows = repository.findAll()
 		val empty = PlatformConfig(null, null, null, false)
 		return AppConfig(rows["ios"] ?: empty, rows["android"] ?: empty).also { cached = Cached(it, now) }
+	}
+
+	/** 관리자가 설정을 고쳤다: 캐시를 비워 다음 요청이 새 값을 읽게 한다. 다른 서버는 캐시 시간이 지나면 따라온다. */
+	@EventListener
+	fun on(@Suppress("UNUSED_PARAMETER") event: AppConfigChanged) {
+		cached = null
 	}
 
 	/**
