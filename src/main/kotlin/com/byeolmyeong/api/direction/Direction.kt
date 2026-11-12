@@ -16,6 +16,7 @@ import tools.jackson.databind.JsonNode
 /** 주제. 이성은 내 차트, 미래는 내 차트의 지금의 시기, 궁합은 궁합 한 건에 대한 글이다(결정 009·011). */
 const val TOPIC_LOVE = "LOVE"
 const val TOPIC_FUTURE = "FUTURE"
+const val TOPIC_SYNASTRY = "SYNASTRY"
 
 const val ITEM_COUNT = 3
 
@@ -75,7 +76,7 @@ fun parseDirectionDraft(root: JsonNode): DirectionDraft? {
 /**
  * 생성된 글을 저장해도 되는지 본다. 문제가 없으면 null, 있으면 로그용 코드를 준다.
  * - `MALFORMED`: 빈 글, 항목이 3개가 아님, 근거가 없는 항목
- * - `BASIS_NOT_IN_CHART`: 근거에 [vocabulary](그 글에서 근거로 쓸 수 있는 말)에 없는 말이 있다(글자까지 같아야 한다)
+ * - `BASIS_NOT_IN_CHART`: 근거에 [vocabulary](그 글에서 근거로 쓸 수 있는 말. 궁합은 내 쪽 요소뿐)에 없는 말이 있다(글자까지 같아야 한다)
  * - `HAS_NUMBER`: [numbers] 가 false 인데 글에 숫자가 있다. 미래는 받지 않은 해·나이를 지어내지 못하게, 궁합은 점수를 적지 못하게(결정 011)
  * - `NOT_ADVICE_FORM`: [adviceProblem]
  */

@@ -54,6 +54,8 @@ class FakeDirectionGenerator : TextGenerator {
 	var respond: (DirectionPrompt, Int) -> DirectionDraft? = ::validDirection
 
 	override fun generate(request: GenerationRequest): JsonNode? {
+		// 궁합 주제의 테스트는 먼저 궁합을 만든다(`POST /synastry/direct`). 그 요약 요청은 방향성 제시의 것이 아니라 세지 않는다.
+		if (request.purpose == "synastry_summary") return mapper.valueToTree(mapOf("keywords" to listOf("가짜키워드하나", "가짜키워드둘", "가짜키워드셋"), "headline" to "가짜한줄요약"))
 		val schema: JsonNode = mapper.valueToTree(request.schema)
 		val vocabulary = schema["properties"]["items"]["items"]["properties"]["basis"]["items"]["enum"].values().map { it.asString() }
 		val prompt = DirectionPrompt(request.purpose, request.instructions, request.userText, vocabulary)
@@ -319,7 +321,7 @@ class DirectionApiIntegrationTest {
 	@Test
 	fun `주제가 없거나 아직 받지 않는 주제면 400 이다`() {
 		val token = tokenWithProfile(KNOWN)
-		for (body in listOf("""{"topic":"SYNASTRY","synastryId":"x"}""", """{"topic":"love"}""", """{"topic":"future"}""", """{"topic":"MONEY"}""", """{}""", """{"topic":null}""")) {
+		for (body in listOf("""{"topic":"synastry","synastryId":"x"}""", """{"topic":"love"}""", """{"topic":"future"}""", """{"topic":"MONEY"}""", """{}""", """{"topic":null}""")) {
 			val response = http(port, "POST", "/directions", body, token)
 			assertEquals(400, response.statusCode(), body)
 			assertEquals("""{"error":"INVALID_TOPIC"}""", response.body(), body)

@@ -1,5 +1,6 @@
 package com.byeolmyeong.api.direction
 
+import com.byeolmyeong.api.chart.Relation
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import tools.jackson.databind.json.JsonMapper
@@ -37,4 +38,14 @@ class DirectionRepository(private val jdbc: JdbcTemplate, private val mapper: Js
 			UUID.randomUUID(), ownerId, topic, target, mapper.writeValueAsString(draft),
 		)
 	}
+
+	/**
+	 * 소유자의 궁합 한 건에서 글에 필요한 것만 읽는다. 남의 것이면 없는 것이다.
+	 * `synastry` 의 표를 읽기만 한다 — 기능 패키지는 서로의 클래스를 쓸 수 없고, 이 값들은 앱에서 받으면 안 된다(결정 011).
+	 */
+	fun findSynastry(ownerId: UUID, synastryId: UUID): SynastryRef? = jdbc.query(
+		"select relation, score, owner_chart_hash from synastries where owner_id = ? and id = ?",
+		{ rs, _ -> SynastryRef(Relation.valueOf(rs.getString("relation")), rs.getInt("score"), rs.getString("owner_chart_hash")) },
+		ownerId, synastryId,
+	).firstOrNull()
 }
