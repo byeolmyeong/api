@@ -19,6 +19,7 @@ import java.util.HexFormat
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 
 private const val MAPO = 1841277
 
@@ -49,11 +50,42 @@ class ProfileApiIntegrationTest {
 		assertEquals(body, saved.body())
 		assertEquals(body, http(port, "GET", "/profile", token = token).body())
 
-		// 다시 저장하면 바뀐다. 시각 모름은 null 로 오간다
-		val unknown = """{"date":"2000-06-15","time":null,"placeId":$MAPO}"""
+		// 다시 저장하면 바뀐다. 시각 모름은 null 로 오가고, 그때는 태어난 곳도 null 이다
+		val unknown = """{"date":"2000-06-15","time":null,"placeId":null}"""
 		assertEquals(unknown, http(port, "PUT", "/profile", unknown, token).body())
 		assertEquals(unknown, http(port, "GET", "/profile", token = token).body())
 		assertEquals(1, jdbc.queryForObject("select count(*) from profiles", Int::class.java))
+	}
+
+	// 태어난 곳은 상승점·하우스에만 쓰인다. 시각을 모르면 받지 않아도 되고, 와도 저장하지 않는다(결정 007).
+	@Test
+	fun `시각을 모르면 태어난 곳을 저장하지 않는다`() {
+		val token = devToken(port)
+		val stored = """{"date":"2000-06-15","time":null,"placeId":null}"""
+		fun storedPlace(): Int? = jdbc.queryForObject("select place_id from profiles", Int::class.java)
+
+		// placeId 없이
+		val saved = http(port, "PUT", "/profile", """{"date":"2000-06-15","time":null}""", token)
+		assertEquals(200, saved.statusCode(), saved.body())
+		assertEquals(stored, saved.body())
+		assertEquals(stored, http(port, "GET", "/profile", token = token).body())
+		assertNull(storedPlace())
+
+		// placeId 를 보내도 저장하지 않는다. 읽지 않으므로 목록에 없는 id 여도 400 이 아니다
+		for (sent in listOf(MAPO, 999)) {
+			val again = http(port, "PUT", "/profile", """{"date":"2000-06-15","time":null,"placeId":$sent}""", token)
+			assertEquals(200, again.statusCode(), again.body())
+			assertEquals(stored, again.body())
+			assertEquals(stored, http(port, "GET", "/profile", token = token).body())
+			assertNull(storedPlace())
+		}
+
+		// 시각을 알던 사람이 모름으로 고치면 저장돼 있던 곳도 지워진다
+		val known = """{"date":"2000-06-15","time":"09:05","placeId":$MAPO}"""
+		assertEquals(known, http(port, "PUT", "/profile", known, token).body())
+		assertEquals(MAPO, storedPlace())
+		assertEquals(stored, http(port, "PUT", "/profile", """{"date":"2000-06-15","time":null,"placeId":$MAPO}""", token).body())
+		assertNull(storedPlace())
 	}
 
 	@Test
@@ -65,6 +97,9 @@ class ProfileApiIntegrationTest {
 			assertEquals("""{"error":"$error"}""", response.body(), body)
 		}
 		assertBad("""{"date":"1990-03-15","time":"14:30","placeId":999}""", "UNKNOWN_PLACE")
+		assertBad("""{"date":"1990-03-15","time":"14:30"}""", "UNKNOWN_PLACE")
+		assertBad("""{"date":"1990-03-15","time":"14:30","placeId":null}""", "UNKNOWN_PLACE")
+		assertBad("""{"date":"1990-02-30","time":null}""", "INVALID_DATE")
 		assertBad("""{"date":"1990-02-30","time":"14:30","placeId":$MAPO}""", "INVALID_DATE")
 		assertBad("""{"date":"1899-12-31","time":"14:30","placeId":$MAPO}""", "INVALID_DATE")
 		assertBad("""{"date":"1990-03-15","time":"25:00","placeId":$MAPO}""", "INVALID_TIME")

@@ -13,8 +13,8 @@ import java.time.LocalTime
 import java.util.HexFormat
 import java.util.UUID
 
-/** 한 사람이 저장해 둔 출생 정보. [time] 은 모르면 null, [placeId] 는 출생지 목록의 id. */
-data class BirthProfile(val date: LocalDate, val time: LocalTime?, val placeId: Int)
+/** 한 사람이 저장해 둔 출생 정보. [time] 은 모르면 null, [placeId] 는 출생지 목록의 id 이고 시각을 모르면 null 이다(결정 007). */
+data class BirthProfile(val date: LocalDate, val time: LocalTime?, val placeId: Int?)
 
 /**
  * 차트를 정하는 입력. 저장된 글이 "같은 차트"의 것인지는 [hash] 로 가린다(출생 정보 원문을 글 옆에 두지 않는다).
@@ -45,8 +45,11 @@ class BirthProfileService(private val repository: BirthProfileRepository, privat
 	/** 소유자가 저장해 둔 출생 정보의 차트 입력. 저장한 적 없으면 null. */
 	fun chartInput(ownerId: UUID): ChartInput? {
 		val profile = find(ownerId) ?: return null
-		val place = checkNotNull(places.find(profile.placeId)) { "저장된 출생지가 목록에 없다" }
-		return ChartInput(toUtc(profile.date, profile.time), place.lat, place.lon, timeKnown = profile.time != null)
+		val utc = toUtc(profile.date, profile.time)
+		// 시각을 모르면 저장된 곳이 없고 위경도는 차트에도 해시에도 쓰이지 않는다(0.0 은 자리만 채운다).
+		if (profile.time == null) return ChartInput(utc, lat = 0.0, lon = 0.0, timeKnown = false)
+		val place = checkNotNull(profile.placeId?.let(places::find)) { "저장된 출생지가 목록에 없다" }
+		return ChartInput(utc, place.lat, place.lon, timeKnown = true)
 	}
 
 	fun save(ownerId: UUID, profile: BirthProfile) = repository.upsert(ownerId, profile)
@@ -61,7 +64,7 @@ class BirthProfileRepository(private val jdbc: JdbcTemplate) {
 			BirthProfile(
 				date = rs.getDate("birth_date").toLocalDate(),
 				time = rs.getTime("birth_time")?.toLocalTime(),
-				placeId = rs.getInt("place_id"),
+				placeId = rs.getObject("place_id") as Int?,
 			)
 		},
 		ownerId,
