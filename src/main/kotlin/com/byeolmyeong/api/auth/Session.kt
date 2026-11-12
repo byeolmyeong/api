@@ -18,7 +18,7 @@ private const val BEARER = "Bearer "
 private val PUBLIC_PATHS = arrayOf("/health", "/places", "/auth/dev", "/auth/login", "/invites/*", "/shared/*", "/error")
 
 /** 로그인 전에 쓰는 곳 가운데 읽기(GET)만 여는 경로. 같은 경로의 다른 메서드는 세션이 있어야 한다. */
-private val PUBLIC_GET_PATHS = setOf("/faqs")
+private val PUBLIC_GET_PATHS = setOf("/faqs", "/app-config")
 
 /**
  * 관리자 API. 사용자 세션 검사는 이 아래를 보지 않는다 — 열어 두는 것이 아니라, 같은 경로 전부를 관리자 세션 검사
