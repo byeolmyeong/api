@@ -29,7 +29,7 @@ last_reviewed: 2026-11-12
 - `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹, 궁합 리포트(202 로 답하고 뒤에서 영역마다 쓴다). 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 010). 초대·수락은 아직 없다(태스크 9 의 나머지).
 - `direction` — 방향성 제시(해 볼 만한 것 3개). 지금은 이성 주제 하나다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래·궁합 주제는 리포트 시기·궁합이 들어온 뒤에 더한다. 결정: docs/decisions/009-direction-storage-and-advice-check.md
 - `inquiry` — 문의하기. 설정의 문의 글을 검증해 저장만 한다(관리 화면·메일 발송 없음). 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md
-- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
+- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
 - `share` — 공유 조회(공유 카드 4종).
 - `push` — 기기 토큰과 알림 발송.
 
@@ -47,7 +47,7 @@ src/main/kotlin/com/byeolmyeong/api/
   synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·두 차트 사이 연결의 글·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증)
   inquiry/     InquiryController · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증)
-  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository)
+  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다)
   share/       ShareController · ShareService
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
@@ -148,7 +148,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `title`·`body`: "이 시기의 주제". 마디와 구간 모두 언제나 있다(빈 글 없음). 마디 4개와, 리포트를 만든 날에 걸쳐 있거나 그날부터 10년 안에 시작하는 구간(30개까지)은 모델이 쓴 글이고 나머지는 서버의 정해진 글이다. 앱은 둘을 구분하지 않는다. 지시문은 글에 연도·나이·점성술 용어·사건의 단정을 쓰지 못하게 하고, 서버가 걸러 내는 것은 그 줄의 기간 밖의 해다(서버의 정해진 글에는 숫자와 용어가 없다).
   - `current`(지금 나의 구간, 언제나 있다) = `{ date, intervals[], milestone?, nextInterval?, nextMilestone?, nearestMilestone }`. 저장하지 않고 `GET` 할 때마다 그날(한국 날짜)로 만든다. `date` 는 서버의 오늘. `intervals` 는 오늘에 걸쳐 있는 구간(`from <= date <= to`, 위 `intervals` 의 원소와 같은 모양·같은 `id`, 없으면 빈 배열)이고 "언제까지" 는 각 구간의 `to` 다. `milestone` 은 오늘이 그 `from`~`to` 안인 마디(없으면 키 없음). `nextInterval` 은 오늘 뒤에 처음 시작하는 구간, `nextMilestone` 은 `date` 가 오늘 뒤인 첫 마디(둘 다 없으면 키 없음 — 두 번째 토성 귀환 뒤에는 `nextMilestone` 이 없다). `nearestMilestone` 은 오늘에서 `date` 가 가장 가까운 마디의 `kind`(지났든 아니든, 언제나 있다 — 화면에서 강조할 마디).
   - 이 변경 전에 만든 리포트(`timing` 없음)는 만든 적 없는 것으로 본다: `GET` 은 `NONE`, `POST` 는 새로 만들어 덮어쓴다.
-- 문의하기 `POST /inquiries` (2026-11-12 구현, 결정 013). 읽는 경로(`GET`·목록)는 없다.
+- 문의하기 `POST /inquiries` (2026-11-12 구현, 결정 013). 앱 사용자가 읽는 경로(`GET`·목록)는 없다. 관리자는 "관리자 API" 의 `/admin/inquiries` 로 읽고 처리한다(결정 014).
   - 요청: `category` 는 `ACCOUNT`(계정)·`READING`(해석)·`SYNASTRY`(궁합)·`BUG`(오류)·`OTHER`(기타) 중 하나. `body` 는 앞뒤 공백을 뗀 10~2000자(글자 수는 유니코드 코드 포인트로 센다: 한글 한 글자가 1, 이모지 한 개도 1 — JavaScript 의 `.length` 가 아니라 `[...body].length`). 가운데의 줄바꿈은 그대로 둔다. `replyEmail` 은 답장 받을 이메일이고 없어도 된다: 키가 없거나 `null` 이거나 빈 글·공백뿐인 글이면 "없음" 이다. 있으면 앞뒤 공백을 뗀 254자 이하이고 모양만 본다(`@` 가 정확히 하나, 그 앞이 비지 않음, 그 뒤에 `.` 이 있음, 공백 없음). 실제로 있는 주소인지는 확인하지 않는다. 그 밖의 키는 읽지 않는다.
   - 응답: 201 `{ id }`(UUID). 서버는 저장만 한다(답장·알림 없음).
   - 오류: 400 `INVALID_REQUEST`(본문이 JSON 객체가 아니거나, `category`·`body`·`replyEmail` 이 글자가 아닌 타입이다 — 숫자·배열·객체·불리언)·`INVALID_CATEGORY`(없거나 `null` 이거나 목록에 없다)·`INVALID_BODY`(없거나 `null` 이거나 길이가 틀리다)·`INVALID_EMAIL` · 401 `UNAUTHORIZED` · 429 `RATE_LIMITED`. 여러 개가 틀리면 이 순서로 처음 걸린 것 하나를 준다. 오류 응답에 입력값은 없다.
@@ -178,6 +178,9 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /admin/admins` | 없음 | 200 `[AdminAccount]` 먼저 만든 관리자부터 |
 | `POST /admin/admins` | `{ loginId, name, password }` | 201 `AdminAccount` |
 | `PATCH /admin/admins/{id}` | `{ active }` | 200 `AdminAccount` |
+| `GET /admin/inquiries?status=&category=&page=&size=` | 쿼리(모두 선택) | 200 `{ items: [Inquiry], page, size, total }` 새것부터 |
+| `GET /admin/inquiries/{id}` | 없음 | 200 `Inquiry` |
+| `PATCH /admin/inquiries/{id}` | `{ status?, memo? }` | 200 `Inquiry` |
 
 ### 로그인·세션
 - `Admin` = `{ id, loginId, name }`. `AdminAccount` = `{ id, loginId, name, active, createdAt }`. 비밀번호와 그 해시는 어떤 응답에도 없다.
@@ -199,6 +202,27 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - 끄면 그 관리자의 세션이 모두 지워져 그 사람의 다음 요청부터 401 이고, 로그인도 401 `INVALID_CREDENTIALS` 다. 다시 켜면 로그인할 수 있다(예전 토큰은 되살아나지 않는다). 그 관리자가 남긴 처리 기록은 그대로다.
   - 409 `CANNOT_DEACTIVATE_SELF`(자기 자신은 끌 수 없다) · 409 `LAST_ACTIVE_ADMIN`(마지막 남은 활성 관리자는 끌 수 없다 — 두 관리자가 동시에 서로를 끌 때만 나온다) · 400 `INVALID_REQUEST`(`active` 가 없거나 `null` 이거나 불리언이 아니다 — `"false"`·`0` 도 틀리다) · 404 `NOT_FOUND`.
 
+### 문의
+- `Inquiry` = `{ id, category, body, replyEmail, createdAt, status, memo, handledBy, handledAt, ownerRef }`. 목록의 원소와 한 건 조회와 `PATCH` 의 응답이 모두 이 모양이다(목록에도 글 전체가 온다).
+  - `category`: `ACCOUNT`(계정)·`READING`(해석)·`SYNASTRY`(궁합)·`BUG`(오류)·`OTHER`(기타). 앱 사용자가 고른 값이다.
+  - `body`: 문의 글(10~2000자, 줄바꿈이 들어 있을 수 있다). 사용자가 쓴 글이므로 화면은 HTML 로 해석하지 않고 글자로만 보여 준다.
+  - `replyEmail`: 답장 받을 이메일 또는 `null`(남기지 않음). 모양만 확인된 값이다. 서버는 메일을 보내지 않는다 — 답장은 관리자가 자기 메일로 직접 보낸다.
+  - `createdAt`: 문의를 보낸 때.
+  - `status`: `NEW`(새 문의, 앱이 보내면 언제나 이 값) · `IN_PROGRESS`(처리 중) · `DONE`(끝남). 어느 값에서 어느 값으로든 바꿀 수 있다.
+  - `memo`: 관리자끼리 보는 메모 또는 `null`. 앱 사용자에게는 보이지 않는다.
+  - `handledBy`: `{ id, name }` 또는 `null` — 상태나 메모를 **마지막으로** 바꾼 관리자(`name` 은 표시 이름). `handledAt` 은 그때 또는 `null`. 아무도 손대지 않은 문의는 둘 다 `null` 이다. 이력은 남지 않는다(마지막 한 번만).
+  - `ownerRef`: 보낸 계정을 가리키는 12자(16진수) 글자. 같은 계정이 보낸 문의는 값이 같아 묶어 볼 수 있다. 계정 id 가 아니고 이것으로 다른 정보를 찾을 수 없다. 출생 정보·계정 id 는 어떤 응답에도 없다.
+- `GET /admin/inquiries`: 만든 때가 늦은 것부터(같으면 id 가 큰 것부터). 쿼리는 모두 없어도 되고, 빈 값(`status=`)은 없는 것으로 본다.
+  - `status`: 위 세 값 중 하나. 그 상태만 준다. 그 밖의 값은 400 `INVALID_STATUS`(소문자도 틀리다).
+  - `category`: 위 다섯 값 중 하나. 그 종류만 준다. 목록에 없는 값이면 오류가 아니라 빈 목록이다.
+  - `page`: 0 부터 세는 쪽 번호(기본 0). `size`: 한 쪽의 개수 1~100(기본 20). 정수가 아니거나 범위를 벗어나면 400 `INVALID_PAGE`.
+  - 응답 `{ items, page, size, total }`: `page`·`size` 는 서버가 쓴 값, `total` 은 조건에 맞는 문의의 전체 수(쪽 수는 `Math.ceil(total / size)`). 마지막 쪽을 넘으면 `items` 가 빈 배열이다.
+- `GET /admin/inquiries/{id}`: 404 `NOT_FOUND`(없거나, 계정이 지워져 함께 지워졌거나, id 가 UUID 가 아니다).
+- `PATCH /admin/inquiries/{id}`: `status`·`memo` 가운데 **보낸 키만** 바꾼다(둘 중 하나는 있어야 한다). 200 바뀐 `Inquiry`. 바꿀 때마다 `handledBy` 가 이 요청의 관리자로, `handledAt` 이 지금으로 바뀐다(값이 예전과 같아도). 처리한 관리자는 토큰에서만 얻는다 — 본문의 다른 키(`handledBy`·`body` 등)는 읽지 않는다.
+  - `status`: 위 세 값 중 하나. `memo`: 앞뒤 공백을 뗀 2000자 이하의 글. `null` 이거나 빈 글·공백뿐인 글이면 메모를 지운다(`null` 이 된다).
+  - 400 `INVALID_REQUEST`(본문이 객체가 아니거나, 두 키가 모두 없거나, 타입이 틀리다) · `INVALID_STATUS`(`status` 키가 있는데 `null` 이거나 목록에 없다) · `INVALID_MEMO`(2000자를 넘는다) · 404 `NOT_FOUND`. 거절된 요청은 아무것도 바꾸지 않는다.
+- 문의는 지울 수 없고 글·종류·이메일은 고칠 수 없다. 앱 사용자가 계정을 지우면 그 사람의 문의는 처리한 것까지 모두 함께 지워진다(목록에서 사라지고 한 건 조회는 404).
+
 ### 브라우저 출처 (CORS)
 - 관리 화면이 열리는 주소를 서버의 환경 변수 `ADMIN_ALLOWED_ORIGINS`(설정 `byeolmyeong.cors.admin-allowed-origins`, 쉼표로 구분, 예 `https://admin.example.com,http://localhost:5173`)에 적어야 브라우저가 부를 수 있다. 주소는 `스킴://호스트[:포트]` 까지이고 끝에 `/` 를 붙이지 않는다.
 - `/admin/**` 는 이 주소만 허용한다. 허용 메서드 GET·POST·PUT·PATCH·DELETE, 허용 요청 헤더 `Authorization`·`Content-Type`. 쿠키·자격 증명 허용은 쓰지 않는다(`fetch` 에 `credentials` 를 주지 않는다).
@@ -211,7 +235,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 
 ## 데이터
 - `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보. 태어난 곳은 시각을 알 때만 있다) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만 — 네 영역의 글과 시기(`timing`: 마디·구간의 날짜와 글, "지금" 은 없음), 생성을 시작한 때(그 생성의 표식)·살아 있다는 표시를 마지막으로 적은 때(`active_at`, V9)·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자·주제·대상 unique, 본문. 대상의 뜻은 주제가 정한다: `LOVE` 는 차트 해시 — 결정 009) · `inquiries`(V11: 소유자, 종류, 글, 답장 받을 이메일 — 없으면 null, 만든 때. 기기 정보·주소는 없다 — 결정 013) · `push_tokens`.
-- 소유자를 가리키는 테이블은 모두 `on delete cascade` 다: 계정을 지우면 문의도 함께 지워진다. 문의는 관리 화면이 없어 소유자가 `inquiries` 를 직접 읽는다(SQL 은 결정 013).
+- 소유자를 가리키는 테이블은 모두 `on delete cascade` 다: 계정을 지우면 문의도 함께 지워진다. 문의는 관리자 API(`/admin/inquiries`)로 읽고 처리한다(결정 014).
 - 관리자 쪽 테이블(V12, 결정 014): `admin_accounts`(로그인 아이디 unique·소문자, bcrypt 해시, 표시 이름, 활성 여부, 만든 때) · `admin_sessions`(토큰 해시, 관리자, 끝나는 때) · `faqs`(질문, 답, 순서, 공개 여부, 고친 때, 고친 관리자). `inquiries` 에는 처리 칸 넷이 더해졌다: 상태(`NEW`·`IN_PROGRESS`·`DONE`, 기본 `NEW`)·관리자 메모·처리한 관리자·처리한 때. 관리자 테이블은 `accounts`·`sessions` 와 아무 관계가 없고, 관리자는 지우지 않는다(끄기만 한다).
 - 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
