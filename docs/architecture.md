@@ -31,7 +31,7 @@ last_reviewed: 2026-11-12
 - `inquiry` — 문의하기. 설정의 문의 글을 검증해 저장만 한다(관리 화면·메일 발송 없음). 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md
 - `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자), 현황 수치(개수만), FAQ 편집, 앱 설정 편집(최소 버전·강제 업데이트, 결정 016). 한 일은 `AdminAudit` 으로 감사 기록에 알린다(결정 015). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
 - `audit` — 감사 기록(결정 015). 다른 기능과 `auth` 가 낸 `web.AuditEvent` 를 듣고(`AuditRecorder`, 커밋 뒤·자기 트랜잭션·실패는 삼킨다) `audit_logs` 에 넣기만 한다. 관리자가 읽는 경로(`GET /admin/audit-logs`)도 여기 있다 — 경로가 `/admin/` 아래라 관리자 세션 검사가 걸리지만 `admin` 의 코드는 쓰지 않는다. 다른 기능은 이 패키지를 모른다.
-- `appconfig` — 앱 설정의 공개 조회(`GET /app-config`)와 강제 업데이트(`AppUpdateInterceptor`: 앱이 보낸 플랫폼·버전 헤더를 보고 낮은 버전을 426 으로 막는다. 세션 검사보다 먼저, `/admin/**`·`/health`·`/app-config` 는 뺀다). `app_configs` 를 읽기만 하고 잠깐 캐시한다. 값을 쓰는 것은 `admin` 이다(결정 016).
+- `appconfig` — 앱 설정의 공개 조회(`GET /app-config`)와 점검·강제 업데이트(`AppUpdateInterceptor`: 점검이 켜져 있으면 모든 요청을 503 으로 — 결정 017, 그다음 앱이 보낸 플랫폼·버전 헤더를 보고 낮은 버전을 426 으로 막는다. 세션 검사보다 먼저, `/admin/**`·`/health`·`/app-config` 는 뺀다). `app_configs`·`app_maintenance` 를 읽기만 하고 잠깐 캐시한다. 값을 쓰는 것은 `admin` 이다(결정 016).
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
 - `share` — 공유 카드 4종(요약 해석·궁합 점수·랭킹·다음 변곡점): 만들기·공개 조회·지우기. 공유하는 순간의 공개 글만 `shares` 에 따로 저장하고(스냅샷) 공개 조회는 그 표만 읽는다. 카드의 글은 그 글을 가진 기능에게 이벤트(`ReadingCardRequested` 등)로 묻는다. 이름을 이니셜로, 날짜를 해 + 계절로 줄이는 것도 여기서 한다. 결정: docs/decisions/012-share-cards-snapshot.md
 - `push` — 기기 토큰과 알림 발송.
@@ -92,7 +92,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|---|---|
 | `GET /places` · `GET /places?q=` | 없음 | 없음 · 검색어 | `[{ id, name, lat, lon }]` |
 | `GET /faqs` | 없음 | 없음 | `[{ id, question, answer }]` 공개한 것만 순서대로 · 하나도 없으면 `[]` · 아래 "자주 묻는 질문" |
-| `GET /app-config` | 없음 | 없음 | 200 `{ ios: PlatformConfig, android: PlatformConfig }` · 아래 "앱 설정과 강제 업데이트" |
+| `GET /app-config` | 없음 | 없음 | 200 `{ ios: PlatformConfig, android: PlatformConfig, maintenance: { active, message } }` · 아래 "앱 설정과 강제 업데이트" |
 | `POST /charts` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | `Chart` |
 | `POST /auth/dev` | 없음 | 없음 | `{ token }` · 개발 설정에서만, 운영 404 (결정 005) |
 | `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken }` | `{ token }` · 만 14세 미만 403 `UNDER_AGE` · 브랜딩 뒤 구현 |
@@ -116,7 +116,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /shared/{shareId}` | 없음 | 없음 | 200 `ShareCard`(요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나, 글과 숫자만) · 없는 식별자 404 `NOT_FOUND` · 429 `RATE_LIMITED` |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
 
-- 세션: 요청 헤더 `Authorization: Bearer <token>`. 없거나 틀리면 401 `UNAUTHORIZED`. 표에서 인증이 "없음" 인 경로와 `GET /health` 말고는 모두 세션이 필요하다(새 경로는 기본이 세션 필요다). 앱이 옛 버전이라 막힌 동안에는 세션 검사보다 먼저 426 `UPDATE_REQUIRED` 가 온다(아래 "앱 설정과 강제 업데이트"). 토큰은 서버가 원문을 저장하지 않는다(해시만). `/admin/**` 는 이 표에 없다 — 아래 "관리자 API" 가 따로 다루고, 사용자 세션 토큰은 거기서 통하지 않는다(관리자 토큰도 이 표의 경로에서 통하지 않는다).
+- 세션: 요청 헤더 `Authorization: Bearer <token>`. 없거나 틀리면 401 `UNAUTHORIZED`. 표에서 인증이 "없음" 인 경로와 `GET /health` 말고는 모두 세션이 필요하다(새 경로는 기본이 세션 필요다). 점검 중에는 세션 검사보다 먼저 503 `MAINTENANCE` 가, 앱이 옛 버전이라 막힌 동안에는 426 `UPDATE_REQUIRED` 가 온다(아래 "앱 설정과 강제 업데이트"). 토큰은 서버가 원문을 저장하지 않는다(해시만). `/admin/**` 는 이 표에 없다 — 아래 "관리자 API" 가 따로 다루고, 사용자 세션 토큰은 거기서 통하지 않는다(관리자 토큰도 이 표의 경로에서 통하지 않는다).
 - 브라우저의 다른 출처 요청(CORS): 설정 `byeolmyeong.cors.allowed-origins`(환경 변수 `ALLOWED_ORIGINS`, 쉼표 구분)에 적힌 주소만 허용한다. 비어 있으면 허용하지 않는다. 허용 메서드 GET·POST·PUT·DELETE, 허용 헤더 `Authorization`·`Content-Type`. 쿠키는 쓰지 않는다. `/admin/**` 는 이 주소들에 열리지 않는다 — 관리 화면의 주소(`ADMIN_ALLOWED_ORIGINS`)만 부를 수 있고, 그 주소는 이 표의 경로를 부를 수 없다("관리자 API" 의 "브라우저 출처").
 - `Chart` = `{ timeKnown, houseSystem: "PLACIDUS", moonSignMayChange?, positions[{ body, sign, degree, minute, longitude, house?, retrograde }], points[{ point, sign, degree, minute, longitude, house? }], houses?[12 × { house, sign, degree, minute, longitude }], angles?{ asc{ sign, degree, minute, longitude }, mc{ sign, degree, minute, longitude } }, aspects[{ a, b, type, orb, applying }] }`
   - `longitude` 는 황경 0 이상 360 미만(소수 둘째 자리, 도·분처럼 올리지 않고 버린다). 앱이 휠을 그릴 때 쓴다. `moonSignMayChange: true` 는 시각을 모르고 그날 안에 달 별자리가 바뀔 때만 보낸다. 상승점·중천은 `angles` 에만 온다. `houses` 는 1번부터 순서대로. `houseSystem` 은 시각을 몰라도 보낸다. (2026-11-11 확정·구현)
@@ -171,16 +171,19 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - 오류: 400 `INVALID_REQUEST`(본문이 JSON 객체가 아니거나, `category`·`body`·`replyEmail` 이 글자가 아닌 타입이다 — 숫자·배열·객체·불리언)·`INVALID_CATEGORY`(없거나 `null` 이거나 목록에 없다)·`INVALID_BODY`(없거나 `null` 이거나 길이가 틀리다)·`INVALID_EMAIL` · 401 `UNAUTHORIZED` · 429 `RATE_LIMITED`. 여러 개가 틀리면 이 순서로 처음 걸린 것 하나를 준다. 오류 응답에 입력값은 없다.
   - 429: 한 계정이 한 시간(서버 시계의 정시부터 정시까지)에 5건까지 저장할 수 있고 여섯 번째부터 429 다. 검증에서 걸린 요청(400)은 세지 않는다. 같은 계정의 다른 기기도 같이 센다.
 - 자주 묻는 질문 `GET /faqs` (2026-11-12 구현, 결정 014): 세션 없이 읽는다(로그인 전 화면에서도). 관리자가 공개한 것만, 관리자가 정한 순서대로 온다. `id` 는 UUID, `question` 은 1~200자, `answer` 는 1~2000자의 꾸밈 없는 글자(줄바꿈이 들어 있을 수 있다. HTML·마크다운이 아니다). 아직 글이 없으면 `[]` 다(오류가 아니다). 응답 헤더 `Cache-Control: public, max-age=300`. 주소별 분당 120번을 넘으면 429 `RATE_LIMITED`. 같은 경로의 다른 메서드와 `/faqs/` 아래 경로는 없다. 글을 쓰는 곳은 "관리자 API" 의 `/admin/faqs` 다.
-- 앱 설정과 강제 업데이트 (2026-11-12 구현, 결정 016):
-  - `GET /app-config`: 세션 없이 읽는다(로그인 전에도, 426 을 받은 뒤에도). `{ "ios": PlatformConfig, "android": PlatformConfig }`, `PlatformConfig = { "minVersion": string | null, "storeUrl": string | null, "message": string | null, "blockNow": boolean }`. 값이 없는 키도 `null` 로 온다(이 응답은 키를 빼지 않는다). 처음에는 두 플랫폼 모두 `{ null, null, null, false }` 다. 응답 헤더 `Cache-Control: public, max-age=60`. 주소별 분당 120번을 넘으면 429 `RATE_LIMITED`. 같은 경로의 다른 메서드는 없다.
+- 앱 설정과 강제 업데이트·점검 (2026-11-12 구현, 결정 016·017):
+  - `GET /app-config`: 세션 없이 읽는다(로그인 전에도, 426 을 받은 뒤에도). `{ "ios": PlatformConfig, "android": PlatformConfig, "maintenance": { "active": boolean, "message": string | null } }`, `PlatformConfig = { "minVersion": string | null, "storeUrl": string | null, "message": string | null, "blockNow": boolean }`. 값이 없는 키도 `null` 로 온다(이 응답은 키를 빼지 않는다). 처음에는 두 플랫폼 모두 `{ null, null, null, false }` 이고 `maintenance` 는 `{ "active": false, "message": null }` 다. 응답 헤더 `Cache-Control: public, max-age=60`. 주소별 분당 120번을 넘으면 429 `RATE_LIMITED`. 같은 경로의 다른 메서드는 없다.
     - `minVersion`: 이 플랫폼에서 써야 하는 가장 낮은 버전(아래 버전 규칙의 글자) 또는 `null`(정한 것이 없다). `storeUrl`: 업데이트하러 갈 `https://` 주소 또는 `null`. `message`: 안내에 보여 줄 글(200자 이하, 꾸밈 없는 글자) 또는 `null` — 없으면 앱의 기본 글을 쓴다. `blockNow`: `true` 면 서버가 아래 426 으로 실제로 막는 중이다. `false` 인데 `minVersion` 이 자기 버전보다 높으면 앱은 권하기만 한다(막지 않는다).
+  - **점검 503 `{ "error": "MAINTENANCE" }`** (결정 017): `maintenance.active` 가 `true` 인 동안 아래 세 곳을 뺀 **모든 경로**(없는 경로 포함, 메서드 무관)가 이 답이다. **웹에도 걸린다**(버전 헤더와 상관없다). 강제 업데이트(426)와 세션 검사(401)보다 먼저다 — 점검 중에는 옛 앱도, 토큰이 없는 요청도 503 을 받는다. 막힌 요청은 아무 일도 하지 않는다. 앱·웹은 어느 요청에서든 503 `MAINTENANCE` 를 받으면 `GET /app-config` 를 읽어 점검 화면(`maintenance.message` — 200자 이하의 꾸밈 없는 글자 또는 `null`, 없으면 기본 글)을 띄우고, `active` 가 `false` 로 돌아오면 푼다.
+    - 막지 않는 곳: `GET /app-config` · `GET /health` · `/admin/**`. 공유 카드의 공개 조회(`GET /shared/{shareId}`)도 점검 중에는 503 이다.
+    - 503 에도 CORS 허용 헤더가 붙는다. 브라우저의 사전 요청(OPTIONS)은 막지 않는다. `error` 가 `MAINTENANCE` 가 아닌 503 은 이 점검이 아니다.
   - **앱이 보내는 헤더**: 앱(iOS·Android)은 **모든 요청**에 `X-App-Platform: ios` 또는 `android`, `X-App-Version: <버전>` 을 보낸다. 웹 빌드는 둘 다 보내지 않는다(CORS 허용 헤더에 없어 브라우저에서 보내면 사전 요청이 거절된다).
   - **버전 규칙**: 점으로 나눈 1~3개의 0 이상 정수 — `"1"`·`"1.2"`·`"1.2.3"`. 빠진 자리는 0(`"1.2"` = `"1.2.0"`), 숫자로 견준다(`1.10.0` > `1.9.9`), 자리마다 숫자 9개까지. 그 밖(`"1.2.3.4"`·`"1.2.3-beta"`·`"v1.2"`·`"1.2.3+45"`)은 서버가 읽지 못한다 — 앱은 빌드 번호나 꼬리표를 붙이지 않은 값을 보낸다.
   - **426 `{ "error": "UPDATE_REQUIRED" }`**: 그 플랫폼의 `blockNow` 가 `true` 이고 `minVersion` 이 있고 요청의 `X-App-Version` 이 그보다 **낮으면**, 아래 세 곳을 뺀 **모든 경로**(없는 경로 포함, 메서드 무관)가 이 답이다. 세션 검사보다 먼저라 토큰이 없거나 틀려도 401 이 아니라 426 이다. 막힌 요청은 아무 일도 하지 않는다. 앱은 어느 요청에서든 426 을 받으면 `GET /app-config` 를 읽어 업데이트 화면(`message`·`storeUrl`)을 띄운다.
     - 막지 않는 곳: `GET /app-config` · `GET /health` · `/admin/**`(관리자 API 는 어떤 경우에도 잠기지 않는다).
     - 막지 않는 요청: 두 헤더 중 하나라도 없다 · `X-App-Platform` 이 `ios`·`android` 가 아니다(대소문자는 가리지 않는다) · `X-App-Version` 을 읽을 수 없다 · 버전이 `minVersion` 과 같거나 높다. 모르면 통과시킨다 — 이 장치는 보안이 아니라 정상적인 옛 앱에게 알리는 것이다.
     - 426 에도 CORS 허용 헤더가 붙는다. 브라우저의 사전 요청(OPTIONS)은 막지 않는다.
-  - 관리자가 값을 고치면 426 은 그 서버에서 바로, 서버가 여러 대면 길어야 5초(`byeolmyeong.app-config.cache-seconds`) 안에 적용된다. `GET /app-config` 의 응답은 60초 캐시될 수 있다. 값을 쓰는 곳은 "관리자 API" 의 `/admin/app-config` 다.
+  - 관리자가 값을 고치면 503·426 은 그 서버에서 바로, 서버가 여러 대면 길어야 5초(`byeolmyeong.app-config.cache-seconds`) 안에 적용된다. `GET /app-config` 의 응답은 60초 캐시될 수 있다. 값을 쓰는 곳은 "관리자 API" 의 `/admin/app-config` 다.
 - 공유 (2026-11-12 구현, 결정 012. 규칙의 원본은 앱 저장소 release-1.0.0 F6)
   - `ShareCard` 는 `kind` 로 가리는 네 모양 가운데 하나다. 아래 적힌 키가 전부이고, 값이 없는 키는 보내지 않는다. 출생 정보·근거(`basis`)·본문·소유자·궁합 id·날짜는 어느 카드에도 없다.
     - `{ kind: "READING", headline, keywords[3] }` — 요약 해석의 한 줄 총평과, 앞의 세 문단 제목.
@@ -195,7 +198,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `GET /shared/{shareId}`: 세션 없이 열린다. 저장된 `ShareCard` 를 그대로 준다. 없는(지워진) 식별자는 404 `NOT_FOUND`. 주소별 분당 한도를 넘으면 429 `RATE_LIMITED`. CORS 는 다른 경로와 같다(`ALLOWED_ORIGINS` 에 적힌 앱의 웹 주소만).
   - 이니셜(서버가 만든다): 한글 음절은 첫소리 글자로(지영 → `ㅈㅇ`, 쌍자음은 그대로), 이미 낱자인 한글은 그대로, 그 밖의 글자·숫자는 이어진 덩어리의 첫 글자만 대문자로(`Mike` → `M`, `김 Min` → `ㄱM`), 공백·기호·그림 문자는 뺀다. 남는 것이 없으면 `○`.
 
-## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016)
+## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016·017)
 관리 화면(웹)이 부르는 API 다. 앱은 부르지 않는다. 경로는 모두 `/admin/` 아래다.
 
 ### 공통
@@ -228,8 +231,9 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `DELETE /admin/faqs/{id}` | 없음 | 204 |
 | `PUT /admin/faqs/order` | `{ ids: [id, …] }` | 200 `[Faq]` 새 순서의 전체 목록 |
 | `GET /admin/audit-logs?actorType=&action=&from=&to=&actorRef=&page=&size=` | 쿼리(모두 선택) | 200 `{ items: [AuditLog], page, size, total }` 새것부터 |
-| `GET /admin/app-config` | 없음 | 200 `AppConfig`(두 플랫폼) |
+| `GET /admin/app-config` | 없음 | 200 `AppConfig`(두 플랫폼과 점검) |
 | `PUT /admin/app-config/{platform}` | `{ minVersion, storeUrl, message, blockNow }`(네 키 모두) | 200 `PlatformConfig`(바뀐 플랫폼) |
+| `PUT /admin/app-config/maintenance` | `{ active, message }`(두 키 모두) | 200 `Maintenance` |
 
 ### 로그인·세션
 - `Admin` = `{ id, loginId, name }`. `AdminAccount` = `{ id, loginId, name, active, createdAt }`. 비밀번호와 그 해시는 어떤 응답에도 없다.
@@ -341,6 +345,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `FAQ_DELETED` | `DELETE /admin/faqs/{id}` | `ADMIN` | `FAQ` id(이제 없는 id) | `null` |
   | `FAQ_REORDERED` | `PUT /admin/faqs/order` | `ADMIN` | 없음 | `{ count }` — 순서를 정한 FAQ 의 수 |
   | `APP_CONFIG_UPDATED` | `PUT /admin/app-config/{platform}`(아래 "앱 설정") | `ADMIN` | `APP_CONFIG` `ios` 또는 `android` | `{ platform, minVersion?, blockNow }` — `minVersion` 은 값이 있을 때만. 안내 글과 스토어 주소는 없다 |
+  | `MAINTENANCE_UPDATED` | `PUT /admin/app-config/maintenance`(아래 "앱 설정" 의 점검) | `ADMIN` | `APP_CONFIG` `maintenance` | `{ active }` — 켰는지 껐는지. 안내 글은 없다 |
 
 - 행동(`action`) — 앱 사용자(모두 `actorType: USER`):
 
@@ -384,18 +389,18 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
     ```
 - 보관 기한이 없다(행이 계속 쌓인다). 수치(`Stats`)에는 감사 기록의 수가 없다.
 
-### 앱 설정 (최소 버전·강제 업데이트)
+### 앱 설정 (최소 버전·강제 업데이트·점검)
 - 앱(iOS·Android)이 써야 하는 가장 낮은 버전을 플랫폼마다 정하고, 급할 때는 그보다 낮은 버전의 요청을 서버가 막게 한다(결정 016). 플랫폼은 `ios`·`android` 둘뿐이고 더하거나 지울 수 없다.
-- `AppConfig` = `{ ios: PlatformConfig, android: PlatformConfig }`. `PlatformConfig` = `{ minVersion, storeUrl, message, blockNow, updatedAt, updatedBy }`. `GET` 의 응답은 `AppConfig`, `PUT` 의 응답은 바뀐 플랫폼의 `PlatformConfig` 하나다.
+- `AppConfig` = `{ ios: PlatformConfig, android: PlatformConfig, maintenance: Maintenance }`(`Maintenance` 는 아래 "점검"). `PlatformConfig` = `{ minVersion, storeUrl, message, blockNow, updatedAt, updatedBy }`. `GET` 의 응답은 `AppConfig`, `PUT` 의 응답은 바뀐 플랫폼의 `PlatformConfig` 하나다.
   - `minVersion`: 최소 버전의 글자 또는 `null`(정하지 않음). 버전 규칙: 점으로 나눈 1~3개의 0 이상 정수 — `"1"`·`"1.2"`·`"1.2.3"`, 자리마다 숫자 9개까지. 빠진 자리는 0 으로 보고(`"1.2"` = `"1.2.0"`) 숫자로 견준다(`1.10.0` > `1.9.9`). 보낸 글자 그대로 저장한다(`"1.2"` 를 `"1.2.0"` 으로 바꾸지 않는다).
   - `storeUrl`: 업데이트하러 갈 스토어 주소 또는 `null`. `https://` 로 시작하고 호스트가 있는 500자 이하의 주소다. 앞뒤 공백을 떼지 않는다(공백이 있으면 틀린 값이다).
   - `message`: 앱이 업데이트 안내에 보여 줄 글 또는 `null`(앱의 기본 글을 쓴다). 앞뒤 공백을 뗀 200자 이하(코드 포인트)의 꾸밈 없는 글자이고 가운데 줄바꿈은 그대로 둔다.
   - `blockNow`: `true` 면 그 플랫폼에서 `minVersion` 보다 낮은 버전의 앱이 보내는 **모든 요청이 426 `UPDATE_REQUIRED` 로 막힌다**(그 앱은 업데이트 화면만 보인다). `false` 면 서버는 막지 않고, 앱이 `minVersion` 을 보고 업데이트를 권하기만 한다. `minVersion` 이 `null` 이면 `true` 로 둘 수 없다.
   - `updatedAt`: 마지막으로 고친 때(한 번도 고치지 않았으면 서버에 이 기능이 들어온 때). `updatedBy`: `{ id, name }`(고친 관리자, `name` 은 표시 이름) 또는 `null`(아무도 고치지 않았다).
-- `GET /admin/app-config`: 200 `AppConfig`. 두 플랫폼이 언제나 다 있다. 처음에는 둘 다 `{ "minVersion": null, "storeUrl": null, "message": null, "blockNow": false, "updatedAt": "…", "updatedBy": null }` 다.
+- `GET /admin/app-config`: 200 `AppConfig`. 두 플랫폼과 `maintenance` 가 언제나 다 있다. 처음에는 둘 다 `{ "minVersion": null, "storeUrl": null, "message": null, "blockNow": false, "updatedAt": "…", "updatedBy": null }` 다.
 - `PUT /admin/app-config/{platform}`: `platform` 은 `ios` 또는 `android`(소문자). 본문은 `{ "minVersion": string | null, "storeUrl": string | null, "message": string | null, "blockNow": boolean }` 이고 **네 키를 모두 보낸다**(바꾸지 않는 값도 지금 값을 그대로 보낸다 — 화면은 `GET` 으로 받은 값을 폼에 채워 통째로 보낸다). 그 플랫폼의 네 값이 본문의 값으로 바뀐다. 200 바뀐 `PlatformConfig`. 다른 플랫폼은 그대로다.
   - `message` 는 `null` 이거나 빈 글·공백뿐인 글이면 지워진다(`null`). `minVersion`·`storeUrl` 은 `null` 을 보내야 지워진다(빈 글은 틀린 값이다).
-  - 404 `NOT_FOUND`: `platform` 이 `ios`·`android` 가 아니다(`IOS` 도 틀리다).
+  - 404 `NOT_FOUND`: `platform` 이 `ios`·`android` 가 아니다(`IOS` 도 틀리다). `maintenance` 는 플랫폼이 아니라 아래 "점검" 의 경로다.
   - 400 `INVALID_REQUEST`: 본문이 객체가 아니거나, 네 키 가운데 하나라도 없거나, 타입이 틀리다(`minVersion`·`storeUrl`·`message` 가 글자도 `null` 도 아니다 — 숫자 `1.2` 도 틀리다. `blockNow` 가 불리언이 아니다 — `null`·`"true"`·`1` 도 틀리다).
   - 400 `INVALID_VERSION`: `minVersion` 이 버전 규칙에 맞지 않는다(`""`·`"1.2.3.4"`·`"v1.2"`·`"1.2-beta"`·앞뒤 공백).
   - 400 `INVALID_STORE_URL`: `storeUrl` 이 `https://` 주소가 아니거나(`http://`·`itms-apps://`·`market://`·스킴 없음), 호스트가 없거나, 공백이 있거나, 500자를 넘는다.
@@ -405,6 +410,21 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 언제 적용되나: 막기(426)는 고친 서버에서 **바로**, 서버가 여러 대면 다른 서버는 길어야 5초 뒤다. 앱이 읽는 공개 조회 `GET /app-config`(위 "API 계약" 의 "앱 설정과 강제 업데이트" — 여기서 `updatedAt`·`updatedBy` 를 뺀 네 값)는 60초 캐시될 수 있어 안내 글·주소가 앱에 보이기까지 1분쯤 걸릴 수 있다.
 - 막히는 것과 막히지 않는 것: 앱은 모든 요청에 `X-App-Platform`·`X-App-Version` 헤더를 보낸다. `blockNow` 가 켜진 플랫폼에서 버전이 `minVersion` 보다 낮은 요청만 막힌다. **관리자 API(`/admin/**`)는 어떤 경우에도 막히지 않는다** — 잘못 켰으면 같은 화면에서 끈다. 웹 빌드(헤더 없음)·모르는 플랫폼·읽을 수 없는 버전의 요청도 막히지 않는다. 버전이 `minVersion` 과 같으면 막히지 않는다.
   - 화면에 권하는 확인: `blockNow` 를 켜기 전에 "`minVersion` 미만의 앱은 업데이트 전까지 아무것도 할 수 없게 된다" 를 한 번 묻는다. `minVersion` 을 스토어에 아직 없는 버전으로 넣으면 그 플랫폼의 모든 사용자가 막힌다(서버는 스토어에 그 버전이 있는지 모른다).
+- **점검**(결정 017): `Maintenance` = `{ active, message, updatedAt, updatedBy }`.
+  - `active`: `true` 면 **앱과 웹의 모든 요청이 503 `MAINTENANCE` 로 막힌다**(사용자는 점검 화면만 본다). 플랫폼·버전과 상관없고 강제 업데이트보다 먼저다. `message`: 점검 화면에 보여 줄 글 또는 `null`(앱의 기본 글). `updatedAt`·`updatedBy`: 플랫폼 설정과 같은 뜻이다(아무도 고치지 않았으면 `updatedBy: null`). 처음에는 `{ "active": false, "message": null, "updatedAt": "…", "updatedBy": null }` 다.
+  - `PUT /admin/app-config/maintenance`: 본문 `{ "active": boolean, "message": string | null }` — **두 키를 모두 보낸다**. 200 바뀐 `Maintenance`. `message` 는 앞뒤 공백을 뗀 200자 이하(코드 포인트)이고 `null`·빈 글·공백뿐인 글이면 지워진다(`null`). 끌 때 `message` 를 남겨 둬도 된다(다음에 켤 때 쓴다 — 꺼져 있는 동안 앱은 보여 주지 않는다).
+    - 400 `INVALID_REQUEST`: 본문이 객체가 아니거나, 두 키 가운데 하나라도 없거나, 타입이 틀리다(`active` 가 불리언이 아니다 — `null`·`"true"`·`1` 도 틀리다. `message` 가 글자도 `null` 도 아니다). 400 `INVALID_MESSAGE`: 공백을 뗀 뒤 200자를 넘는다. 둘 다 틀리면 `INVALID_REQUEST`. 거절된 요청은 아무것도 바꾸지 않는다.
+  - 켜고 끄는 것은 고친 서버에서 **바로**, 서버가 여러 대면 길어야 5초 뒤에 적용된다. **관리자 API(`/admin/**`)는 점검 중에도 열려 있다** — 같은 화면에서 끈다. 앱이 읽는 `GET /app-config` 의 `maintenance`(`active`·`message` 만)는 60초 캐시될 수 있다.
+  - 화면에 권하는 확인: 켜기 전에 "모든 사용자가 앱과 웹을 쓸 수 없게 된다" 를 한 번 묻고, 켜져 있는 동안 눈에 띄게 보여 준다.
+  - 고칠 때마다 감사 기록 `MAINTENANCE_UPDATED` 가 남는다(켰는지 껐는지만, 안내 글은 없다).
+  - 예:
+    ```
+    PUT /admin/app-config/maintenance
+    { "active": true, "message": "새벽 2시부터 4시까지 점검해요." }
+
+    200
+    { "active": true, "message": "새벽 2시부터 4시까지 점검해요.", "updatedAt": "2026-11-12T17:00:00Z", "updatedBy": { "id": "5f0c…", "name": "root-admin" } }
+    ```
 - 고칠 때마다 감사 기록 `APP_CONFIG_UPDATED` 가 남는다(위 "감사 기록": 플랫폼·최소 버전·`blockNow` 만, 안내 글과 주소는 없다). 관리 화면의 출처는 `GET /app-config` 를 부를 수 없다(CORS) — 화면은 `GET /admin/app-config` 를 쓴다.
 - 예:
   ```
@@ -432,7 +452,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 소유자를 가리키는 테이블은 모두 `on delete cascade` 다: 계정을 지우면 문의도 함께 지워진다. 문의는 관리자 API(`/admin/inquiries`)로 읽고 처리한다(결정 014).
 - 관리자 쪽 테이블(V12, 결정 014): `admin_accounts`(로그인 아이디 unique·소문자, bcrypt 해시, 표시 이름, 활성 여부, 만든 때) · `admin_sessions`(토큰 해시, 관리자, 끝나는 때) · `faqs`(질문, 답, 순서, 공개 여부, 고친 때, 고친 관리자). `inquiries` 에는 처리 칸 넷이 더해졌다: 상태(`NEW`·`IN_PROGRESS`·`DONE`, 기본 `NEW`)·관리자 메모·처리한 관리자·처리한 때. 관리자 테이블은 `accounts`·`sessions` 와 아무 관계가 없고, 관리자는 지우지 않는다(끄기만 한다).
 - 감사 기록(V13, 결정 015): `audit_logs`(일어난 때, 행위자 종류 `ADMIN`·`USER`·`SYSTEM`, 행위자 id — 계정 id 의 글자, 행위자 표시 — 관리자는 그때의 로그인 아이디·사용자는 `ownerRef`, 행동 코드, 대상 종류·id, 결과 `SUCCESS`·`FAILURE`, 덧붙임 `detail` — 코드 값만 담는 작은 JSON). **계정을 가리키는 외래 키가 없다: 계정을 지워도 이 행들은 남는다**(위 줄의 "모두 `on delete cascade`" 의 유일한 예외). 그래서 출생 정보·이름·이메일·사용자가 쓴 글·비밀번호·토큰·주소는 어느 칸에도 없다. 넣기만 하고 보관 기한은 아직 없다.
-- 앱 설정(V14, 결정 016): `app_configs`(플랫폼 `ios`·`android` 가 기본 키 — 마이그레이션이 넣은 두 행뿐이다, 최소 버전, 스토어 주소, 안내 글, `block_now` — 최소 버전이 있어야 켤 수 있다(check), 고친 때, 고친 관리자).
+- 앱 설정(V14, 결정 016): `app_configs`(플랫폼 `ios`·`android` 가 기본 키 — 마이그레이션이 넣은 두 행뿐이다, 최소 버전, 스토어 주소, 안내 글, `block_now` — 최소 버전이 있어야 켤 수 있다(check), 고친 때, 고친 관리자). 점검(V15, 결정 017): `app_maintenance`(행 하나 — 켜짐 여부, 안내 글, 고친 때, 고친 관리자).
 - 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
 - `shares`(V10, 결정 012): 공유 식별자(기본 키, 무작위 128비트), 소유자(계정을 지우면 함께 지워진다), 카드 종류, 카드(공개 조회가 그대로 주는 JSON — 공개 필드뿐이다), 카드의 해시(같은 소유자의 같은 내용은 한 행), 만든 때. 랭킹 카드에는 앞의 3명만, 이름을 가렸으면 이니셜만 들어 있다. 다음 변곡점 카드에는 날짜가 아니라 해와 계절이 들어 있다.

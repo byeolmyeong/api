@@ -22,9 +22,12 @@ private const val ADMIN_ID = "config-admin"
 private const val ADMIN_PASSWORD = "config-admin-password"
 private const val EMPTY = """{"minVersion":null,"storeUrl":null,"message":null,"blockNow":false}"""
 private const val UPDATE_REQUIRED = """{"error":"UPDATE_REQUIRED"}"""
+private const val NO_MAINTENANCE = """"maintenance":{"active":false,"message":null}"""
+private const val MAINTENANCE = """{"error":"MAINTENANCE"}"""
 
 fun resetAppConfigs(jdbc: JdbcTemplate) {
 	jdbc.update("update app_configs set min_version = null, store_url = null, message = null, block_now = false, updated_by = null")
+	jdbc.update("update app_maintenance set active = false, message = null, updated_by = null")
 }
 
 /**
@@ -93,7 +96,7 @@ class AppConfigApiIntegrationTest {
 	fun `처음에는 두 플랫폼 모두 비어 있고 세션 없이 읽는다`() {
 		val response = http(port, "GET", "/app-config")
 		assertEquals(200, response.statusCode())
-		assertEquals("""{"ios":$EMPTY,"android":$EMPTY}""", response.body())
+		assertEquals("""{"ios":$EMPTY,"android":$EMPTY,$NO_MAINTENANCE}""", response.body())
 		assertEquals("public, max-age=60", response.headers().firstValue("Cache-Control").orElse(null))
 	}
 
@@ -104,7 +107,7 @@ class AppConfigApiIntegrationTest {
 
 		assertEquals(
 			"""{"ios":{"minVersion":"1.2.0","storeUrl":"https://apps.apple.com/app/id000","message":"새 버전으로 업데이트해 주세요","blockNow":true},""" +
-				""""android":{"minVersion":"2.0","storeUrl":null,"message":null,"blockNow":false}}""",
+				""""android":{"minVersion":"2.0","storeUrl":null,"message":null,"blockNow":false},$NO_MAINTENANCE}""",
 			http(port, "GET", "/app-config").body(),
 		)
 	}
@@ -210,6 +213,84 @@ class AppConfigApiIntegrationTest {
 		val foreign = call("GET", "/profile", "ios", "1.0.0", null, null, "Origin", "http://evil.example.com")
 		assertEquals(403, foreign.statusCode())
 		assertNull(foreign.headers().firstValue("Access-Control-Allow-Origin").orElse(null))
+	}
+
+	private fun maintenance(active: Boolean, message: String? = null) {
+		jdbc.update("update app_maintenance set active = ?, message = ?", active, message)
+	}
+
+	private fun assertMaintenance(response: HttpResponse<String>, what: String = "") {
+		assertEquals(503, response.statusCode(), what)
+		assertEquals(MAINTENANCE, response.body(), what)
+		assertEquals("application/json", response.headers().firstValue("Content-Type").orElse("").substringBefore(';'), what)
+	}
+
+	@Test
+	fun `점검 안내가 설정 조회에 실린다`() {
+		maintenance(true, "새벽 2시부터 4시까지 점검해요")
+		assertEquals(
+			"""{"ios":$EMPTY,"android":$EMPTY,"maintenance":{"active":true,"message":"새벽 2시부터 4시까지 점검해요"}}""",
+			http(port, "GET", "/app-config").body(),
+		)
+		maintenance(true)
+		assertEquals(true, """"maintenance":{"active":true,"message":null}""" in http(port, "GET", "/app-config").body())
+	}
+
+	@Test
+	fun `점검 중에는 웹과 앱의 모든 경로가 503 이다`() {
+		val token = devToken(port)
+		maintenance(true, "점검 중")
+
+		// 버전 헤더가 없는 요청(웹)도 막힌다.
+		assertMaintenance(call("GET", "/places", platform = null, version = null), "세션이 필요 없는 경로")
+		assertMaintenance(call("GET", "/profile", platform = null, version = null, token = token), "세션이 있는 요청")
+		assertMaintenance(call("GET", "/profile", platform = null, version = null), "세션이 없으면 401 이 아니라 503 이 먼저다")
+		assertMaintenance(call("POST", "/readings", platform = null, version = null, token = token))
+		assertMaintenance(call("PUT", "/profile", platform = null, version = null, token = token, body = """{"date":"1990-03-15","time":null}"""))
+		assertMaintenance(call("POST", "/auth/dev", platform = null, version = null))
+		assertMaintenance(call("GET", "/faqs", platform = null, version = null))
+		assertMaintenance(call("GET", "/shared/no-such-share", platform = null, version = null))
+		assertMaintenance(call("GET", "/no-such-path", platform = null, version = null, token = token), "없는 경로")
+		assertMaintenance(call("GET", "/places", platform = "android", version = "9.9.9"), "최신 앱")
+		assertEquals(0, jdbc.queryForObject("select count(*) from profiles", Int::class.java), "막힌 요청은 아무것도 하지 않는다")
+
+		// 강제 업데이트보다 먼저다.
+		set("ios", "1.2.0", true)
+		assertMaintenance(call("GET", "/places", version = "1.0.0"), "옛 앱도 426 이 아니라 503")
+
+		maintenance(false, "점검 중")
+		assertBlocked(call("GET", "/places", version = "1.0.0"), "끄면 다음 검사(426)로 넘어간다")
+		assertEquals(200, call("GET", "/places", platform = null, version = null).statusCode())
+		assertEquals(401, call("GET", "/profile", platform = null, version = null).statusCode())
+	}
+
+	@Test
+	fun `점검 중에도 설정 조회·상태 확인·관리자 경로는 열려 있다`() {
+		maintenance(true, "점검 중")
+
+		val config = http(port, "GET", "/app-config")
+		assertEquals(200, config.statusCode())
+		assertEquals(true, """"active":true""" in config.body())
+		assertEquals(200, http(port, "GET", "/health").statusCode())
+
+		val login = http(port, "POST", "/admin/auth/login", """{"loginId":"$ADMIN_ID","password":"$ADMIN_PASSWORD"}""")
+		assertEquals(200, login.statusCode(), "관리자는 로그인해 점검을 끌 수 있어야 한다")
+		val adminToken = Regex(""""token":"([^"]+)"""").find(login.body())!!.groupValues[1]
+		assertEquals(200, http(port, "GET", "/admin/me", token = adminToken).statusCode())
+		assertEquals(401, http(port, "GET", "/admin/me").statusCode(), "관리자 경로는 503 이 아니라 관리자 세션 검사의 답이다")
+	}
+
+	@Test
+	fun `503 에도 CORS 허용 헤더가 붙고 사전 요청은 건드리지 않는다`() {
+		maintenance(true)
+
+		val blocked = http(port, "GET", "/profile", null, null, "Origin", APP)
+		assertMaintenance(blocked)
+		assertEquals(APP, blocked.headers().firstValue("Access-Control-Allow-Origin").orElse(null))
+
+		val preflight = http(port, "OPTIONS", "/profile", null, null, "Origin", APP, "Access-Control-Request-Method", "GET")
+		assertEquals(200, preflight.statusCode())
+		assertEquals(APP, preflight.headers().firstValue("Access-Control-Allow-Origin").orElse(null))
 	}
 }
 

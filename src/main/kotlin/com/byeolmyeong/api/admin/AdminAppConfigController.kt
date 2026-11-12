@@ -35,7 +35,10 @@ data class AdminPlatformConfig(
 	val updatedBy: AdminRef?,
 )
 
-data class AdminAppConfig(val ios: AdminPlatformConfig, val android: AdminPlatformConfig)
+/** 관리자가 보는 점검 상태(결정 017). */
+data class AdminMaintenance(val active: Boolean, val message: String?, val updatedAt: String, val updatedBy: AdminRef?)
+
+data class AdminAppConfig(val ios: AdminPlatformConfig, val android: AdminPlatformConfig, val maintenance: AdminMaintenance)
 
 /** 검증을 통과한 새 값. */
 class AppConfigUpdate(val minVersion: String?, val storeUrl: String?, val message: String?, val blockNow: Boolean)
@@ -49,6 +52,17 @@ class AdminAppConfigController(private val configs: AdminAppConfigService, priva
 
 	@GetMapping("/admin/app-config")
 	fun get(): AdminAppConfig = configs.get()
+
+	/** 점검을 켜고 끈다(결정 017). 두 값을 모두 보내야 한다. 켜면 앱의 모든 요청이 503 이 된다(관리자 API 는 열려 있다). */
+	@PutMapping("/admin/app-config/maintenance")
+	fun updateMaintenance(@RequestBody body: JsonNode): AdminMaintenance {
+		body.requireObject()
+		if (!body.has("active") || !body.has("message")) throw BadRequestException("INVALID_REQUEST")
+		val active = body.booleanOrNull("active") ?: throw BadRequestException("INVALID_REQUEST")
+		val message = body.textOrNull("message")?.trim()?.ifEmpty { null }
+		if (message != null && (message.codePointLength() > MESSAGE_MAX || NUL in message)) throw BadRequestException("INVALID_MESSAGE")
+		return configs.updateMaintenance(current.get().id, active, message)
+	}
 
 	/** 네 값을 모두 보내야 한다(빠진 키가 있으면 `INVALID_REQUEST`) — 보내지 않은 값이 모르는 사이 남거나 지워지지 않게. */
 	@PutMapping("/admin/app-config/{platform}")
@@ -90,7 +104,7 @@ class AdminAppConfigService(
 
 	fun get(): AdminAppConfig {
 		val rows = repository.findAll()
-		return AdminAppConfig(rows.getValue("ios"), rows.getValue("android"))
+		return AdminAppConfig(rows.getValue("ios"), rows.getValue("android"), repository.findMaintenance())
 	}
 
 	/** [platform] 은 `ios`·`android` 중 하나다(컨트롤러가 봤다). 바꾼 뒤 캐시를 비우게 알리고 감사 기록을 남긴다(안내 글·주소는 남기지 않는다). */
@@ -104,6 +118,15 @@ class AdminAppConfigService(
 			put("blockNow", update.blockNow)
 		})
 		return repository.findAll().getValue(platform)
+	}
+
+	/** 감사 기록에는 켰는지 껐는지만 남긴다(안내 글은 남기지 않는다). */
+	fun updateMaintenance(adminId: UUID, active: Boolean, message: String?): AdminMaintenance {
+		repository.updateMaintenance(adminId, active, message)
+		log.info("event=admin_maintenance_updated active={}", active)
+		events.publishEvent(AppConfigChanged())
+		audit.record(AuditAction.MAINTENANCE_UPDATED, "APP_CONFIG", "maintenance", mapOf("active" to active))
+		return repository.findMaintenance()
 	}
 }
 
@@ -137,5 +160,20 @@ class AdminAppConfigRepository(private val jdbc: JdbcTemplate) {
 			"update app_configs set min_version = ?, store_url = ?, message = ?, block_now = ?, updated_at = now(), updated_by = ? where platform = ?",
 			update.minVersion, update.storeUrl, update.message, update.blockNow, adminId, platform,
 		)
+	}
+
+	fun findMaintenance(): AdminMaintenance = jdbc.query(
+		"select m.active, m.message, m.updated_at, m.updated_by, a.name as updater_name from app_maintenance m left join admin_accounts a on a.id = m.updated_by",
+	) { rs, _ ->
+		AdminMaintenance(
+			active = rs.getBoolean("active"),
+			message = rs.getString("message"),
+			updatedAt = rs.getObject("updated_at", OffsetDateTime::class.java).utcSeconds(),
+			updatedBy = rs.getObject("updated_by", UUID::class.java)?.let { AdminRef(it, rs.getString("updater_name")) },
+		)
+	}.single()
+
+	fun updateMaintenance(adminId: UUID, active: Boolean, message: String?) {
+		jdbc.update("update app_maintenance set active = ?, message = ?, updated_at = now(), updated_by = ?", active, message, adminId)
 	}
 }

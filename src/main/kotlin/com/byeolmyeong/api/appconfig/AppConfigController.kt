@@ -15,12 +15,15 @@ import java.util.Locale
 /** 한 플랫폼의 설정. 값이 없으면 null 로 보낸다(키를 빼지 않는다). */
 data class PlatformConfig(val minVersion: String?, val storeUrl: String?, val message: String?, val blockNow: Boolean)
 
+/** 점검(결정 017). [active] 면 앱의 모든 요청이 503 이다. */
+data class Maintenance(val active: Boolean, val message: String?)
+
 /** `GET /app-config` 의 응답. */
-data class AppConfig(val ios: PlatformConfig, val android: PlatformConfig)
+data class AppConfig(val ios: PlatformConfig, val android: PlatformConfig, val maintenance: Maintenance)
 
 /**
  * 앱 설정의 공개 조회(결정 016). 세션 없이 읽는다 — 앱이 시작할 때, 그리고 426 을 받았을 때 읽는다.
- * 값은 관리자가 `/admin/app-config` 로 쓴다(`admin` 패키지). 이 패키지는 `app_configs` 를 읽기만 한다.
+ * 값은 관리자가 `/admin/app-config` 로 쓴다(`admin` 패키지). 이 패키지는 `app_configs`·`app_maintenance` 를 읽기만 한다.
  */
 @RestController
 class AppConfigController(private val configs: AppConfigService) {
@@ -52,7 +55,7 @@ class AppConfigService(
 		cached?.takeIf { now - it.loadedAt < ttlNanos }?.let { return it.config }
 		val rows = repository.findAll()
 		val empty = PlatformConfig(null, null, null, false)
-		return AppConfig(rows["ios"] ?: empty, rows["android"] ?: empty).also { cached = Cached(it, now) }
+		return AppConfig(rows["ios"] ?: empty, rows["android"] ?: empty, repository.findMaintenance()).also { cached = Cached(it, now) }
 	}
 
 	/** 관리자가 설정을 고쳤다: 캐시를 비워 다음 요청이 새 값을 읽게 한다. 다른 서버는 캐시 시간이 지나면 따라온다. */
@@ -89,4 +92,9 @@ class AppConfigRepository(private val jdbc: JdbcTemplate) {
 		}
 		return rows
 	}
+
+	/** 점검 행은 하나다(마이그레이션이 넣는다). */
+	fun findMaintenance(): Maintenance =
+		jdbc.query("select active, message from app_maintenance") { rs, _ -> Maintenance(rs.getBoolean("active"), rs.getString("message")) }
+			.firstOrNull() ?: Maintenance(false, null)
 }

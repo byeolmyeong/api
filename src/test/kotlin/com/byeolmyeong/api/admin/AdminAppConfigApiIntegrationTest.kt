@@ -64,7 +64,12 @@ class AdminAppConfigApiIntegrationTest {
 		val response = get()
 		assertEquals(200, response.statusCode())
 		val json = response.json()
-		assertEquals(setOf("ios", "android"), json.propertyNames().toSet())
+		assertEquals(setOf("ios", "android", "maintenance"), json.propertyNames().toSet())
+		val maintenance = json["maintenance"]
+		assertEquals(setOf("active", "message", "updatedAt", "updatedBy"), maintenance.propertyNames().toSet())
+		assertEquals(false, maintenance["active"].asBoolean())
+		assertTrue(maintenance["message"].isNull && maintenance["updatedBy"].isNull)
+		assertTrue(maintenance["updatedAt"].asString().matches(Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z""")))
 		for (platform in listOf("ios", "android")) {
 			val config = json[platform]
 			assertEquals(PLATFORM_KEYS, config.propertyNames().toSet())
@@ -93,7 +98,7 @@ class AdminAppConfigApiIntegrationTest {
 		assertEquals(ios, all["ios"])
 		assertTrue(all["android"]["minVersion"].isNull && all["android"]["updatedBy"].isNull, "다른 플랫폼은 그대로다")
 		assertEquals(
-			"""{"ios":{"minVersion":"1.2.0","storeUrl":"$STORE","message":"$MESSAGE","blockNow":true},"android":{"minVersion":null,"storeUrl":null,"message":null,"blockNow":false}}""",
+			"""{"ios":{"minVersion":"1.2.0","storeUrl":"$STORE","message":"$MESSAGE","blockNow":true},"android":{"minVersion":null,"storeUrl":null,"message":null,"blockNow":false},"maintenance":{"active":false,"message":null}}""",
 			public(),
 		)
 
@@ -206,5 +211,73 @@ class AdminAppConfigApiIntegrationTest {
 		val listed = http(port, "GET", "/admin/audit-logs?action=APP_CONFIG_UPDATED", token = token).json()
 		assertEquals(1, listed["total"].asInt())
 		assertEquals(listOf("APP_CONFIG", "android"), listOf(listed["items"][0]["targetType"].asString(), listed["items"][0]["targetId"].asString()))
+	}
+
+	private fun putMaintenance(body: Any?, token: String? = this.token): HttpResponse<String> = put("maintenance", body, token)
+
+	@Test
+	fun `점검을 켜고 끄면 누가 언제 바꿨는지 적히고 바로 적용된다`() {
+		val rootId = jdbc.queryForObject("select id::text from admin_accounts where login_id = ?", String::class.java, ROOT_ID)
+		// 지금 값(점검 아님)을 서버 메모리에 읽혀 둔다.
+		assertEquals(200, http(port, "GET", "/places").statusCode())
+
+		val on = putMaintenance(mapOf("active" to true, "message" to "  $MESSAGE \n"))
+		assertEquals(200, on.statusCode(), on.body())
+		val json = on.json()
+		assertEquals(setOf("active", "message", "updatedAt", "updatedBy"), json.propertyNames().toSet())
+		assertEquals(true, json["active"].asBoolean())
+		assertEquals(MESSAGE, json["message"].asString(), "앞뒤 공백을 뗀다")
+		assertEquals(listOf(rootId, ROOT_ID), listOf(json["updatedBy"]["id"].asString(), json["updatedBy"]["name"].asString()))
+		assertEquals(json, get().json()["maintenance"])
+
+		assertEquals(503, http(port, "GET", "/places").statusCode(), "캐시 시간을 기다리지 않고 바로 막는다")
+		assertEquals("""{"error":"MAINTENANCE"}""", http(port, "GET", "/profile").body())
+		assertTrue(""""maintenance":{"active":true,"message":"$MESSAGE"}""" in public())
+		assertTrue(get().json()["ios"]["minVersion"].isNull, "플랫폼 설정은 그대로다")
+
+		// 점검 중에도 관리자 API 는 열려 있어 끌 수 있다.
+		val off = putMaintenance(mapOf("active" to false, "message" to null))
+		assertEquals(200, off.statusCode())
+		assertEquals(false, off.json()["active"].asBoolean())
+		assertTrue(off.json()["message"].isNull)
+		assertEquals(200, http(port, "GET", "/places").statusCode(), "끄면 바로 풀린다")
+
+		for (blank in listOf("", "   ")) assertTrue(putMaintenance(mapOf("active" to false, "message" to blank)).json()["message"].isNull)
+		assertEquals(200, putMaintenance(mapOf("active" to false, "message" to "😀".repeat(200))).statusCode())
+	}
+
+	@Test
+	fun `틀린 점검 요청은 거절하고 아무것도 바꾸지 않는다`() {
+		assertEquals(200, putMaintenance(mapOf("active" to false, "message" to "남아 있을 글")).statusCode())
+		jdbc.update("delete from audit_logs")
+
+		for (raw in listOf("[]", "1", "null", "{", "")) assertError(400, "INVALID_REQUEST", putMaintenance(raw), raw)
+		assertError(400, "INVALID_REQUEST", putMaintenance(mapOf("active" to true)), "message 없음")
+		assertError(400, "INVALID_REQUEST", putMaintenance(mapOf("message" to "x")), "active 없음")
+		for (bad in listOf(null, "true", 1, listOf(true))) assertError(400, "INVALID_REQUEST", putMaintenance(mapOf("active" to bad, "message" to null)), "active=$bad")
+		for (bad in listOf(1, true, listOf("x"), mapOf("a" to "b"))) assertError(400, "INVALID_REQUEST", putMaintenance(mapOf("active" to true, "message" to bad)), "message=$bad")
+		assertError(400, "INVALID_MESSAGE", putMaintenance(mapOf("active" to true, "message" to "가".repeat(201))))
+		assertError(400, "INVALID_REQUEST", putMaintenance(mapOf("active" to "true", "message" to "가".repeat(201))), "타입이 먼저다")
+		val (_, userToken) = userAccount(jdbc, "maintenance-user")
+		for (bad in listOf(null, userToken)) assertError(401, "UNAUTHORIZED", putMaintenance(mapOf("active" to true, "message" to null), bad))
+
+		val maintenance = get().json()["maintenance"]
+		assertEquals(listOf("false", "남아 있을 글"), listOf(maintenance["active"].asString(), maintenance["message"].asString()))
+		assertEquals(200, http(port, "GET", "/places").statusCode())
+		assertEquals(0, jdbc.queryForObject("select count(*) from audit_logs", Int::class.java))
+	}
+
+	@Test
+	fun `점검을 바꿀 때마다 감사 기록에 켰는지만 남는다`() {
+		assertEquals(200, putMaintenance(mapOf("active" to true, "message" to MESSAGE)).statusCode())
+		assertEquals(200, putMaintenance(mapOf("active" to false, "message" to MESSAGE)).statusCode())
+
+		val rows = jdbc.queryForList("select actor_label, action, target_type, target_id, outcome, detail::text as detail from audit_logs order by occurred_at")
+		assertEquals(2, rows.size)
+		for (row in rows) assertEquals(listOf(ROOT_ID, "MAINTENANCE_UPDATED", "APP_CONFIG", "maintenance", "SUCCESS"), listOf("actor_label", "action", "target_type", "target_id", "outcome").map { row[it] })
+		assertEquals(listOf("""{"active": true}""", """{"active": false}"""), rows.map { it["detail"] })
+		val dump = jdbc.queryForList("select row_to_json(a)::text from audit_logs a", String::class.java).joinToString("\n")
+		assertFalse(MESSAGE in dump || "안내비밀글" in dump)
+		assertEquals(2, http(port, "GET", "/admin/audit-logs?action=MAINTENANCE_UPDATED", token = token).json()["total"].asInt())
 	}
 }
