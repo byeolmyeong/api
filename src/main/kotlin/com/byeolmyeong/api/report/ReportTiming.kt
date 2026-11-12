@@ -1,28 +1,19 @@
 package com.byeolmyeong.api.report
 
 import com.byeolmyeong.api.birth.KOREA_ZONE
-import com.byeolmyeong.api.chart.AspectType
-import com.byeolmyeong.api.chart.Body
 import com.byeolmyeong.api.chart.ChangeSize
 import com.byeolmyeong.api.chart.Chart
-import com.byeolmyeong.api.chart.Interval
 import com.byeolmyeong.api.chart.IntervalKind
 import com.byeolmyeong.api.chart.LifeArea
-import com.byeolmyeong.api.chart.Milestone
 import com.byeolmyeong.api.chart.MilestoneKind
-import com.byeolmyeong.api.chart.PointKind
-import com.byeolmyeong.api.chart.TransitTarget
 import com.byeolmyeong.api.chart.computeIntervals
 import com.byeolmyeong.api.chart.computeMilestones
-import com.byeolmyeong.api.generation.ASCENDANT_LABEL
 import com.byeolmyeong.api.generation.GenerationRequest
-import com.byeolmyeong.api.generation.MIDHEAVEN_LABEL
 import com.byeolmyeong.api.generation.WRITING_RULES
 import com.byeolmyeong.api.generation.chartFacts
-import com.byeolmyeong.api.generation.houseLabel
-import com.byeolmyeong.api.generation.label
 import com.byeolmyeong.api.generation.promptResource
 import com.byeolmyeong.api.generation.stringOrNull
+import com.byeolmyeong.api.generation.timelineFact
 import com.fasterxml.jackson.annotation.JsonInclude
 import tools.jackson.databind.JsonNode
 import java.time.Instant
@@ -124,9 +115,9 @@ fun computeTiming(chart: Chart, birthUtc: Instant): TimingDraft {
 		) to interval
 	}
 	val items = milestones.map { (shown, computed) ->
-		TimingItem(shown.kind.name, milestone = true, shown.from, shown.to, line(shown.kind.name, shown.from, shown.to, describe(computed)))
+		TimingItem(shown.kind.name, milestone = true, shown.from, shown.to, line(shown.kind.name, shown.from, shown.to, timelineFact(computed)))
 	} + intervals.map { (shown, computed) ->
-		TimingItem(shown.id, milestone = false, shown.from, shown.to, line(shown.id, shown.from, shown.to, describe(computed)))
+		TimingItem(shown.id, milestone = false, shown.from, shown.to, line(shown.id, shown.from, shown.to, timelineFact(computed)))
 	}
 	return TimingDraft(ReportTiming(chart.timeKnown, milestones.map { it.first }, intervals.map { it.first }), items)
 }
@@ -140,52 +131,6 @@ fun timingItemsForModel(draft: TimingDraft, today: LocalDate): List<TimingItem> 
 
 private fun line(id: String, from: LocalDate, to: LocalDate, description: String): String =
 	"- $id | ${from.year}~${to.year} | $description"
-
-private fun sizeLabel(size: ChangeSize): String = if (size == ChangeSize.BIG) "큰 변화" else "작은 변화"
-
-private fun describe(milestone: Milestone): String {
-	val what = when (milestone.kind) {
-		MilestoneKind.SATURN_SQUARE -> "${Body.SATURN.label}이 태어날 때의 제자리와 직각을 이룸"
-		MilestoneKind.SATURN_RETURN -> "${Body.SATURN.label}이 태어날 때의 제자리로 처음 돌아옴"
-		MilestoneKind.URANUS_OPPOSITION -> "${Body.URANUS.label}이 태어날 때의 제자리 맞은편에 옴"
-		MilestoneKind.SECOND_SATURN_RETURN -> "${Body.SATURN.label}이 태어날 때의 제자리로 두 번째 돌아옴"
-	}
-	return "마디(${sizeLabel(milestone.size)}) | $what | 영역: 삶 전반"
-}
-
-private fun describe(interval: Interval): String {
-	val kind = when (interval.kind) {
-		IntervalKind.CHANGE -> "변화 구간(${sizeLabel(checkNotNull(interval.size))})"
-		IntervalKind.OPPORTUNITY -> "기회 구간"
-		IntervalKind.FATED -> "운명적 만남 구간"
-	}
-	val target = when (interval.target) {
-		TransitTarget.SUN -> Body.SUN.label
-		TransitTarget.MOON -> Body.MOON.label
-		TransitTarget.VENUS -> Body.VENUS.label
-		TransitTarget.ASCENDANT -> ASCENDANT_LABEL
-		TransitTarget.MIDHEAVEN -> MIDHEAVEN_LABEL
-		TransitTarget.VERTEX -> PointKind.VERTEX.label
-		TransitTarget.HOUSE_5 -> houseLabel(5)
-		TransitTarget.HOUSE_7 -> houseLabel(7)
-		TransitTarget.HOUSE_11 -> houseLabel(11)
-	}
-	val how = when (interval.aspect) {
-		AspectType.CONJUNCTION -> "겹침"
-		AspectType.SQUARE -> "직각으로 부딪힘"
-		AspectType.OPPOSITION -> "맞은편에서 마주 봄"
-		AspectType.TRINE -> "서로 도움"
-		AspectType.SEXTILE -> error("육분은 구간에 없다")
-		null -> "지나감"
-	}
-	val area = when (interval.area) {
-		LifeArea.PEOPLE -> "사람·인연"
-		LifeArea.WORK -> "일"
-		LifeArea.MONEY -> "돈"
-		LifeArea.SELF -> "나 자신"
-	}
-	return "$kind | ${interval.mover.label} – $target: $how | 영역: $area"
-}
 
 private val TIMING_RULES: String by lazy { promptResource("report-timing.md") }
 private val TIMING_TIME_UNKNOWN: String by lazy { promptResource("report-time-unknown.md") }
