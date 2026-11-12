@@ -98,18 +98,19 @@ class ReportService(
 	/** 지금 차트의 리포트를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다. */
 	fun request(ownerId: UUID): ReportStatus {
 		val birth = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
+		// 차트는 자리를 잡기 전에 계산한다: 계산이 실패해도 WRITING 인 채 남는 행이 없다.
+		val chart = birth.chart()
 		val run = repository.claim(ownerId, birth.hash, STALE_SECONDS)
 			?: return repository.find(ownerId, birth.hash, STALE_SECONDS)?.let(::statusOf) ?: ReportStatus.WRITING
 		log.info("event=report_started")
-		return start(run, birth)
+		return start(run, birth, chart)
 	}
 
 	private fun statusOf(stored: StoredReport): ReportStatus =
 		if (stored.status == ReportStatus.WRITING && stored.stale) ReportStatus.FAILED else stored.status
 
 	// 네 영역과 시기를 일꾼에게 하나씩 맡긴다. 요청 스레드는 기다리지 않는다.
-	private fun start(run: ReportRun, birth: ChartInput): ReportStatus {
-		val chart = birth.chart()
+	private fun start(run: ReportRun, birth: ChartInput, chart: Chart): ReportStatus {
 		// 한 영역이 끝내 실패하거나 이 생성이 자리를 잃으면 리포트를 저장할 수 없으므로, 나머지 영역은 다음 시도부터 그만둔다(모델 호출을 아낀다).
 		val abandoned = AtomicBoolean(false)
 		val attempts = AtomicInteger()
