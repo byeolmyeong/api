@@ -66,6 +66,12 @@ class ReportRepository(private val jdbc: JdbcTemplate, private val mapper: JsonM
 		)
 	}
 
+	/** 아직 그 생성의 자리인지. 행이 지워졌거나, 실패로 끝났거나, 다른 생성이 자리를 잡았으면 false. */
+	fun owns(run: ReportRun): Boolean = jdbc.queryForObject(
+		"select count(*) from reports where owner_id = ? and chart_hash = ? and status = 'WRITING' and started_at = ?",
+		Int::class.java, run.ownerId, run.chartHash, run.startedAt,
+	) == 1
+
 	/** 글을 저장하고 `DONE` 으로 바꾼다. 그 사이 행이 지워졌거나 다른 생성이 자리를 잡았으면 아무것도 하지 않고 false. */
 	fun complete(run: ReportRun, report: Report): Boolean = jdbc.update(
 		"""
@@ -75,14 +81,13 @@ class ReportRepository(private val jdbc: JdbcTemplate, private val mapper: JsonM
 		mapper.writeValueAsString(report), run.ownerId, run.chartHash, run.startedAt,
 	) == 1
 
-	/** `FAILED` 로 바꾼다. 아직 그 생성의 자리일 때만. */
-	fun fail(run: ReportRun) {
+	/** `FAILED` 로 바꾼다. 아직 그 생성의 자리일 때만(아니면 false). */
+	fun fail(run: ReportRun): Boolean =
 		jdbc.update(
 			"""
 			update reports set status = 'FAILED', updated_at = now()
 			where owner_id = ? and chart_hash = ? and status = 'WRITING' and started_at = ?
 			""".trimIndent(),
 			run.ownerId, run.chartHash, run.startedAt,
-		)
-	}
+		) == 1
 }

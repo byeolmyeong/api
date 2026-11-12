@@ -110,7 +110,7 @@ class ReportService(
 	// 네 영역과 시기를 일꾼에게 하나씩 맡긴다. 요청 스레드는 기다리지 않는다.
 	private fun start(run: ReportRun, birth: ChartInput): ReportStatus {
 		val chart = birth.chart()
-		// 한 영역이 끝내 실패하면 리포트를 저장할 수 없으므로, 나머지 영역은 다음 시도부터 그만둔다(모델 호출을 아낀다).
+		// 한 영역이 끝내 실패하거나 이 생성이 자리를 잃으면 리포트를 저장할 수 없으므로, 나머지 영역은 다음 시도부터 그만둔다(모델 호출을 아낀다).
 		val abandoned = AtomicBoolean(false)
 		val attempts = AtomicInteger()
 		val areas: List<CompletableFuture<ReportSection?>>
@@ -118,9 +118,9 @@ class ReportService(
 		live += run
 		try {
 			areas = ReportArea.entries.map { area ->
-				CompletableFuture.supplyAsync({ writeArea(area, chart, abandoned, attempts) }, executor)
+				CompletableFuture.supplyAsync({ writeArea(run, area, chart, abandoned, attempts) }, executor)
 			}
-			timing = CompletableFuture.supplyAsync({ writeTiming(birth, chart, abandoned, attempts) }, executor)
+			timing = CompletableFuture.supplyAsync({ writeTiming(run, birth, chart, abandoned, attempts) }, executor)
 		} catch (e: RejectedExecutionException) {
 			abandoned.set(true)
 			live -= run
@@ -135,23 +135,35 @@ class ReportService(
 	}
 
 	/** 한 영역을 쓴다. 검증을 통과한 글을 돌려주고, 만들지 못했으면 null. */
-	private fun writeArea(area: ReportArea, chart: Chart, abandoned: AtomicBoolean, attempts: AtomicInteger): ReportSection? =
-		write(area.name, reportAreaRequest(area, chart), abandoned, attempts, { parseReportSection(area, it) }) { sectionProblem(it, chart) }
+	private fun writeArea(run: ReportRun, area: ReportArea, chart: Chart, abandoned: AtomicBoolean, attempts: AtomicInteger): ReportSection? =
+		write(run, area.name, reportAreaRequest(area, chart), abandoned, attempts, { parseReportSection(area, it) }) { sectionProblem(it, chart) }
 
 	/**
 	 * 시기를 계산하고(약 0.3초, 그래서 요청 스레드가 아니라 여기서 한다) 다가오는 줄에 모델의 글을 붙인다.
 	 * 해와 기간은 서버가 계산한 값만 쓴다. 모델이 옮겨 적은 해가 다르면 그 응답을 버린다.
 	 */
-	private fun writeTiming(birth: ChartInput, chart: Chart, abandoned: AtomicBoolean, attempts: AtomicInteger): ReportTiming? {
-		if (abandoned.get()) return null
+	private fun writeTiming(run: ReportRun, birth: ChartInput, chart: Chart, abandoned: AtomicBoolean, attempts: AtomicInteger): ReportTiming? {
+		if (stopped(run, abandoned)) return null
 		val draft = computeTiming(chart, birth.utc)
 		val items = timingItemsForModel(draft, LocalDate.now(KOREA_ZONE))
-		val texts = write("TIMING", reportTimingRequest(chart, items), abandoned, attempts, ::parseTimingTexts) { timingTextProblem(it, items) }
+		val texts = write(run, "TIMING", reportTimingRequest(chart, items), abandoned, attempts, ::parseTimingTexts) { timingTextProblem(it, items) }
 		return texts?.let(draft.timing::withTexts)
+	}
+
+	/**
+	 * 이 생성을 그만둬야 하는지. 모델을 부르기 전마다 본다(줄에서 나온 직후, 그리고 답을 받고 다시 부르기 전).
+	 * 그만두는 경우: 다른 영역이 끝내 실패했다, 줄이 차서 실패로 끝났다, 행이 지워졌다, 다른 생성이 자리를 잡았다.
+	 */
+	private fun stopped(run: ReportRun, abandoned: AtomicBoolean): Boolean {
+		if (abandoned.get()) return true
+		if (repository.owns(run)) return false
+		abandoned.set(true)
+		return true
 	}
 
 	// 한 영역(또는 시기)의 글을 받는다: 응답을 [read] 로 읽고 [problemOf] 로 검증해, 틀리면 같은 요청으로 다시 부른다.
 	private fun <T : Any> write(
+		run: ReportRun,
 		area: String,
 		request: GenerationRequest,
 		abandoned: AtomicBoolean,
@@ -160,7 +172,7 @@ class ReportService(
 		problemOf: (T) -> String?,
 	): T? {
 		repeat(MAX_ATTEMPTS) { attempt ->
-			if (abandoned.get()) return null
+			if (stopped(run, abandoned)) return null
 			attempts.incrementAndGet()
 			val section = try {
 				generator.generate(request)?.let(read)
@@ -185,8 +197,8 @@ class ReportService(
 		try {
 			val report = timing?.let { Report(sections.filterNotNull(), it) }
 			if (report == null || !isComplete(report)) {
-				repository.fail(run)
-				log.warn("event=report_failed attempts={}", attempts)
+				// 자리를 잃어 그만둔 생성이면 바꿀 행이 없다.
+				if (repository.fail(run)) log.warn("event=report_failed attempts={}", attempts) else log.info("event=report_discarded attempts={}", attempts)
 			} else if (repository.complete(run, report)) {
 				log.info("event=report_done attempts={}", attempts)
 				events.publishEvent(ReportDone(run.ownerId))

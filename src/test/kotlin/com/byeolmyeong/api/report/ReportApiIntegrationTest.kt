@@ -221,6 +221,15 @@ class ReportApiIntegrationTest {
 		}
 	}
 
+	/** 생성기가 그만큼의 요청을 받을 때까지(문이 닫혀 있으면 그 일들이 답을 기다리며 서 있다) 기다린다. */
+	private fun awaitCalls(areas: Int, timing: Int) {
+		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+		while (generator.requests.size < areas || generator.timingRequests.size < timing) {
+			check(System.nanoTime() < deadline) { "생성기가 요청을 받지 않는다" }
+			Thread.sleep(10)
+		}
+	}
+
 	@Test
 	fun `POST 는 기다리지 않고 202 를 주고 GET 은 NONE 에서 WRITING 을 거쳐 DONE 이 된다`() {
 		val token = tokenWithProfile(KNOWN)
@@ -429,10 +438,16 @@ class ReportApiIntegrationTest {
 	}
 
 	@Test
-	fun `멈춘 줄 알고 다시 시작한 뒤에 옛 생성이 뒤늦게 끝나도 덮어쓰지 못한다`() {
+	fun `다른 생성이 자리를 잡으면 옛 생성은 모델을 더 부르지 않고 그만두며 덮어쓰지도 못한다`() {
 		val token = tokenWithProfile(KNOWN)
 		val gate = closeGate()
+		// 옛 생성이 받을 답(영역 1~4번째 호출, 시기 1번째 호출)은 모두 틀렸다: 자리를 잃지 않았다면 다시 불렀을 것이다
+		generator.respond = { request, call ->
+			if (call <= 4) areaJson(paragraphs = paragraphs(request, call, count = 3)) else validArea(request, call)
+		}
+		generator.respondTiming = { request, call -> if (call == 1) mapper.readTree("""{"items":[]}""") else timingJson(request) }
 		post(token)
+		awaitCalls(areas = 4, timing = 1)
 
 		jdbc.update("update reports set active_at = now() - interval '3 minutes'")
 		assertEquals(FAILED, get(token).body(), "멈춘 것으로 본다")
@@ -443,12 +458,39 @@ class ReportApiIntegrationTest {
 		val done = await(token, "DONE")
 		settle()
 
-		assertEquals(8, generator.requests.size, "멈춘 줄 알았던 생성 4번 + 다시 시작한 4번")
+		assertEquals(8, generator.requests.size, "옛 생성이 이미 부른 4번 + 다시 시작한 4번. 옛 생성은 틀린 답을 받고도 다시 부르지 않는다")
+		assertEquals(2, generator.timingRequests.size, "시기 글도 마찬가지다")
 		assertEquals(1, rows())
-		assertEquals(1, events.owners.size, "뒤늦게 끝난 옛 생성은 버린다")
+		assertEquals(1, events.owners.size, "옛 생성은 아무것도 남기지 않는다")
 		val calls = done["report"]["sections"].values().flatMap { it["paragraphs"].values() }
 			.map { it["body"].asString().removePrefix("가짜본문-").toInt() }
 		assertTrue(calls.all { it in 5..8 }, "저장된 글은 다시 시작한 생성의 것이다: $calls")
+	}
+
+	@Test
+	fun `줄에서 기다리던 생성이 자리를 잃으면 차례가 와도 모델을 부르지 않는다`() {
+		val busy = tokenWithProfile(KNOWN)
+		val gate = closeGate()
+		post(busy)
+		awaitCalls(areas = 4, timing = 1)
+		// 일꾼 다섯이 모두 앞 사람의 일을 붙잡고 있다. 뒤 사람의 생성은 줄에서 기다린다
+		val waiting = "another-accounts-session-token"
+		val other = UUID.randomUUID()
+		jdbc.update("insert into accounts (id, provider, provider_user_id) values (?, 'DEV', 'someone-else')", other)
+		jdbc.update("insert into sessions (token_hash, account_id) values (?, ?)", sha256(waiting), other)
+		http(port, "PUT", "/profile", KNOWN, waiting)
+		assertEquals(WRITING, post(waiting).body())
+
+		jdbc.update("update reports set active_at = now() - interval '3 minutes' where owner_id = ?", other)
+		assertEquals(WRITING, post(waiting).body(), "다른 생성이 자리를 잡는다")
+
+		gate.countDown()
+		await(waiting, "DONE")
+		settle()
+
+		assertEquals(8, generator.requests.size, "앞 사람 4번 + 뒤 사람의 새 생성 4번. 자리를 잃은 생성은 한 번도 부르지 않는다")
+		assertEquals(2, generator.timingRequests.size)
+		assertEquals(2, events.owners.size)
 	}
 
 	@Test
