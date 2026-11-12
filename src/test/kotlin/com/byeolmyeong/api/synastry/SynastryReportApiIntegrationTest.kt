@@ -419,11 +419,14 @@ class SynastryReportApiIntegrationTest {
 	}
 }
 
-/** 뒤에서 일할 자리(심층 리포트와 같이 쓰는 일꾼)가 꽉 찼을 때. */
+/**
+ * 뒤에서 일할 자리(심층 리포트와 같이 쓰는 일꾼)가 꽉 찼을 때. 자리는 5개(일하는 1 + 기다리는 4)이고 리포트 한 편의 일은 4개다:
+ * 앞의 리포트가 자리 4개를 쓰고 있으면 뒤의 리포트는 첫 일만 줄에 서고 둘째 일에서 거절된다.
+ */
 @Import(TestcontainersConfiguration::class, FakeSynastryConfig::class)
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-	properties = [DEV_AUTH_ON, "byeolmyeong.report.worker-threads=1", "byeolmyeong.report.queue-capacity=1"],
+	properties = [DEV_AUTH_ON, "byeolmyeong.report.worker-threads=1", "byeolmyeong.report.queue-capacity=4"],
 )
 class SynastryReportExecutorFullIntegrationTest {
 
@@ -439,29 +442,55 @@ class SynastryReportExecutorFullIntegrationTest {
 	@Autowired
 	private lateinit var reportExecutor: ThreadPoolTaskExecutor
 
+	private fun until(what: String, condition: () -> Boolean) {
+		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+		while (!condition()) {
+			check(System.nanoTime() < deadline) { what }
+			Thread.sleep(10)
+		}
+	}
+
+	private fun idle() = until("뒤에서 도는 생성이 끝나지 않는다") { reportExecutor.activeCount == 0 && reportExecutor.queueSize == 0 }
+
 	@Test
-	fun `일할 자리가 없으면 FAILED 로 답하고 아무것도 저장하지 않는다`() {
+	fun `일할 자리가 없으면 FAILED 로 답하고 줄에 선 그 리포트의 일은 모델을 부르지 않으며 자리가 나면 다시 쓸 수 있다`() {
 		jdbc.update("delete from accounts")
 		generator.reset()
 		val token = devToken(port)
 		http(port, "PUT", "/profile", ME, token)
-		val id = mapper.readTree(http(port, "POST", "/synastry/direct", directBody(), token).body())["id"].asString()
+		val (first, second) = (1..2).map { mapper.readTree(http(port, "POST", "/synastry/direct", directBody(), token).body())["id"].asString() }
+		val partner = """{"date":"1988-07-21","time":null}"""
+		fun post(id: String) = http(port, "POST", "/synastry/$id/report", partner, token)
+		fun status(id: String) = http(port, "GET", "/synastry/$id/report", token = token).body()
 		val gate = CountDownLatch(1).also { generator.gate = it }
 
-		// 자리는 2개(일하는 1 + 기다리는 1)인데 영역은 4개다
-		val posted = http(port, "POST", "/synastry/$id/report", """{"date":"1988-07-21","time":null}""", token)
+		// 앞의 리포트: 일 하나는 일꾼이 붙잡고(생성기가 답하지 않는다) 셋은 줄에 있다. 줄에 한 자리가 남는다
+		assertEquals(WRITING, post(first).body())
+		until("앞 리포트의 일이 시작되지 않는다") { generator.areas.size == 1 }
+		assertEquals(3, reportExecutor.queueSize)
+
+		// 뒤의 리포트: 첫 일은 줄에 서고 둘째 일이 거절된다
+		val posted = post(second)
 
 		assertEquals(202, posted.statusCode(), posted.body())
-		assertEquals("""{"status":"FAILED"}""", posted.body())
-		assertEquals("""{"status":"FAILED"}""", http(port, "GET", "/synastry/$id/report", token = token).body())
+		assertEquals(FAILED, posted.body())
+		assertEquals(FAILED, status(second))
+		assertEquals(4, reportExecutor.queueSize, "뒤 리포트의 첫 일은 줄에 남아 있다")
+		assertEquals(WRITING, status(first), "앞의 리포트는 그대로 쓰는 중이다")
+
 		gate.countDown()
-		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
-		while (reportExecutor.activeCount > 0 || reportExecutor.queueSize > 0) {
-			check(System.nanoTime() < deadline)
-			Thread.sleep(10)
-		}
-		assertNull(jdbc.queryForObject("select body::text from synastry_reports", String::class.java))
-		assertTrue(generator.areas.size <= 2, "자리를 얻은 영역만 불렀다")
+		until("앞의 리포트가 완성되지 않는다") { status(first).contains("\"status\":\"DONE\"") }
+		idle()
+
+		assertEquals(4, generator.areas.size, "앞 리포트의 네 영역뿐이다: 거절된 리포트의 줄에 선 일은 차례가 와도 모델을 부르지 않는다")
+		assertEquals(FAILED, status(second))
+		assertEquals(1, jdbc.queryForObject("select count(*) from synastry_reports where body is not null", Int::class.java), "거절된 리포트는 아무것도 저장하지 않는다")
+
+		// 자리가 났다
+		assertEquals(WRITING, post(second).body())
+		until("뒤의 리포트가 완성되지 않는다") { status(second).contains("\"status\":\"DONE\"") }
+		idle()
+		assertEquals(8, generator.areas.size)
 	}
 }
 
