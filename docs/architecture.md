@@ -29,7 +29,7 @@ last_reviewed: 2026-11-12
 - `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹, 궁합 리포트(202 로 답하고 뒤에서 영역마다 쓴다). 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 010). 초대·수락은 아직 없다(태스크 9 의 나머지).
 - `direction` — 방향성 제시(해 볼 만한 것 3개). 지금은 이성 주제 하나다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래·궁합 주제는 리포트 시기·궁합이 들어온 뒤에 더한다. 결정: docs/decisions/009-direction-storage-and-advice-check.md
 - `inquiry` — 문의하기. 설정의 문의 글을 검증해 저장만 한다(관리 화면·메일 발송 없음). 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md
-- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
+- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자), 현황 수치(개수만). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
 - `share` — 공유 조회(공유 카드 4종).
 - `push` — 기기 토큰과 알림 발송.
 
@@ -47,7 +47,7 @@ src/main/kotlin/com/byeolmyeong/api/
   synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·두 차트 사이 연결의 글·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증)
   inquiry/     InquiryController · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증)
-  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다)
+  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다)
   share/       ShareController · ShareService
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
@@ -181,6 +181,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /admin/inquiries?status=&category=&page=&size=` | 쿼리(모두 선택) | 200 `{ items: [Inquiry], page, size, total }` 새것부터 |
 | `GET /admin/inquiries/{id}` | 없음 | 200 `Inquiry` |
 | `PATCH /admin/inquiries/{id}` | `{ status?, memo? }` | 200 `Inquiry` |
+| `GET /admin/stats` | 없음 | 200 `Stats` |
 
 ### 로그인·세션
 - `Admin` = `{ id, loginId, name }`. `AdminAccount` = `{ id, loginId, name, active, createdAt }`. 비밀번호와 그 해시는 어떤 응답에도 없다.
@@ -222,6 +223,28 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `status`: 위 세 값 중 하나. `memo`: 앞뒤 공백을 뗀 2000자 이하의 글. `null` 이거나 빈 글·공백뿐인 글이면 메모를 지운다(`null` 이 된다).
   - 400 `INVALID_REQUEST`(본문이 객체가 아니거나, 두 키가 모두 없거나, 타입이 틀리다) · `INVALID_STATUS`(`status` 키가 있는데 `null` 이거나 목록에 없다) · `INVALID_MEMO`(2000자를 넘는다) · 404 `NOT_FOUND`. 거절된 요청은 아무것도 바꾸지 않는다.
 - 문의는 지울 수 없고 글·종류·이메일은 고칠 수 없다. 앱 사용자가 계정을 지우면 그 사람의 문의는 처리한 것까지 모두 함께 지워진다(목록에서 사라지고 한 건 조회는 404).
+
+### 현황 수치
+- `GET /admin/stats` → `Stats`. 부를 때마다 DB 에서 새로 센다(캐시 없음). 모든 수는 0 이상의 정수다. 개수뿐이고 사람별 행·출생 정보·글은 없다.
+  ```
+  {
+    "generatedAt": "2026-11-12T04:05:06Z",
+    "accounts":        { "total": 0, "last7Days": 0, "last30Days": 0 },
+    "profiles":        { "total": 0 },
+    "readings":        { "total": 0 },
+    "reports":         { "total": 0, "byStatus": { "DONE": 0, "WRITING": 0, "FAILED": 0 } },
+    "synastries":      { "total": 0 },
+    "synastryReports": { "total": 0, "byStatus": { "DONE": 0, "WRITING": 0, "FAILED": 0 } },
+    "directions":      { "total": 0, "byTopic": { "LOVE": 0 } },
+    "inquiries":       { "total": 0, "byStatus": { "NEW": 0, "IN_PROGRESS": 0, "DONE": 0 } }
+  }
+  ```
+  - `generatedAt`: 센 때. `accounts`: 앱 사용자 계정(관리자는 세지 않는다) — 전체, 지금부터 7일(168시간) 안에 만든 것, 30일 안에 만든 것(`last30Days` 는 `last7Days` 를 포함한다). 개발용 로그인 계정도 센다.
+  - `profiles`: 출생 정보를 저장한 계정 수. `readings`: 요약 해석. `reports`: 심층 리포트. `synastries`: 궁합. `synastryReports`: 궁합 리포트. `directions`: 방향성 제시. `inquiries`: 문의.
+  - `byStatus` 는 적힌 키가 언제나 모두 있고(없으면 0) 합이 `total` 이다. `byTopic` 은 DB 에 있는 주제만 온다(지금은 `LOVE` 하나. 글이 하나도 없으면 `{}`, 주제가 늘면 키가 늘어난다 — 화면은 키를 돌면서 그린다).
+  - 리포트의 `WRITING` 은 행에 적힌 값 그대로다: 서버가 꺼져 멈춘 생성(앱에는 `FAILED` 로 보인다)도 여기서는 `WRITING` 이다.
+  - **세지 못하는 것**: 저장되지 않는 실패 — 요약 해석·방향성 제시·궁합 요약의 생성 실패(502)는 DB 에 남지 않아 수치에 없다. 리포트의 `FAILED` 는 행으로 남은 것만이고, 다시 요청해 성공하면 그 행이 `DONE` 으로 바뀌므로 "지금까지 실패한 횟수" 가 아니라 "지금 실패 상태인 리포트 수" 다.
+  - 계정이 지워지면 그 사람의 행도 지워지므로 모든 수는 "지금 남아 있는 것" 이다(누적이 아니다).
 
 ### 브라우저 출처 (CORS)
 - 관리 화면이 열리는 주소를 서버의 환경 변수 `ADMIN_ALLOWED_ORIGINS`(설정 `byeolmyeong.cors.admin-allowed-origins`, 쉼표로 구분, 예 `https://admin.example.com,http://localhost:5173`)에 적어야 브라우저가 부를 수 있다. 주소는 `스킴://호스트[:포트]` 까지이고 끝에 `/` 를 붙이지 않는다.
