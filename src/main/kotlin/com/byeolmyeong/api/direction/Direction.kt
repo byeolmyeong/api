@@ -13,8 +13,10 @@ import tools.jackson.databind.JsonNode
 
 // 방향성 제시에만 있는 것: 모양, 지시문, 돌려받을 구조, 응답을 글로 읽기, 검증(개수·근거·조언형). 결정 009.
 
-/** 주제. 지금 받는 것은 이성 하나다. 미래(`FUTURE`)·궁합(`SYNASTRY`)은 리포트 시기·궁합이 들어온 뒤에 더한다. */
+/** 주제. 이성은 내 차트, 미래는 내 차트의 지금의 시기, 궁합은 궁합 한 건에 대한 글이다(결정 009·011). */
 const val TOPIC_LOVE = "LOVE"
+const val TOPIC_FUTURE = "FUTURE"
+const val TOPIC_SYNASTRY = "SYNASTRY"
 
 const val ITEM_COUNT = 3
 
@@ -31,15 +33,19 @@ private val DIRECTION_RULES: String by lazy { promptResource("direction.md") }
 private val LOVE_RULES: String by lazy { promptResource("direction-love.md") }
 private val TIME_UNKNOWN: String by lazy { promptResource("direction-time-unknown.md") }
 
+/** 지시문: 공통 글쓰기 규칙 + 방향성 제시의 규칙 + 주제의 규칙(+ 시각을 모르면 그 안내). */
+internal fun directionInstructions(topicRules: String, timeKnown: Boolean): String =
+	listOfNotNull(WRITING_RULES, DIRECTION_RULES, topicRules, TIME_UNKNOWN.takeIf { !timeKnown }).joinToString("\n\n")
+
 fun loveDirectionRequest(chart: Chart): GenerationRequest = GenerationRequest(
 	purpose = "direction_love",
-	instructions = listOfNotNull(WRITING_RULES, DIRECTION_RULES, LOVE_RULES, TIME_UNKNOWN.takeIf { !chart.timeKnown }).joinToString("\n\n"),
+	instructions = directionInstructions(LOVE_RULES, timeKnown = chart.timeKnown),
 	userText = chartFacts(chart),
 	schema = directionSchema(basisVocabulary(chart)),
 )
 
 // 근거는 차트에 있는 말 중에서만 고르게 한다(enum). 개수 제약은 구조 지정이 받지 않아 지시문과 서버 검증이 맡는다.
-private fun directionSchema(basisVocabulary: List<String>): Map<String, Any> {
+internal fun directionSchema(basisVocabulary: List<String>): Map<String, Any> {
 	val string = mapOf("type" to "string")
 	val item = mapOf(
 		"type" to "object",
@@ -70,15 +76,17 @@ fun parseDirectionDraft(root: JsonNode): DirectionDraft? {
 /**
  * 생성된 글을 저장해도 되는지 본다. 문제가 없으면 null, 있으면 로그용 코드를 준다.
  * - `MALFORMED`: 빈 글, 항목이 3개가 아님, 근거가 없는 항목
- * - `BASIS_NOT_IN_CHART`: 근거에 [basisVocabulary] 에 없는 말이 있다(글자까지 같아야 한다)
+ * - `BASIS_NOT_IN_CHART`: 근거에 [vocabulary](그 글에서 근거로 쓸 수 있는 말. 궁합은 내 쪽 요소뿐)에 없는 말이 있다(글자까지 같아야 한다)
+ * - `HAS_NUMBER`: [numbers] 가 false 인데 글에 숫자가 있다. 미래는 받지 않은 해·나이를 지어내지 못하게, 궁합은 점수를 적지 못하게(결정 011)
  * - `NOT_ADVICE_FORM`: [adviceProblem]
  */
-fun draftProblem(draft: DirectionDraft, chart: Chart): String? {
+fun draftProblem(draft: DirectionDraft, vocabulary: List<String>, numbers: Boolean): String? {
 	val texts = listOf(draft.title) + draft.items.flatMap { listOf(it.title, it.body) }
 	val wellFormed = draft.items.size == ITEM_COUNT && texts.none { it.isBlank() } && draft.items.none { it.basis.isEmpty() }
 	if (!wellFormed) return "MALFORMED"
-	val allowed = basisVocabulary(chart).toSet()
+	val allowed = vocabulary.toSet()
 	if (draft.items.any { item -> item.basis.any { it !in allowed } }) return "BASIS_NOT_IN_CHART"
+	if (!numbers && texts.any { text -> text.any(Char::isDigit) }) return "HAS_NUMBER"
 	return adviceProblem(draft)
 }
 

@@ -1,6 +1,7 @@
 package com.byeolmyeong.api.synastry
 
 import com.byeolmyeong.api.chart.Relation
+import com.byeolmyeong.api.generation.scoreLabel
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.stereotype.Repository

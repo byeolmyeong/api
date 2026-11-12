@@ -1,9 +1,6 @@
 package com.byeolmyeong.api.synastry
 
 import com.byeolmyeong.api.auth.CurrentOwner
-import com.byeolmyeong.api.birth.ChartInput
-import com.byeolmyeong.api.birth.Place
-import com.byeolmyeong.api.birth.Places
 import com.byeolmyeong.api.chart.Relation
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.web.BadRequestException
@@ -30,14 +27,13 @@ class SynastryController(
 	private val owner: CurrentOwner,
 	private val synastries: SynastryService,
 	private val parser: BirthRequestParser,
-	private val places: Places,
 ) {
 
 	@PostMapping("/synastry/direct")
 	fun direct(@RequestBody request: DirectSynastryRequest): Synastry {
 		val name = request.name?.trim()?.takeIf { it.isNotEmpty() && it.length <= MAX_NAME_LENGTH } ?: throw BadRequestException("INVALID_NAME")
 		val relation = relation(request.relation)
-		return synastries.direct(owner.id(), name, relation, partner(BirthRequest(request.date, request.time, request.placeId)))
+		return synastries.direct(owner.id(), name, relation, parser.chartInput(BirthRequest(request.date, request.time, request.placeId)))
 	}
 
 	@GetMapping("/synastry")
@@ -53,7 +49,7 @@ class SynastryController(
 	/** 글을 기다리지 않고 202 로 답한다. 본문은 상대의 출생 정보다(저장돼 있지 않아 다시 받는다). 이미 완성됐거나 쓰는 중이면 본문을 읽지 않는다. */
 	@PostMapping("/synastry/{id}/report")
 	fun requestReport(@PathVariable id: String, @RequestBody(required = false) request: BirthRequest?): ResponseEntity<SynastryReportResponse> {
-		val status = synastries.requestReport(owner.id(), id(id)) { partner(request ?: throw BadRequestException("INVALID_REQUEST")) }
+		val status = synastries.requestReport(owner.id(), id(id)) { parser.chartInput(request ?: throw BadRequestException("INVALID_REQUEST")) }
 		return ResponseEntity.accepted().body(SynastryReportResponse(status))
 	}
 
@@ -76,20 +72,5 @@ class SynastryController(
 		UUID.fromString(value)
 	} catch (e: IllegalArgumentException) {
 		throw NotFoundException("NOT_FOUND")
-	}
-
-	/**
-	 * 상대의 출생 정보를 검증해 차트 입력으로 바꾼다. 태어난 시각을 모르면 태어난 곳을 읽지 않는다(앱 결정 020).
-	 * 공통 검증기가 아직 곳을 늘 요구하는 동안에도 그렇게 동작하도록, 시각이 없으면 목록의 아무 곳으로 자리만 채운다
-	 * (시각을 모르는 차트에는 위경도가 쓰이지 않는다).
-	 */
-	private fun partner(request: BirthRequest): ChartInput {
-		if (request.time == null) {
-			val birth = parser.parse(request.copy(placeId = places.all.first().id))
-			return ChartInput(birth.utc, lat = 0.0, lon = 0.0, timeKnown = false)
-		}
-		val birth = parser.parse(request)
-		val place: Place = checkNotNull(birth.place) { "시각이 있는데 곳이 없다" }
-		return ChartInput(birth.utc, place.lat, place.lon, timeKnown = true)
 	}
 }

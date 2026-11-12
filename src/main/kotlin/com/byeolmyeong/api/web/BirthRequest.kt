@@ -1,5 +1,6 @@
 package com.byeolmyeong.api.web
 
+import com.byeolmyeong.api.birth.ChartInput
 import com.byeolmyeong.api.birth.InvalidBirthDateException
 import com.byeolmyeong.api.birth.Place
 import com.byeolmyeong.api.birth.Places
@@ -36,6 +37,16 @@ class BirthRequestParser(private val places: Places) {
 			throw BadRequestException("INVALID_DATE")
 		}
 		return Birth(date, time, place, utc)
+	}
+
+	/**
+	 * 요청에 적힌 사람(궁합의 상대)의 출생 정보를 검증해 차트 입력으로 바꾼다. 저장하지 않고 계산에만 쓴다(결정 010).
+	 * 시각을 모르면 곳을 읽지 않고 위경도는 차트에 쓰이지 않는다(0.0 은 자리만 채운다).
+	 */
+	fun chartInput(request: BirthRequest): ChartInput {
+		val birth = parse(request)
+		val place = birth.place ?: return ChartInput(birth.utc, lat = 0.0, lon = 0.0, timeKnown = false)
+		return ChartInput(birth.utc, place.lat, place.lon, timeKnown = true)
 	}
 
 	private fun <T> parse(code: String, block: () -> T): T = try {
