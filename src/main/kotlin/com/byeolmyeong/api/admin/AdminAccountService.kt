@@ -1,7 +1,11 @@
 package com.byeolmyeong.api.admin
 
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.stereotype.Repository
@@ -36,6 +40,8 @@ class AdminAccountService(
 	private val accounts: AdminAccountRepository,
 	private val sessions: AdminSessionRepository,
 	private val passwords: AdminPasswords,
+	private val events: ApplicationEventPublisher,
+	private val audit: AdminAudit,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -55,9 +61,10 @@ class AdminAccountService(
 			log.warn("event=admin_bootstrap_skipped reason={}", problem)
 			return false
 		}
-		val created = accounts.insertIfNone(id, id, passwords.hash(password))
-		if (created) log.info("event=admin_bootstrap_created")
-		return created
+		val created = accounts.insertIfNone(id, id, passwords.hash(password)) ?: return false
+		log.info("event=admin_bootstrap_created")
+		events.publishEvent(AuditEvent(AuditAction.ADMIN_BOOTSTRAPPED, AuditActor.SYSTEM, "ADMIN", created.toString()))
+		return true
 	}
 
 	fun list(): List<AdminAccount> = accounts.findAll().map { it.toAccount() }
@@ -66,6 +73,7 @@ class AdminAccountService(
 	fun create(loginId: String, name: String, password: String): AdminAccount {
 		val id = accounts.insert(loginId, name, passwords.hash(password)) ?: throw AdminRejectedException(409, "LOGIN_ID_TAKEN")
 		log.info("event=admin_created")
+		audit.record(AuditAction.ADMIN_CREATED, "ADMIN", id)
 		return accounts.findById(id)!!.toAccount()
 	}
 
@@ -85,6 +93,8 @@ class AdminAccountService(
 		}
 		accounts.updateActive(targetId, active)
 		log.info("event=admin_active_changed active={}", active)
+		// 이미 그 상태였으면 바뀐 것이 없어 남기지 않는다. 이 트랜잭션이 커밋된 뒤에 기록된다.
+		if (target.active != active) audit.record(if (active) AuditAction.ADMIN_REACTIVATED else AuditAction.ADMIN_DEACTIVATED, "ADMIN", targetId)
 		return accounts.findById(targetId)!!.toAccount()
 	}
 }
@@ -119,16 +129,19 @@ class AdminAccountRepository(private val jdbc: JdbcTemplate) {
 		return id.takeIf { inserted == 1 }
 	}
 
-	/** 관리자가 한 명도 없을 때만 넣는다(서버 여러 대가 같이 떠도 첫 관리자는 하나). */
-	fun insertIfNone(loginId: String, name: String, passwordHash: String): Boolean =
-		jdbc.update(
+	/** 관리자가 한 명도 없을 때만 넣고 그 id 를 준다(서버 여러 대가 같이 떠도 첫 관리자는 하나). 넣지 않았으면 null. */
+	fun insertIfNone(loginId: String, name: String, passwordHash: String): UUID? {
+		val id = UUID.randomUUID()
+		val inserted = jdbc.update(
 			"""
 			insert into admin_accounts (id, login_id, name, password_hash)
 			select ?, ?, ?, ? where not exists (select 1 from admin_accounts)
 			on conflict (login_id) do nothing
 			""",
-			UUID.randomUUID(), loginId, name, passwordHash,
-		) == 1
+			id, loginId, name, passwordHash,
+		)
+		return id.takeIf { inserted == 1 }
+	}
 
 	fun updateActive(id: UUID, active: Boolean) {
 		jdbc.update("update admin_accounts set active = ? where id = ?", active, id)

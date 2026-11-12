@@ -1,9 +1,13 @@
 package com.byeolmyeong.api.admin
 
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.BadRequestException
 import com.byeolmyeong.api.web.RateLimiter
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
@@ -36,6 +40,8 @@ class AdminAuthService(
 	private val accounts: AdminAccountRepository,
 	private val sessions: AdminSessionRepository,
 	private val passwords: AdminPasswords,
+	private val events: ApplicationEventPublisher,
+	private val audit: AdminAudit,
 	@Value("\${byeolmyeong.admin.session-hours}") private val sessionHours: Int,
 	@Value("\${byeolmyeong.rate-limit.admin-login-per-ip}") perIp: Int,
 	@Value("\${byeolmyeong.rate-limit.admin-login-per-id}") perId: Int,
@@ -59,12 +65,15 @@ class AdminAuthService(
 		val matched = passwords.matches(password, account?.passwordHash)
 		if (account == null || !matched || !account.active) {
 			log.warn("event=admin_login_failed")
+			// 누구인지도, 시도한 아이디도 남기지 않는다(아이디 자리에 비밀번호를 넣는 일이 있다).
+			events.publishEvent(AuditEvent(AuditAction.ADMIN_LOGIN, AuditActor.SYSTEM, success = false))
 			throw AdminRejectedException(401, "INVALID_CREDENTIALS")
 		}
 		sessions.deleteExpired()
 		val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(TOKEN_BYTES).also(random::nextBytes))
 		val expiresAt = sessions.insert(hash(token), account.id, sessionHours)
 		log.info("event=admin_login_succeeded")
+		events.publishEvent(AuditEvent(AuditAction.ADMIN_LOGIN, AuditActor.admin(account.id, account.loginId)))
 		return AdminLogin(token, expiresAt, Admin(account.id, account.loginId, account.name))
 	}
 
@@ -74,6 +83,7 @@ class AdminAuthService(
 	fun logout(token: String) {
 		sessions.delete(hash(token))
 		log.info("event=admin_logout")
+		audit.record(AuditAction.ADMIN_LOGOUT)
 	}
 
 	/** 자기 비밀번호를 바꾼다. 이 요청의 세션([token])은 남기고 자기의 다른 세션은 지운다. 지금 비밀번호 확인도 아이디별 제한에 든다. */
@@ -87,6 +97,7 @@ class AdminAuthService(
 		accounts.updatePassword(admin.id, passwords.hash(newPassword))
 		sessions.deleteOthers(admin.id, hash(token))
 		log.info("event=admin_password_changed")
+		audit.record(AuditAction.ADMIN_PASSWORD_CHANGED)
 	}
 
 	private fun hash(token: String): String =

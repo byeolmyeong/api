@@ -1,5 +1,6 @@
 package com.byeolmyeong.api.admin
 
+import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.NotFoundException
 import com.byeolmyeong.api.web.ownerRef
 import org.slf4j.LoggerFactory
@@ -34,21 +35,33 @@ data class AdminInquiryPage(val items: List<AdminInquiry>, val page: Int, val si
 
 /** 문의 관리. 문의 글·메모·이메일을 로그에 남기지 않는다(상태 코드만). */
 @Service
-class AdminInquiryService(private val repository: AdminInquiryRepository) {
+class AdminInquiryService(private val repository: AdminInquiryRepository, private val audit: AdminAudit) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	fun list(status: String?, category: String?, page: Int, size: Int): AdminInquiryPage =
 		AdminInquiryPage(repository.find(status, category, page.toLong() * size, size), page, size, repository.count(status, category))
 
-	fun get(id: UUID): AdminInquiry = repository.findById(id) ?: throw NotFoundException("NOT_FOUND")
+	/** 한 건 보기. 문의 글과 답장 이메일을 본 것이므로 감사 기록에 남긴다(목록은 남기지 않는다). */
+	fun get(id: UUID): AdminInquiry {
+		val inquiry = find(id)
+		audit.record(AuditAction.INQUIRY_VIEWED, "INQUIRY", id)
+		return inquiry
+	}
 
 	/** [status] 가 null 이면 상태는 그대로, [changeMemo] 가 false 면 메모는 그대로다. 바꾼 관리자([adminId])와 그때를 적는다. */
 	fun update(id: UUID, adminId: UUID, status: String?, changeMemo: Boolean, memo: String?): AdminInquiry {
 		if (!repository.update(id, adminId, status, changeMemo, memo)) throw NotFoundException("NOT_FOUND")
-		val updated = get(id)
+		val updated = find(id)
 		log.info("event=admin_inquiry_updated status={}", updated.status)
+		// 메모는 바꿨는지만 남긴다(글은 남기지 않는다).
+		audit.record(AuditAction.INQUIRY_UPDATED, "INQUIRY", id, buildMap {
+			if (status != null) put("status", status)
+			put("memoChanged", changeMemo)
+		})
 		return updated
 	}
+
+	private fun find(id: UUID): AdminInquiry = repository.findById(id) ?: throw NotFoundException("NOT_FOUND")
 }
 
 /** `inquiries` 를 관리자 쪽에서 읽고 처리 칸만 쓴다. `inquiry` 패키지의 코드는 쓰지 않는다(기능 패키지는 서로 모른다). */

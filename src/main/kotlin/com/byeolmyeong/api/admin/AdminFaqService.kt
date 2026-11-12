@@ -1,5 +1,6 @@
 package com.byeolmyeong.api.admin
 
+import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.BadRequestException
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
@@ -24,7 +25,7 @@ data class AdminFaq(
 
 /** FAQ 편집. 글을 고치거나 공개 여부를 바꾼 관리자와 그때를 적는다(순서만 바꾼 것은 적지 않는다). */
 @Service
-class AdminFaqService(private val repository: AdminFaqRepository) {
+class AdminFaqService(private val repository: AdminFaqRepository, private val audit: AdminAudit) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	fun list(): List<AdminFaq> = repository.findAll()
@@ -32,6 +33,7 @@ class AdminFaqService(private val repository: AdminFaqRepository) {
 	fun create(adminId: UUID, question: String, answer: String, published: Boolean): AdminFaq {
 		val id = repository.insert(adminId, question, answer, published)
 		log.info("event=admin_faq_created published={}", published)
+		audit.record(AuditAction.FAQ_CREATED, "FAQ", id, mapOf("published" to published))
 		return repository.findById(id)!!
 	}
 
@@ -39,12 +41,17 @@ class AdminFaqService(private val repository: AdminFaqRepository) {
 	fun update(id: UUID, adminId: UUID, question: String?, answer: String?, published: Boolean?): AdminFaq {
 		if (!repository.update(id, adminId, question, answer, published)) throw NotFoundException("NOT_FOUND")
 		log.info("event=admin_faq_updated")
-		return repository.findById(id) ?: throw NotFoundException("NOT_FOUND")
+		val updated = repository.findById(id) ?: throw NotFoundException("NOT_FOUND")
+		// 글을 고친 것과 공개 여부를 정한 것을 따로 남긴다(한 요청에 둘 다 있으면 두 줄). 공개는 보낸 값 그대로다(이미 그 상태였어도 남는다).
+		if (question != null || answer != null) audit.record(AuditAction.FAQ_UPDATED, "FAQ", id)
+		if (published != null) audit.record(if (published) AuditAction.FAQ_PUBLISHED else AuditAction.FAQ_UNPUBLISHED, "FAQ", id)
+		return updated
 	}
 
 	fun delete(id: UUID) {
 		if (!repository.delete(id)) throw NotFoundException("NOT_FOUND")
 		log.info("event=admin_faq_deleted")
+		audit.record(AuditAction.FAQ_DELETED, "FAQ", id)
 	}
 
 	/** [ids] 가 지금 있는 FAQ 전부를 한 번씩 담고 있을 때만 그 순서로 바꾼다. 아니면 400 `INVALID_ORDER`. */
@@ -54,6 +61,7 @@ class AdminFaqService(private val repository: AdminFaqRepository) {
 		if (ids.size != existing.size || ids.toSet() != existing.toSet()) throw BadRequestException("INVALID_ORDER")
 		ids.forEachIndexed { index, id -> repository.updateOrder(id, index + 1) }
 		log.info("event=admin_faq_reordered")
+		audit.record(AuditAction.FAQ_REORDERED, detail = mapOf("count" to ids.size))
 		return repository.findAll()
 	}
 }
