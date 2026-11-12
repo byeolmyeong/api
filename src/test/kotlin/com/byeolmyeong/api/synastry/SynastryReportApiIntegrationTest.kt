@@ -38,7 +38,8 @@ private val MY_SIDE_WORDS = listOf("태양", "달", "수성", "금성", "화성"
 @Import(TestcontainersConfiguration::class, FakeSynastryConfig::class)
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-	properties = [DEV_AUTH_ON, "byeolmyeong.rate-limit.synastry-per-minute=100000"],
+	// 살아 있다는 표시(`active_at`)를 적는 주기를 길게 둬, 테스트가 그 값을 옮겨 놓은 사이에 다시 적히지 않게 한다.
+	properties = [DEV_AUTH_ON, "byeolmyeong.rate-limit.synastry-per-minute=100000", "byeolmyeong.report.heartbeat-seconds=3600"],
 )
 class SynastryReportApiIntegrationTest {
 
@@ -354,14 +355,42 @@ class SynastryReportApiIntegrationTest {
 	}
 
 	@Test
-	fun `WRITING 인 채 10분이 지나면 FAILED 로 보이고 다시 요청하면 새로 쓴다`() {
+	fun `쓰는 도중 서버가 꺼진 리포트는 살아 있다는 표시가 2분 끊기면 FAILED 로 보이고 다시 요청하면 새로 쓴다`() {
+		val token = tokenWithProfile()
+		val id = synastry(token)
+		generator.respond = { request, call -> if (request.purpose == SUMMARY_PURPOSE) validAnswer(request, call) else throw GenerationException("HTTP_500") }
+		post(token, id)
+		await(token, id, "FAILED")
+		settle()
+		generator.reset()
+		// 다른 서버(또는 재시작하기 전의 이 서버)가 30분 전에 자리를 잡고 쓰다가 꺼졌다: 이 서버에는 그 생성이 없다
+		jdbc.update("update synastry_reports set status = 'WRITING', started_at = now() - interval '30 minutes', active_at = now() - interval '1 minute'")
+
+		assertEquals(WRITING, get(token, id).body(), "표시가 끊긴 지 2분이 안 됐으면 쓰는 중으로 본다")
+		assertEquals("WRITING", reportStatusOf(token, id))
+		assertEquals(WRITING, post(token, id).body())
+		settle()
+		assertTrue(generator.areas.isEmpty(), "다시 시작하지 않았다")
+
+		jdbc.update("update synastry_reports set active_at = now() - interval '3 minutes'")
+		assertEquals(FAILED, get(token, id).body(), "멈춘 것으로 본다")
+		assertEquals("FAILED", reportStatusOf(token, id))
+		assertEquals(WRITING, post(token, id).body(), "다시 시작한다")
+		await(token, id, "DONE")
+		settle()
+		assertEquals(4, generator.areas.size)
+		assertEquals(1, reportRows())
+	}
+
+	@Test
+	fun `멈춘 줄 알고 다시 시작한 뒤에 옛 생성이 뒤늦게 끝나도 덮어쓰지 못한다`() {
 		val token = tokenWithProfile()
 		val id = synastry(token)
 		val gate = closeGate()
 		post(token, id)
 		assertEquals(WRITING, get(token, id).body())
 
-		jdbc.update("update synastry_reports set started_at = now() - interval '11 minutes'")
+		jdbc.update("update synastry_reports set active_at = now() - interval '3 minutes'")
 
 		assertEquals(FAILED, get(token, id).body())
 		assertEquals("FAILED", reportStatusOf(token, id))
@@ -433,5 +462,109 @@ class SynastryReportExecutorFullIntegrationTest {
 		}
 		assertNull(jdbc.queryForObject("select body::text from synastry_reports", String::class.java))
 		assertTrue(generator.areas.size <= 2, "자리를 얻은 영역만 불렀다")
+	}
+}
+
+/**
+ * 앞의 리포트 때문에 줄에서 기다리는 궁합 리포트. 일꾼이 하나라 뒤 리포트의 일은 앞의 것이 끝날 때까지 시작도 못 한다.
+ * 기다린 시간만으로는 멈춘 것이 아니다: 서버가 살아 있는 동안은 살아 있다는 표시(`active_at`)를 계속 적는다(여기서는 1초마다).
+ */
+@Import(TestcontainersConfiguration::class, FakeSynastryConfig::class)
+@SpringBootTest(
+	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+	properties = [
+		DEV_AUTH_ON, "byeolmyeong.rate-limit.synastry-per-minute=100000",
+		"byeolmyeong.report.worker-threads=1", "byeolmyeong.report.heartbeat-seconds=1",
+	],
+)
+class SynastryReportQueueWaitIntegrationTest {
+
+	@LocalServerPort
+	private var port: Int = 0
+
+	@Autowired
+	private lateinit var jdbc: JdbcTemplate
+
+	@Autowired
+	private lateinit var generator: FakeSynastryGenerator
+
+	@Autowired
+	private lateinit var reportExecutor: ThreadPoolTaskExecutor
+
+	private fun until(what: String, condition: () -> Boolean) {
+		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+		while (!condition()) {
+			check(System.nanoTime() < deadline) { what }
+			Thread.sleep(10)
+		}
+	}
+
+	private fun settle() {
+		generator.gate?.countDown()
+		until("뒤에서 도는 생성이 끝나지 않는다") { reportExecutor.activeCount == 0 && reportExecutor.queueSize == 0 }
+	}
+
+	@BeforeEach
+	@AfterEach
+	fun clean() {
+		settle()
+		jdbc.update("delete from accounts")
+		generator.reset()
+	}
+
+	private fun post(token: String, id: String) = http(port, "POST", "/synastry/$id/report", PARTNER, token)
+
+	private fun get(token: String, id: String) = http(port, "GET", "/synastry/$id/report", token = token)
+
+	/** 앞 궁합의 리포트가 하나뿐인 일꾼을 붙잡고 있고(생성기가 답하지 않는다), 뒤 궁합의 리포트는 줄에서 기다린다. 토큰과 뒤 궁합의 id 를 준다. */
+	private fun waitingBehindAnother(): Pair<String, String> {
+		val token = devToken(port)
+		http(port, "PUT", "/profile", ME, token)
+		val (first, second) = (1..2).map {
+			val body = directBody(date = "1988-07-21", time = "06:10", placeId = MAPO)
+			mapper.readTree(http(port, "POST", "/synastry/direct", body, token).body())["id"].asString()
+		}
+		generator.gate = CountDownLatch(1)
+		assertEquals(WRITING, post(token, first).body())
+		until("앞 리포트의 일이 시작되지 않는다") { generator.areas.size == 1 }
+		assertEquals(WRITING, post(token, second).body())
+		return token to second
+	}
+
+	@Test
+	fun `줄에서 10분 넘게 기다린 리포트도 WRITING 이고 차례가 오면 완성된다`() {
+		val (token, second) = waitingBehindAnother()
+
+		// 자리를 잡은 지 11분이 지났다
+		jdbc.update("update synastry_reports set started_at = started_at - interval '11 minutes' where synastry_id = ?", UUID.fromString(second))
+
+		assertEquals(WRITING, get(token, second).body(), "기다린 시간만으로 멈춘 것으로 보지 않는다")
+		assertEquals("WRITING", mapper.readTree(http(port, "GET", "/synastry/$second", token = token).body())["reportStatus"].asString())
+		assertEquals(WRITING, post(token, second).body(), "다시 시작하지도 않는다")
+
+		// started_at 은 그 생성의 표식이기도 하다(끝낼 때 자기 것인지 가린다). 일이 시작되기 전에 되돌려 둔다
+		jdbc.update("update synastry_reports set started_at = started_at + interval '11 minutes' where synastry_id = ?", UUID.fromString(second))
+		generator.gate!!.countDown()
+		until("뒤 리포트가 완성되지 않는다") { get(token, second).body().contains("\"status\":\"DONE\"") }
+		settle()
+
+		assertEquals(8, generator.areas.size, "두 리포트의 네 영역을 한 번씩만 불렀다")
+	}
+
+	@Test
+	fun `서버가 살아 있으면 줄에서 기다리는 리포트에도 살아 있다는 표시를 계속 적는다`() {
+		val (token, second) = waitingBehindAnother()
+
+		// 표시가 오래 끊긴 것처럼 옮겨 놓아도 다음 주기에 다시 적힌다(쓰는 중인 것도, 기다리는 것도)
+		jdbc.update("update synastry_reports set active_at = now() - interval '11 minutes'")
+		until("살아 있다는 표시가 다시 적히지 않는다") {
+			jdbc.queryForObject("select count(*) from synastry_reports where active_at > now() - interval '10 seconds'", Int::class.java) == 2
+		}
+		assertEquals(WRITING, get(token, second).body())
+
+		generator.gate!!.countDown()
+		until("뒤 리포트가 완성되지 않는다") { get(token, second).body().contains("\"status\":\"DONE\"") }
+		settle()
+		assertEquals(8, generator.areas.size)
 	}
 }

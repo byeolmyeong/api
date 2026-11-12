@@ -12,19 +12,26 @@ import com.byeolmyeong.api.web.BadRequestException
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** 처음 한 번 + 다시 생성 2번(요약 해석과 같다). */
 private const val MAX_ATTEMPTS = 3
 
-/** 리포트가 `WRITING` 인 채 이만큼 지나면 멈춘 것으로 본다(심층 리포트와 같다). */
-internal const val STALE_MINUTES = 10
+/**
+ * 리포트가 `WRITING` 인데 살아 있다는 표시(`active_at`)가 이만큼 끊기면 멈춘 것으로 본다(서버가 쓰는 도중 꺼진 경우. 심층 리포트와 같다).
+ * 표시는 `byeolmyeong.report.heartbeat-seconds`(15초)마다 적으므로 여덟 번을 놓쳐야 한다.
+ * 자리를 잡은 뒤 흐른 시간으로는 가리지 않는다: 줄에서 오래 기다리는 것은 멈춘 것이 아니다.
+ */
+internal const val STALE_SECONDS = 120
 
 /** 내 출생 정보가 그 궁합을 계산한 때와 다르다(409 `PROFILE_CHANGED`). */
 class ProfileChangedException : RuntimeException("PROFILE_CHANGED")
@@ -43,6 +50,21 @@ class SynastryService(
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
+	// 이 서버가 맡아 아직 끝내지 않은 리포트 생성(줄에서 기다리는 것 포함).
+	private val live = ConcurrentHashMap.newKeySet<SynastryReportRun>()
+
+	/** 이 서버가 맡은 리포트 생성이 살아 있다고 행에 적는다. 서버가 꺼지면 더 적히지 않아 그 행은 멈춘 것으로 보인다. */
+	@Scheduled(fixedDelayString = "\${byeolmyeong.report.heartbeat-seconds}", timeUnit = TimeUnit.SECONDS)
+	fun heartbeat() {
+		for (run in live) {
+			try {
+				repository.beatReport(run)
+			} catch (e: Exception) {
+				log.warn("event=synastry_report_heartbeat_failed error={}", e.javaClass.simpleName)
+			}
+		}
+	}
+
 	/** 나(저장된 프로필)와 [partner](요청에 적힌 상대)의 궁합을 계산하고, 글을 받아 저장한다. 겹친 휠은 이 응답에만 싣는다. */
 	fun direct(ownerId: UUID, name: String, relation: Relation, partner: ChartInput): Synastry {
 		val me = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
@@ -53,18 +75,18 @@ class SynastryService(
 		return find(ownerId, id).synastry.copy(overlay = overlayOf(facts.mine, facts.theirs, facts.aspects))
 	}
 
-	fun list(ownerId: UUID): List<Synastry> = repository.list(ownerId, STALE_MINUTES).map { it.synastry }
+	fun list(ownerId: UUID): List<Synastry> = repository.list(ownerId, STALE_SECONDS).map { it.synastry }
 
 	fun get(ownerId: UUID, id: UUID): Synastry = find(ownerId, id).synastry
 
-	fun ranking(ownerId: UUID, relation: Relation): List<RankingEntry> = repository.ranking(ownerId, relation, STALE_MINUTES)
+	fun ranking(ownerId: UUID, relation: Relation): List<RankingEntry> = repository.ranking(ownerId, relation, STALE_SECONDS)
 		.map { it.synastry }
 		.map { RankingEntry(it.id, it.name, it.score, it.scoreLabel, it.keywords) }
 
 	/** 궁합 리포트의 상태와, 완성됐으면 글. */
 	fun report(ownerId: UUID, id: UUID): SynastryReportResponse {
 		find(ownerId, id)
-		val stored = repository.findReport(id, STALE_MINUTES) ?: return SynastryReportResponse(SynastryReportStatus.NONE)
+		val stored = repository.findReport(id, STALE_SECONDS) ?: return SynastryReportResponse(SynastryReportStatus.NONE)
 		return SynastryReportResponse(stored.status, stored.report)
 	}
 
@@ -81,14 +103,14 @@ class SynastryService(
 		val facts = facts(me, partner(), stored.synastry.relation)
 		if (facts.score != stored.synastry.score) throw BadRequestException("BIRTH_MISMATCH")
 		// 그 사이 다른 요청이 자리를 잡았으면 그 상태를 돌려준다.
-		val run = repository.claimReport(id, STALE_MINUTES) ?: return find(ownerId, id).synastry.reportStatus
+		val run = repository.claimReport(id, STALE_SECONDS) ?: return find(ownerId, id).synastry.reportStatus
 		log.info("event=synastry_report_started")
 		return start(run, facts)
 	}
 
 	// 소유자 검사는 여기 한 곳이다: 남의 것과 없는 것은 같은 404.
 	private fun find(ownerId: UUID, id: UUID): StoredSynastry =
-		repository.find(ownerId, id, STALE_MINUTES) ?: throw NotFoundException("NOT_FOUND")
+		repository.find(ownerId, id, STALE_SECONDS) ?: throw NotFoundException("NOT_FOUND")
 
 	private fun facts(me: ChartInput, partner: ChartInput, relation: Relation): SynastryFacts {
 		val mine = me.chart()
@@ -120,12 +142,14 @@ class SynastryService(
 		// 한 영역이 끝내 실패하면 리포트를 저장할 수 없으므로, 나머지 영역은 다음 시도부터 그만둔다(모델 호출을 아낀다).
 		val abandoned = AtomicBoolean(false)
 		val attempts = AtomicInteger()
+		live += run
 		val areas = try {
 			SynastryReportArea.entries.map { area ->
 				CompletableFuture.supplyAsync({ writeArea(area, facts, abandoned, attempts) }, executor)
 			}
 		} catch (e: RejectedExecutionException) {
 			abandoned.set(true)
+			live -= run
 			repository.failReport(run)
 			log.warn("event=synastry_report_failed reason=EXECUTOR_FULL")
 			return SynastryReportStatus.FAILED
@@ -160,7 +184,7 @@ class SynastryService(
 		return null
 	}
 
-	// 일꾼 스레드에서 돈다. 여기서 난 오류는 받을 곳이 없으므로 삼키고 로그만 남긴다(행은 WRITING 인 채 남아 10분 뒤 멈춘 것으로 본다).
+	// 일꾼 스레드에서 돈다. 여기서 난 오류는 받을 곳이 없으므로 삼키고 로그만 남긴다(행은 WRITING 인 채 남고, 살아 있다는 표시가 끊겨 멈춘 것으로 보인다).
 	private fun finish(run: SynastryReportRun, sections: List<SynastryReportSection?>, attempts: Int) {
 		try {
 			val report = SynastryReport(sections.filterNotNull())
@@ -175,6 +199,8 @@ class SynastryService(
 			}
 		} catch (e: Exception) {
 			log.error("event=synastry_report_finish_failed error={}", e.javaClass.simpleName)
+		} finally {
+			live -= run
 		}
 	}
 }

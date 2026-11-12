@@ -33,12 +33,12 @@ data class StoredSynastryReport(val status: SynastryReportStatus, val report: Sy
  */
 data class SynastryReportRun(val synastryId: UUID, val startedAt: OffsetDateTime)
 
-// 리포트 상태는 synastry_reports 에서 읽는다. WRITING 인 채 정해진 시간이 지났으면 멈춘 것(FAILED)으로 본다.
+// 리포트 상태는 synastry_reports 에서 읽는다. WRITING 인데 살아 있다는 표시(active_at)가 정해진 시간 넘게 끊겼으면 멈춘 것(FAILED)으로 본다.
 private const val SELECT = """
 	select s.id, s.name, s.relation, s.score, s.headline, s.keywords, s.owner_chart_hash, s.created_at,
 		case
 			when r.status is null then 'NONE'
-			when r.status = 'WRITING' and r.started_at < now() - make_interval(mins => ?) then 'FAILED'
+			when r.status = 'WRITING' and r.active_at < now() - make_interval(secs => ?) then 'FAILED'
 			else r.status
 		end as report_status
 	from synastries s left join synastry_reports r on r.synastry_id = s.id
@@ -80,24 +80,24 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 	}
 
 	/** 소유자의 궁합 하나. 남의 것이면 없는 것이다. */
-	fun find(ownerId: UUID, id: UUID, staleMinutes: Int): StoredSynastry? =
-		jdbc.query("$SELECT where s.owner_id = ? and s.id = ?", row, staleMinutes, ownerId, id).firstOrNull()
+	fun find(ownerId: UUID, id: UUID, staleSeconds: Int): StoredSynastry? =
+		jdbc.query("$SELECT where s.owner_id = ? and s.id = ?", row, staleSeconds, ownerId, id).firstOrNull()
 
 	/** 소유자의 궁합 전부, 새것부터. */
-	fun list(ownerId: UUID, staleMinutes: Int): List<StoredSynastry> =
-		jdbc.query("$SELECT where s.owner_id = ? order by s.created_at desc, s.id", row, staleMinutes, ownerId)
+	fun list(ownerId: UUID, staleSeconds: Int): List<StoredSynastry> =
+		jdbc.query("$SELECT where s.owner_id = ? order by s.created_at desc, s.id", row, staleSeconds, ownerId)
 
 	/** 소유자의 그 관계 유형 궁합 전부, 점수가 높은 것부터. 점수가 같으면 먼저 만든 것이 위다. */
-	fun ranking(ownerId: UUID, relation: Relation, staleMinutes: Int): List<StoredSynastry> = jdbc.query(
+	fun ranking(ownerId: UUID, relation: Relation, staleSeconds: Int): List<StoredSynastry> = jdbc.query(
 		"$SELECT where s.owner_id = ? and s.relation = ? order by s.score desc, s.created_at, s.id",
-		row, staleMinutes, ownerId, relation.name,
+		row, staleSeconds, ownerId, relation.name,
 	)
 
 	// 아래 리포트 함수들은 궁합 id 만 받는다. 그 궁합이 소유자의 것인지는 서비스가 [find] 로 먼저 본다.
 
-	fun findReport(synastryId: UUID, staleMinutes: Int): StoredSynastryReport? = jdbc.query(
+	fun findReport(synastryId: UUID, staleSeconds: Int): StoredSynastryReport? = jdbc.query(
 		"""
-		select case when status = 'WRITING' and started_at < now() - make_interval(mins => ?) then 'FAILED' else status end as status, body
+		select case when status = 'WRITING' and active_at < now() - make_interval(secs => ?) then 'FAILED' else status end as status, body
 		from synastry_reports where synastry_id = ?
 		""".trimIndent(),
 		{ rs, _ ->
@@ -106,26 +106,34 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 				report = rs.getString("body")?.let { mapper.readValue(it, SynastryReport::class.java) },
 			)
 		},
-		staleMinutes, synastryId,
+		staleSeconds, synastryId,
 	).firstOrNull()
 
 	/**
 	 * 리포트 생성을 시작할 자리를 잡는다. 잡았으면 그 생성을 돌려주고, 못 잡았으면 null 이다.
-	 * 잡는 경우: 행이 없다, `FAILED` 다, `WRITING` 인 채 [staleMinutes] 분이 지났다.
+	 * 잡는 경우: 행이 없다, `FAILED` 다, `WRITING` 인데 살아 있다는 표시가 [staleSeconds] 초 넘게 끊겼다.
 	 * 한 문장이라 동시에 불러도 한 요청만 잡는다.
 	 */
-	fun claimReport(synastryId: UUID, staleMinutes: Int): SynastryReportRun? = jdbc.query(
+	fun claimReport(synastryId: UUID, staleSeconds: Int): SynastryReportRun? = jdbc.query(
 		"""
 		insert into synastry_reports (synastry_id, status) values (?, 'WRITING')
 		on conflict (synastry_id) do update
-		set status = 'WRITING', body = null, started_at = now(), updated_at = now()
+		set status = 'WRITING', body = null, started_at = now(), active_at = now(), updated_at = now()
 		where synastry_reports.status = 'FAILED'
-			or (synastry_reports.status = 'WRITING' and synastry_reports.started_at < now() - make_interval(mins => ?))
+			or (synastry_reports.status = 'WRITING' and synastry_reports.active_at < now() - make_interval(secs => ?))
 		returning started_at
 		""".trimIndent(),
 		{ rs, _ -> SynastryReportRun(synastryId, rs.getObject("started_at", OffsetDateTime::class.java)) },
-		synastryId, staleMinutes,
+		synastryId, staleSeconds,
 	).firstOrNull()
+
+	/** 그 생성이 살아 있다고 적는다. 아직 그 생성의 자리일 때만. */
+	fun beatReport(run: SynastryReportRun) {
+		jdbc.update(
+			"update synastry_reports set active_at = now() where synastry_id = ? and status = 'WRITING' and started_at = ?",
+			run.synastryId, run.startedAt,
+		)
+	}
 
 	/** 글을 저장하고 `DONE` 으로 바꾼다. 그 사이 행이 지워졌거나 다른 생성이 자리를 잡았으면 아무것도 하지 않고 false. */
 	fun completeReport(run: SynastryReportRun, report: SynastryReport): Boolean = jdbc.update(
