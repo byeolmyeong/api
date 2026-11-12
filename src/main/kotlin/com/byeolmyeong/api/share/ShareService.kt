@@ -1,6 +1,9 @@
 package com.byeolmyeong.api.share
 
 import com.byeolmyeong.api.chart.Relation
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
@@ -68,15 +71,19 @@ class ShareService(
 	fun delete(ownerId: UUID, shareId: String) {
 		if (!repository.delete(ownerId, shareId)) nothing()
 		log.info("event=share_deleted")
+		// 감사 기록에 공유 식별자는 남기지 않는다(그 값은 카드를 여는 열쇠다. 결정 015).
+		events.publishEvent(AuditEvent(AuditAction.SHARE_DELETED, AuditActor.user(ownerId)))
 	}
 
 	// 같은 소유자의 같은 내용은 한 행이다. 동시에 만들어도 먼저 들어간 행의 식별자를 둘 다 받는다.
 	private fun save(ownerId: UUID, card: ShareCard): Share {
 		val json = mapper.writeValueAsString(card)
 		val hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.toByteArray()))
-		repository.insertIfAbsent(newShareId(), ownerId, card.kind, json, hash)
+		val created = repository.insertIfAbsent(newShareId(), ownerId, card.kind, json, hash)
 		val shareId = checkNotNull(repository.findShareId(ownerId, hash)) { "방금 저장한 공유가 없다" }
 		log.info("event=share_created kind={}", card.kind)
+		// 이미 있던 공유를 다시 받은 요청은 감사 기록에 남기지 않는다(새로 만든 것만).
+		if (created) events.publishEvent(AuditEvent(AuditAction.SHARE_CREATED, AuditActor.user(ownerId), detail = mapOf("kind" to card.kind.name)))
 		return Share(shareId, card)
 	}
 

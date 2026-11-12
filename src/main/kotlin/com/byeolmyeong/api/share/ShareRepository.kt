@@ -7,16 +7,15 @@ import java.util.UUID
 @Repository
 class ShareRepository(private val jdbc: JdbcTemplate) {
 
-	/** 같은 소유자의 같은 내용([cardHash])이 이미 있으면 아무것도 하지 않는다. */
-	fun insertIfAbsent(shareId: String, ownerId: UUID, kind: ShareKind, cardJson: String, cardHash: String) {
+	/** 같은 소유자의 같은 내용([cardHash])이 이미 있으면 아무것도 하지 않는다. 새로 넣었으면 true. */
+	fun insertIfAbsent(shareId: String, ownerId: UUID, kind: ShareKind, cardJson: String, cardHash: String): Boolean =
 		jdbc.update(
 			"""
 			insert into shares (share_id, owner_id, kind, card, card_hash) values (?, ?, ?, ?::jsonb, ?)
 			on conflict (owner_id, card_hash) do nothing
 			""".trimIndent(),
 			shareId, ownerId, kind.name, cardJson, cardHash,
-		)
-	}
+		) == 1
 
 	fun findShareId(ownerId: UUID, cardHash: String): String? =
 		jdbc.queryForList("select share_id from shares where owner_id = ? and card_hash = ?", String::class.java, ownerId, cardHash).firstOrNull()

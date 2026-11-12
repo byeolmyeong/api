@@ -11,10 +11,14 @@ import com.byeolmyeong.api.generation.SynastryFacts
 import com.byeolmyeong.api.generation.TextGenerator
 import com.byeolmyeong.api.share.RankingCardRequested
 import com.byeolmyeong.api.share.ScoreCardRequested
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.BadRequestException
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
@@ -51,6 +55,7 @@ class SynastryService(
 	private val repository: SynastryRepository,
 	private val generator: TextGenerator,
 	@Qualifier("reportExecutor") private val executor: Executor,
+	private val events: ApplicationEventPublisher,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -73,9 +78,16 @@ class SynastryService(
 	fun direct(ownerId: UUID, name: String, relation: Relation, partner: ChartInput): Synastry {
 		val me = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
 		val facts = facts(me, partner, relation)
-		val summary = writeSummary(facts)
+		val summary = try {
+			writeSummary(facts)
+		} catch (e: GenerationException) {
+			// 감사 기록(결정 015): 글을 만들지 못한 요청(502)도 남긴다. 이름과 출생 정보는 남기지 않는다.
+			events.publishEvent(AuditEvent(AuditAction.SYNASTRY_CREATED, AuditActor.user(ownerId), success = false, detail = mapOf("relation" to relation.name)))
+			throw e
+		}
 		val id = repository.insert(NewSynastry(ownerId, name, relation, facts.score, summary, me.hash))
 		log.info("event=synastry_created relation={}", relation)
+		events.publishEvent(AuditEvent(AuditAction.SYNASTRY_CREATED, AuditActor.user(ownerId), "SYNASTRY", id.toString(), detail = mapOf("relation" to relation.name)))
 		return find(ownerId, id).synastry.copy(overlay = overlayOf(facts.mine, facts.theirs, facts.aspects))
 	}
 
@@ -125,6 +137,7 @@ class SynastryService(
 		// 그 사이 다른 요청이 자리를 잡았으면 그 상태를 돌려준다.
 		val run = repository.claimReport(id, STALE_SECONDS) ?: return find(ownerId, id).synastry.reportStatus
 		log.info("event=synastry_report_started")
+		events.publishEvent(AuditEvent(AuditAction.SYNASTRY_REPORT_REQUESTED, AuditActor.user(ownerId), "SYNASTRY", id.toString()))
 		return start(run, facts)
 	}
 

@@ -1,8 +1,12 @@
 package com.byeolmyeong.api.inquiry
 
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.RateLimiter
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import java.util.UUID
 
@@ -18,6 +22,7 @@ class InquiryRateLimitedException : RuntimeException("RATE_LIMITED")
 @Service
 class InquiryService(
 	private val repository: InquiryRepository,
+	private val events: ApplicationEventPublisher,
 	@Value("\${byeolmyeong.rate-limit.inquiries-per-hour}") perHour: Int,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
@@ -30,6 +35,7 @@ class InquiryService(
 		}
 		val id = repository.insert(ownerId, inquiry)
 		log.info("event=inquiry_created category={}", inquiry.category)
+		events.publishEvent(AuditEvent(AuditAction.INQUIRY_SUBMITTED, AuditActor.user(ownerId), "INQUIRY", id.toString(), detail = mapOf("category" to inquiry.category)))
 		return id
 	}
 }

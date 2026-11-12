@@ -14,9 +14,13 @@ import com.byeolmyeong.api.generation.SynastryFacts
 import com.byeolmyeong.api.generation.TextGenerator
 import com.byeolmyeong.api.generation.basisVocabulary
 import com.byeolmyeong.api.generation.synastryBasisVocabulary
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.BadRequestException
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import java.time.LocalDate
 import java.util.UUID
@@ -33,6 +37,7 @@ class DirectionService(
 	private val profiles: BirthProfileService,
 	private val repository: DirectionRepository,
 	private val generator: TextGenerator,
+	private val events: ApplicationEventPublisher,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -43,7 +48,7 @@ class DirectionService(
 		repository.find(ownerId, TOPIC_LOVE, target)?.let { return it }
 
 		val chart = birth.chart()
-		val draft = generate(TOPIC_LOVE, loveDirectionRequest(chart)) { draftProblem(it, basisVocabulary(chart), numbers = true) }
+		val draft = generate(ownerId, TOPIC_LOVE, loveDirectionRequest(chart)) { draftProblem(it, basisVocabulary(chart), numbers = true) }
 		return store(ownerId, TOPIC_LOVE, target, draft)
 	}
 
@@ -60,7 +65,7 @@ class DirectionService(
 
 		val chart = birth.chart()
 		val situation = futureSituation(computeMilestones(birth.utc, KOREA_ZONE), computeIntervals(chart, birth.utc), today)
-		val draft = generate(TOPIC_FUTURE, futureDirectionRequest(chart, situation)) { draftProblem(it, basisVocabulary(chart), numbers = false) }
+		val draft = generate(ownerId, TOPIC_FUTURE, futureDirectionRequest(chart, situation)) { draftProblem(it, basisVocabulary(chart), numbers = false) }
 		return store(ownerId, TOPIC_FUTURE, futureTarget(birth.hash, situation), draft)
 	}
 
@@ -82,15 +87,27 @@ class DirectionService(
 		val aspects = synastryAspects(mine, theirs)
 		val facts = SynastryFacts(mine, theirs, aspects, about.relation, scoreOfSum(synastrySum(aspects, about.relation)))
 		if (facts.score != about.score) throw BadRequestException("BIRTH_MISMATCH")
-		val draft = generate(TOPIC_SYNASTRY, synastryDirectionRequest(facts)) { draftProblem(it, synastryBasisVocabulary(mine), numbers = false) }
+		val draft = generate(ownerId, TOPIC_SYNASTRY, synastryDirectionRequest(facts)) { draftProblem(it, synastryBasisVocabulary(mine), numbers = false) }
 		return store(ownerId, TOPIC_SYNASTRY, target, draft)
 	}
 
 	// 동시에 두 요청이 생성했으면 먼저 들어간 글만 남고, 둘 다 그 글을 돌려준다.
 	private fun store(ownerId: UUID, topic: String, target: String, draft: DirectionDraft): Direction {
 		repository.insertIfAbsent(ownerId, topic, target, draft)
+		// 감사 기록(결정 015): 새 글을 만든 요청만 남긴다. 궁합 주제는 어느 궁합의 글인지(id)도 남긴다.
+		val synastryId = target.takeIf { topic == TOPIC_SYNASTRY }
+		events.publishEvent(AuditEvent(AuditAction.DIRECTION_GENERATED, AuditActor.user(ownerId), synastryId?.let { "SYNASTRY" }, synastryId, detail = mapOf("topic" to topic)))
 		return checkNotNull(repository.find(ownerId, topic, target)) { "방금 저장한 글이 없다" }
 	}
+
+	// 끝내 만들지 못하면(502) 감사 기록에 실패로 남기고 그대로 던진다.
+	private fun generate(ownerId: UUID, topic: String, request: GenerationRequest, problemOf: (DirectionDraft) -> String?): DirectionDraft =
+		try {
+			generate(topic, request, problemOf)
+		} catch (e: GenerationException) {
+			events.publishEvent(AuditEvent(AuditAction.DIRECTION_GENERATED, AuditActor.user(ownerId), success = false, detail = mapOf("topic" to topic)))
+			throw e
+		}
 
 	private fun generate(topic: String, request: GenerationRequest, problemOf: (DirectionDraft) -> String?): DirectionDraft {
 		repeat(MAX_ATTEMPTS) { attempt ->

@@ -8,6 +8,9 @@ import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.generation.GenerationRequest
 import com.byeolmyeong.api.generation.TextGenerator
 import com.byeolmyeong.api.share.NextTurnCardRequested
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
@@ -113,6 +116,8 @@ class ReportService(
 		val run = repository.claim(ownerId, birth.hash, STALE_SECONDS)
 			?: return repository.find(ownerId, birth.hash, STALE_SECONDS)?.let(::statusOf) ?: ReportStatus.WRITING
 		log.info("event=report_started")
+		// 감사 기록(결정 015): 만들기 시작한 요청만 남긴다. 뒤에서 끝난 결과는 리포트 행의 상태에 있다.
+		events.publishEvent(AuditEvent(AuditAction.REPORT_REQUESTED, AuditActor.user(ownerId)))
 		return start(run, birth, chart)
 	}
 

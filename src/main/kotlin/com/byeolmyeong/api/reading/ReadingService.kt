@@ -5,8 +5,12 @@ import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.generation.TextGenerator
 import com.byeolmyeong.api.share.ReadingCardRequested
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Service
 import java.security.SecureRandom
@@ -31,6 +35,7 @@ class ReadingService(
 	private val profiles: BirthProfileService,
 	private val repository: ReadingRepository,
 	private val generator: TextGenerator,
+	private val events: ApplicationEventPublisher,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val random = SecureRandom()
@@ -40,9 +45,16 @@ class ReadingService(
 		val chartHash = birth.hash
 		repository.find(ownerId, SUMMARY, chartHash)?.let { return it }
 
-		val draft = generate(birth.chart())
+		// 감사 기록(결정 015): 새 글을 만든 요청만 남긴다. 위에서 저장본을 돌려준 요청은 남기지 않는다.
+		val draft = try {
+			generate(birth.chart())
+		} catch (e: GenerationException) {
+			events.publishEvent(AuditEvent(AuditAction.READING_GENERATED, AuditActor.user(ownerId), success = false))
+			throw e
+		}
 		// 동시에 두 요청이 생성했으면 먼저 들어간 글만 남고, 둘 다 그 글을 돌려준다.
 		repository.insertIfAbsent(ownerId, SUMMARY, chartHash, draft, newShareId())
+		events.publishEvent(AuditEvent(AuditAction.READING_GENERATED, AuditActor.user(ownerId)))
 		return checkNotNull(repository.find(ownerId, SUMMARY, chartHash)) { "방금 저장한 글이 없다" }
 	}
 
