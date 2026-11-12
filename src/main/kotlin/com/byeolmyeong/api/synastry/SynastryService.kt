@@ -8,10 +8,13 @@ import com.byeolmyeong.api.chart.synastryAspects
 import com.byeolmyeong.api.chart.synastrySum
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.generation.TextGenerator
+import com.byeolmyeong.api.share.RankingCardRequested
+import com.byeolmyeong.api.share.ScoreCardRequested
 import com.byeolmyeong.api.web.BadRequestException
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.context.event.EventListener
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import java.util.UUID
@@ -82,6 +85,22 @@ class SynastryService(
 	fun ranking(ownerId: UUID, relation: Relation): List<RankingEntry> = repository.ranking(ownerId, relation, STALE_SECONDS)
 		.map { it.synastry }
 		.map { RankingEntry(it.id, it.name, it.score, it.scoreLabel, it.keywords) }
+
+	/** 공유 카드에 실을 글을 묻는 이벤트(결정 012). 그 소유자의 궁합일 때만 답한다(남의 것·없는 것에는 답하지 않는다). */
+	@EventListener
+	fun on(event: ScoreCardRequested) {
+		val synastry = repository.find(event.ownerId, event.synastryId, STALE_SECONDS)?.synastry ?: return
+		event.partnerName = synastry.name
+		event.score = synastry.score
+		event.scoreLabel = synastry.scoreLabel
+		event.headline = synastry.headline
+	}
+
+	/** 공유 카드에 실을 랭킹을 묻는 이벤트(결정 012). 그 소유자의 랭킹을 순위대로, 이름과 점수만 준다. */
+	@EventListener
+	fun on(event: RankingCardRequested) {
+		event.entries = ranking(event.ownerId, event.relation).map { it.name to it.score }
+	}
 
 	/** 궁합 리포트의 상태와, 완성됐으면 글. */
 	fun report(ownerId: UUID, id: UUID): SynastryReportResponse {
