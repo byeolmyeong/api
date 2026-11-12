@@ -21,7 +21,7 @@ last_reviewed: 2026-11-12
 - `chart` — 계산. 순수 함수만 둔다(입력: UTC 시각·위경도 → 출력: 차트·변곡점 구간·궁합 점수). DB·HTTP·AI·Spring 을 모른다. 이유: 계산 정확도가 제품의 신뢰이고 기준값 테스트로 혼자 검증돼야 한다.
 - `birth` — 출생지 목록과 시각 변환(`java.time` 의 시간대 이력), 그리고 저장된 출생 정보를 읽고 쓰는 한 곳(`BirthProfileService`). 저장된 출생 정보에서 차트 입력과 "같은 차트" 를 가리는 해시(`ChartInput`)를 얻는 곳도 여기다. 해석·리포트·궁합이 모두 소유자의 출생 정보를 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다.
 - `web` — HTTP 공통: 오류 응답 모양(`ErrorResponse`·`BadRequestException`·`NotFoundException`), 출생 정보 요청 검증(`BirthRequestParser`), 요청 속도 제한, CORS(앱의 주소와 관리 화면의 주소를 경로로 나눈다), 지금의 `POST /charts` 컨트롤러. `auth` 를 모른다.
-- `auth` — 세션 발급·검증, 세션 검사(`SessionInterceptor`: 로그인 전에 쓰는 경로 목록에 없으면 모두 세션 필요), 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 계정 삭제(`DELETE /account`), 나중에 구글·애플·카카오 토큰 검증과 만 14세 판정.
+- `auth` — 세션 발급·검증, 세션 검사(`SessionInterceptor`: 로그인 전에 쓰는 경로 목록에 없으면 모두 세션 필요. `GET /faqs` 는 GET 만 열고, `/admin/**` 는 보지 않는다 — 관리자 세션 검사가 맡는다), 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 계정 삭제(`DELETE /account`), 나중에 구글·애플·카카오 토큰 검증과 만 14세 판정.
 - `profile` — 내 출생 정보 저장·조회의 HTTP 입구(`GET`·`PUT /profile`). 저장 자체는 `birth.BirthProfileService` 가 한다.
 - `generation` — 글 생성 공통: 공급자를 가리는 인터페이스 `TextGenerator`(지시문·차트 글·JSON 구조를 받아 JSON 을 돌려준다)와 그 Claude 구현, 차트를 프롬프트 글로 옮기는 `chartFacts`, 근거에 쓰는 말(`Basis.kt`). 해석·리포트·궁합 글이 모두 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다. `chart` 만 안다(소유자·저장·HTTP 를 모른다).
 - `reading` — 요약 해석 생성·저장. 요약 해석에만 있는 것(지시문, 돌려받을 구조, 문단·강점·보완점 개수 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다.
@@ -29,7 +29,8 @@ last_reviewed: 2026-11-12
 - `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹, 궁합 리포트(202 로 답하고 뒤에서 영역마다 쓴다). 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 010). 초대·수락은 아직 없다(태스크 9 의 나머지).
 - `direction` — 방향성 제시(해 볼 만한 것 3개). 지금은 이성 주제 하나다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래·궁합 주제는 리포트 시기·궁합이 들어온 뒤에 더한다. 결정: docs/decisions/009-direction-storage-and-advice-check.md
 - `inquiry` — 문의하기. 설정의 문의 글을 검증해 저장만 한다(관리 화면·메일 발송 없음). 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md
-- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자), 현황 수치(개수만). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
+- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자), 현황 수치(개수만), FAQ 편집. 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
+- `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
 - `share` — 공유 조회(공유 카드 4종).
 - `push` — 기기 토큰과 알림 발송.
 
@@ -47,7 +48,8 @@ src/main/kotlin/com/byeolmyeong/api/
   synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·두 차트 사이 연결의 글·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증)
   inquiry/     InquiryController · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증)
-  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다)
+  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다) · AdminFaqController · AdminFaqService(+ AdminFaqRepository)
+  faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
   share/       ShareController · ShareService
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
@@ -61,7 +63,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
-| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`)로만 한다 | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`)로만 한다 | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
 | 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
 | `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
 | `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
@@ -85,6 +87,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | 메서드·경로 | 인증 | 요청 | 응답 |
 |---|---|---|---|
 | `GET /places` · `GET /places?q=` | 없음 | 없음 · 검색어 | `[{ id, name, lat, lon }]` |
+| `GET /faqs` | 없음 | 없음 | `[{ id, question, answer }]` 공개한 것만 순서대로 · 하나도 없으면 `[]` · 아래 "자주 묻는 질문" |
 | `POST /charts` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | `Chart` |
 | `POST /auth/dev` | 없음 | 없음 | `{ token }` · 개발 설정에서만, 운영 404 (결정 005) |
 | `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken }` | `{ token }` · 만 14세 미만 403 `UNDER_AGE` · 브랜딩 뒤 구현 |
@@ -153,6 +156,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - 응답: 201 `{ id }`(UUID). 서버는 저장만 한다(답장·알림 없음).
   - 오류: 400 `INVALID_REQUEST`(본문이 JSON 객체가 아니거나, `category`·`body`·`replyEmail` 이 글자가 아닌 타입이다 — 숫자·배열·객체·불리언)·`INVALID_CATEGORY`(없거나 `null` 이거나 목록에 없다)·`INVALID_BODY`(없거나 `null` 이거나 길이가 틀리다)·`INVALID_EMAIL` · 401 `UNAUTHORIZED` · 429 `RATE_LIMITED`. 여러 개가 틀리면 이 순서로 처음 걸린 것 하나를 준다. 오류 응답에 입력값은 없다.
   - 429: 한 계정이 한 시간(서버 시계의 정시부터 정시까지)에 5건까지 저장할 수 있고 여섯 번째부터 429 다. 검증에서 걸린 요청(400)은 세지 않는다. 같은 계정의 다른 기기도 같이 센다.
+- 자주 묻는 질문 `GET /faqs` (2026-11-12 구현, 결정 014): 세션 없이 읽는다(로그인 전 화면에서도). 관리자가 공개한 것만, 관리자가 정한 순서대로 온다. `id` 는 UUID, `question` 은 1~200자, `answer` 는 1~2000자의 꾸밈 없는 글자(줄바꿈이 들어 있을 수 있다. HTML·마크다운이 아니다). 아직 글이 없으면 `[]` 다(오류가 아니다). 응답 헤더 `Cache-Control: public, max-age=300`. 주소별 분당 120번을 넘으면 429 `RATE_LIMITED`. 같은 경로의 다른 메서드와 `/faqs/` 아래 경로는 없다. 글을 쓰는 곳은 "관리자 API" 의 `/admin/faqs` 다.
 - `GET /shared/{shareId}` = `{ kind: READING \| SCORE \| RANKING \| NEXT_TURN, title, lines[], score?, items?[{ name, score }] }` (글과 숫자만, 출생 정보·근거 없음).
 
 ## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014)
@@ -182,6 +186,11 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /admin/inquiries/{id}` | 없음 | 200 `Inquiry` |
 | `PATCH /admin/inquiries/{id}` | `{ status?, memo? }` | 200 `Inquiry` |
 | `GET /admin/stats` | 없음 | 200 `Stats` |
+| `GET /admin/faqs` | 없음 | 200 `[Faq]` 보이는 순서대로(공개하지 않은 것 포함) |
+| `POST /admin/faqs` | `{ question, answer, published? }` | 201 `Faq` |
+| `PATCH /admin/faqs/{id}` | `{ question?, answer?, published? }` | 200 `Faq` |
+| `DELETE /admin/faqs/{id}` | 없음 | 204 |
+| `PUT /admin/faqs/order` | `{ ids: [id, …] }` | 200 `[Faq]` 새 순서의 전체 목록 |
 
 ### 로그인·세션
 - `Admin` = `{ id, loginId, name }`. `AdminAccount` = `{ id, loginId, name, active, createdAt }`. 비밀번호와 그 해시는 어떤 응답에도 없다.
@@ -246,6 +255,22 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - **세지 못하는 것**: 저장되지 않는 실패 — 요약 해석·방향성 제시·궁합 요약의 생성 실패(502)는 DB 에 남지 않아 수치에 없다. 리포트의 `FAILED` 는 행으로 남은 것만이고, 다시 요청해 성공하면 그 행이 `DONE` 으로 바뀌므로 "지금까지 실패한 횟수" 가 아니라 "지금 실패 상태인 리포트 수" 다.
   - 계정이 지워지면 그 사람의 행도 지워지므로 모든 수는 "지금 남아 있는 것" 이다(누적이 아니다).
 
+### FAQ
+- `Faq` = `{ id, question, answer, sortOrder, published, updatedAt, updatedBy }`.
+  - `question`: 앞뒤 공백을 뗀 1~200자. `answer`: 앞뒤 공백을 뗀 1~2000자(가운데 줄바꿈은 그대로 둔다). 둘 다 꾸밈 없는 글자다(HTML·마크다운으로 해석하지 않는다).
+  - `sortOrder`: 정수. 작은 것부터 보인다는 뜻뿐이다(값이 1 부터 이어진다고 믿지 않는다 — 지우면 빈 번호가 생긴다). 목록은 이미 이 순서로 온다.
+  - `published`: `true` 인 것만 앱(`GET /faqs`)에 보인다.
+  - `updatedAt`·`updatedBy`(`{ id, name }`): 글이나 공개 여부를 마지막으로 바꾼(또는 만든) 때와 관리자. 순서만 바꾼 것은 적지 않는다.
+- `POST /admin/faqs`: 목록의 끝에 붙는다. `published` 는 불리언이고 없으면 `false`(공개하지 않은 채로 만든다). 201 `Faq`.
+  - 400 `INVALID_QUESTION`·`INVALID_ANSWER`(없거나 `null` 이거나 비었거나 너무 길다. 둘 다 틀리면 `INVALID_QUESTION`) · `INVALID_REQUEST`(타입이 틀리다 — `published: "true"` 도 틀리다).
+- `PATCH /admin/faqs/{id}`: 보낸 키만 바꾼다(셋 중 하나는 있어야 한다). 공개는 `{ "published": true }`, 내리기는 `{ "published": false }`. 200 바뀐 `Faq`. 순서는 여기서 바꾸지 않는다(`sortOrder` 를 보내도 읽지 않는다).
+  - 400 `INVALID_REQUEST`(세 키가 모두 없거나, 타입이 틀리거나, `published` 가 `null` 이다) · `INVALID_QUESTION`·`INVALID_ANSWER`(키가 있는데 `null` 이거나 비었거나 너무 길다) · 404 `NOT_FOUND`.
+- `DELETE /admin/faqs/{id}`: 204. 되돌릴 수 없다. 404 `NOT_FOUND`.
+- `PUT /admin/faqs/order`: `ids` 에 **지금 있는 FAQ 전부의 id 를(공개하지 않은 것까지) 보일 순서대로 한 번씩** 담아 보낸다. 200 새 순서의 `[Faq]`.
+  - 400 `INVALID_ORDER`: 빠진 id 가 있거나, 없는 id·UUID 가 아닌 글자가 있거나, 같은 id 가 두 번 있다 — 그 사이 다른 관리자가 FAQ 를 만들거나 지웠을 때도 이 답이므로 화면은 목록을 다시 받아 온다. 400 `INVALID_REQUEST`: `ids` 가 없거나 배열이 아니거나 원소가 글자가 아니다. FAQ 가 하나도 없을 때의 `{ "ids": [] }` 는 200 `[]`.
+- 앱 쪽 공개 조회는 `GET /faqs`(세션 없음, 위 "API 계약"): 공개한 것만 같은 순서로 `[{ id, question, answer }]`. 응답이 5분 캐시될 수 있어(`Cache-Control: public, max-age=300`) 공개·수정·내리기가 앱에 보이기까지 5분쯤 걸릴 수 있다. 관리 화면의 출처는 `GET /faqs` 를 부를 수 없다(CORS) — 미리 보기는 `GET /admin/faqs` 의 `published` 로 그린다.
+- 처음 글은 서버에 없다(빈 목록). 관리 화면으로 넣는다.
+
 ### 브라우저 출처 (CORS)
 - 관리 화면이 열리는 주소를 서버의 환경 변수 `ADMIN_ALLOWED_ORIGINS`(설정 `byeolmyeong.cors.admin-allowed-origins`, 쉼표로 구분, 예 `https://admin.example.com,http://localhost:5173`)에 적어야 브라우저가 부를 수 있다. 주소는 `스킴://호스트[:포트]` 까지이고 끝에 `/` 를 붙이지 않는다.
 - `/admin/**` 는 이 주소만 허용한다. 허용 메서드 GET·POST·PUT·PATCH·DELETE, 허용 요청 헤더 `Authorization`·`Content-Type`. 쿠키·자격 증명 허용은 쓰지 않는다(`fetch` 에 `credentials` 를 주지 않는다).
@@ -283,7 +308,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 
 ## 요청 속도 제한 (남용 방지, 서버에서만 판정한다)
 - 리포트·궁합·방향성 제시에 기능 횟수 제한은 없다(앱 결정 011). 같은 차트·같은 두 사람의 글은 한 번만 만든다.
-- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다).
+- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다)·`GET /faqs`(주소별, `faqs-per-minute` 120).
 - 관리자 로그인(`POST /admin/auth/login`)은 10분에 주소별 `byeolmyeong.rate-limit.admin-login-per-ip`(20)번·아이디별 `admin-login-per-id`(5)번까지다. `admin.AdminAuthService` 가 같은 `web.RateLimiter` 를 쓴다(결정 014).
 - 계정별 제한은 `POST /inquiries` 하나뿐이다: 소유자 id 별로 한 시간에 `byeolmyeong.rate-limit.inquiries-per-hour`(5)건, 같은 `web.RateLimiter`(고정 창, 서버 메모리)를 `inquiry.InquiryService` 가 쓴다(결정 013). 다른 엔드포인트의 계정별 제한은 미뤄져 있다(계획 "배포 전 확인" 1번).
 - 광고 시청 판정은 1.1.0 에 더한다(앱 결정 015).
