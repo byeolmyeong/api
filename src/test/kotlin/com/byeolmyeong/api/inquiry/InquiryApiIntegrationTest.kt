@@ -82,7 +82,13 @@ class InquiryApiIntegrationTest {
 		val id = UUID.fromString(json["id"].asString())
 
 		val row = jdbc.queryForMap("select * from inquiries")
-		assertEquals(setOf("id", "owner_id", "category", "body", "reply_email", "created_at"), row.keys, "정해진 것만 저장한다(기기 정보·주소 없음)")
+		assertEquals(
+			setOf("id", "owner_id", "category", "body", "reply_email", "created_at", "status", "admin_memo", "handled_by", "handled_at"),
+			row.keys,
+			"정해진 것만 저장한다(기기 정보·주소 없음). 뒤의 넷은 관리자가 처리하며 적는 칸이다(결정 014)",
+		)
+		assertEquals("NEW", row["status"])
+		assertEquals(listOf(null, null, null), listOf(row["admin_memo"], row["handled_by"], row["handled_at"]))
 		assertEquals(id, row["id"])
 		assertEquals(jdbc.queryForObject("select account_id from sessions limit 1", UUID::class.java), row["owner_id"], "소유자는 세션의 계정이다")
 		assertEquals("READING", row["category"])
