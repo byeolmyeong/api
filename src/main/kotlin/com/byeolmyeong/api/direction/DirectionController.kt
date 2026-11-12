@@ -13,13 +13,14 @@ import org.springframework.web.bind.annotation.RestController
 /** `POST /directions` 의 요청 본문. 값은 컨트롤러가 본다. */
 data class DirectionRequest(val topic: String?)
 
-/** 방향성 제시. 누구의 것인지는 세션에서, 출생 정보는 저장된 프로필에서 얻는다. 지금 받는 주제는 `LOVE` 하나다. */
+/** 방향성 제시. 누구의 것인지는 세션에서, 출생 정보는 저장된 프로필에서 얻는다. 받는 주제는 `LOVE`·`FUTURE` 다. */
 @RestController
 class DirectionController(private val owner: CurrentOwner, private val directions: DirectionService) {
 
 	@PostMapping("/directions")
 	fun create(@RequestBody request: DirectionRequest): Direction = when (request.topic) {
 		TOPIC_LOVE -> directions.love(owner.id())
+		TOPIC_FUTURE -> directions.future(owner.id())
 		else -> throw BadRequestException("INVALID_TOPIC")
 	}
 

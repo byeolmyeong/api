@@ -319,7 +319,7 @@ class DirectionApiIntegrationTest {
 	@Test
 	fun `주제가 없거나 아직 받지 않는 주제면 400 이다`() {
 		val token = tokenWithProfile(KNOWN)
-		for (body in listOf("""{"topic":"FUTURE"}""", """{"topic":"SYNASTRY","synastryId":"x"}""", """{"topic":"love"}""", """{}""", """{"topic":null}""")) {
+		for (body in listOf("""{"topic":"SYNASTRY","synastryId":"x"}""", """{"topic":"love"}""", """{"topic":"future"}""", """{"topic":"MONEY"}""", """{}""", """{"topic":null}""")) {
 			val response = http(port, "POST", "/directions", body, token)
 			assertEquals(400, response.statusCode(), body)
 			assertEquals("""{"error":"INVALID_TOPIC"}""", response.body(), body)
