@@ -17,6 +17,15 @@ private const val BEARER = "Bearer "
 /** 로그인 전에 쓰는 곳. 여기 없는 경로는 모두 세션이 있어야 한다(새 엔드포인트는 기본이 "세션 필요"다). */
 private val PUBLIC_PATHS = arrayOf("/health", "/places", "/auth/dev", "/auth/login", "/invites/*", "/shared/*", "/error")
 
+/** 로그인 전에 쓰는 곳 가운데 읽기(GET)만 여는 경로. 같은 경로의 다른 메서드는 세션이 있어야 한다. */
+private val PUBLIC_GET_PATHS = setOf("/faqs", "/app-config")
+
+/**
+ * 관리자 API. 사용자 세션 검사는 이 아래를 보지 않는다 — 열어 두는 것이 아니라, 같은 경로 전부를 관리자 세션 검사
+ * (`admin.AdminSessionInterceptor`)가 맡는다(결정 014). 사용자 토큰은 거기서 통하지 않는다.
+ */
+private const val ADMIN_PATHS = "/admin/**"
+
 /**
  * 소유자를 얻는 한 곳. 요청 본문이나 경로의 id 를 소유자로 믿지 않고, 세션 토큰으로 확인한 계정만 돌려준다.
  * 세션이 필요한 엔드포인트의 컨트롤러가 주입받아 쓴다.
@@ -39,6 +48,7 @@ class SessionInterceptor(private val auth: AuthService) : HandlerInterceptor {
 	override fun preHandle(request: HttpServletRequest, response: HttpServletResponse, handler: Any): Boolean {
 		// 브라우저가 본 요청 전에 묻는 요청에는 세션 헤더가 없다. 허용 여부는 CORS 설정이 답한다.
 		if (CorsUtils.isPreFlightRequest(request)) return true
+		if (request.method == "GET" && request.requestURI in PUBLIC_GET_PATHS) return true
 		val header = request.getHeader("Authorization")
 		val owner = header?.takeIf { it.startsWith(BEARER) }?.removePrefix(BEARER)?.let(auth::ownerOf)
 		if (owner != null) {
@@ -56,6 +66,6 @@ class SessionInterceptor(private val auth: AuthService) : HandlerInterceptor {
 class SessionConfig(private val interceptor: SessionInterceptor) : WebMvcConfigurer {
 
 	override fun addInterceptors(registry: InterceptorRegistry) {
-		registry.addInterceptor(interceptor).excludePathPatterns(*PUBLIC_PATHS)
+		registry.addInterceptor(interceptor).excludePathPatterns(*PUBLIC_PATHS, ADMIN_PATHS)
 	}
 }

@@ -63,6 +63,18 @@ class CorsIntegrationTest {
 		assertEquals(null, response.allowOrigin())
 		assertEquals(403, send(port, "OPTIONS", "/charts", "Origin", "https://evil.example", "Access-Control-Request-Method", "POST").statusCode())
 	}
+
+	@Test
+	fun `관리 화면의 주소를 정하지 않으면 admin 아래는 앱의 주소에도 열리지 않는다`() {
+		for (path in listOf("/admin/auth/login", "/admin/me", "/admin")) {
+			assertEquals(403, send(port, "OPTIONS", path, "Origin", APP, "Access-Control-Request-Method", "POST").statusCode(), path)
+		}
+		for (path in listOf("/admin/me", "/admin/inquiries", "/admin")) {
+			val response = send(port, "GET", path, "Origin", APP)
+			assertEquals(403, response.statusCode(), path)
+			assertEquals(null, response.allowOrigin(), path)
+		}
+	}
 }
 
 @Import(TestcontainersConfiguration::class)

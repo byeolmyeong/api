@@ -27,11 +27,23 @@ class ArchitectureTest {
     companion object {
         const val ROOT = "com.byeolmyeong.api"
 
-        private val FEATURES = listOf("profile", "reading", "report", "synastry", "direction", "share", "push")
+        private val FEATURES = listOf("profile", "reading", "report", "synastry", "direction", "inquiry", "admin", "faq", "audit", "appconfig", "share", "push")
         private val SHARED = listOf("chart", "birth", "auth", "web", "generation")
 
         /** 기능 사이에 허용되는 유일한 연결: Spring 이벤트 클래스. 이벤트를 늘리면 docs/architecture.md 와 여기를 같이 고친다. */
-        private val EVENTS = setOf("$ROOT.report.ReportDone", "$ROOT.synastry.InviteAccepted")
+        private val EVENTS = setOf(
+            "$ROOT.report.ReportDone",
+            "$ROOT.synastry.InviteAccepted",
+            // 궁합이 지워지면 direction 이 그 궁합의 글을 지운다(결정 019)
+            "$ROOT.synastry.SynastryDeleted",
+            // 공유 카드에 실을 글을 그 글을 가진 기능에게 묻는다(결정 012)
+            "$ROOT.share.ReadingCardRequested",
+            "$ROOT.share.ScoreCardRequested",
+            "$ROOT.share.RankingCardRequested",
+            "$ROOT.share.NextTurnCardRequested",
+            // 관리자가 앱 설정을 고치면 appconfig 가 캐시를 비운다(결정 016)
+            "$ROOT.admin.AppConfigChanged",
+        )
 
         /** 외부 공급자 SDK·HTTP 클라이언트. 이것을 쓰는 클래스는 우리 인터페이스 하나 뒤에 있어야 한다. */
         private val EXTERNAL_CLIENTS = arrayOf("com.anthropic..", "com.openai..", "java.net.http..", "org.springframework.web.client..", "org.springframework.web.reactive.function.client..")

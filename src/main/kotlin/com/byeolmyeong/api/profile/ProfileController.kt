@@ -3,9 +3,13 @@ package com.byeolmyeong.api.profile
 import com.byeolmyeong.api.auth.CurrentOwner
 import com.byeolmyeong.api.birth.BirthProfile
 import com.byeolmyeong.api.birth.BirthProfileService
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.BirthRequest
 import com.byeolmyeong.api.web.BirthRequestParser
 import com.byeolmyeong.api.web.NotFoundException
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -23,6 +27,7 @@ class ProfileController(
 	private val owner: CurrentOwner,
 	private val profiles: BirthProfileService,
 	private val parser: BirthRequestParser,
+	private val events: ApplicationEventPublisher,
 ) {
 
 	@GetMapping("/profile")
@@ -32,7 +37,10 @@ class ProfileController(
 	fun put(@RequestBody request: BirthRequest): ProfileResponse {
 		val birth = parser.parse(request)
 		val profile = BirthProfile(birth.date, birth.time, birth.place?.id)
+		val existed = profiles.find(owner.id()) != null
 		profiles.save(owner.id(), profile)
+		// 감사 기록에는 처음 저장인지 고친 것인지만 남긴다(값은 남기지 않는다. 결정 015).
+		events.publishEvent(AuditEvent(AuditAction.PROFILE_SAVED, AuditActor.user(owner.id()), detail = mapOf("change" to if (existed) "CHANGED" else "CREATED")))
 		return profile.toResponse()
 	}
 

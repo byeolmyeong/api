@@ -1,6 +1,10 @@
 package com.byeolmyeong.api.auth
 
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
@@ -22,6 +26,7 @@ private const val TOKEN_BYTES = 32
 class AuthService(
 	private val accounts: AccountRepository,
 	private val sessions: SessionRepository,
+	private val events: ApplicationEventPublisher,
 	@Value("\${byeolmyeong.auth.dev-enabled}") private val devEnabled: Boolean,
 ) {
 	private val random = SecureRandom()
@@ -29,14 +34,21 @@ class AuthService(
 	/** 개발용 로그인(결정 005). 꺼져 있으면 null. 켜져 있으면 개발용 계정을 찾거나 만들고 새 세션 토큰을 준다. */
 	fun devLogin(): String? {
 		if (!devEnabled) return null
-		return issue(accounts.findOrCreate(DEV_PROVIDER, DEV_USER))
+		val accountId = accounts.findOrCreate(DEV_PROVIDER, DEV_USER)
+		val token = issue(accountId)
+		events.publishEvent(AuditEvent(AuditAction.USER_LOGIN, AuditActor.user(accountId)))
+		return token
 	}
 
 	/** 토큰의 주인. 토큰이 없는 것이거나 계정이 지워졌으면 null. */
 	fun ownerOf(token: String): UUID? = sessions.findAccountId(hash(token))
 
-	/** 계정과 그 사람의 모든 행(세션·출생 정보·뒤에 생기는 글)을 지운다. */
-	fun deleteAccount(ownerId: UUID) = accounts.delete(ownerId)
+	/** 계정과 그 사람의 모든 행(세션·출생 정보·뒤에 생기는 글)을 지운다. 감사 기록만 남는다. */
+	fun deleteAccount(ownerId: UUID) {
+		accounts.delete(ownerId)
+		// 감사 기록은 계정과 함께 지워지지 않는다(결정 015). 지운 뒤에도 "이 계정이 지워졌다" 가 남는다.
+		events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
+	}
 
 	private fun issue(accountId: UUID): String {
 		val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(TOKEN_BYTES).also(random::nextBytes))

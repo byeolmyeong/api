@@ -198,15 +198,21 @@ class ChartApiIntegrationTest {
 	fun `요청 뒤 DB 에 출생 정보 행이 없다`() {
 		// 같은 DB 를 쓰는 다른 테스트가 남긴 행을 지우고 시작한다(계정을 지우면 딸린 행이 함께 지워진다).
 		jdbc.update("delete from accounts")
+		// 감사 기록은 계정을 지워도 남는다(결정 015). 이 요청이 남기는 것만 보려고 비운다.
+		jdbc.update("delete from audit_logs")
 		chart("""{"date":"1990-03-15","time":"14:30","placeId":$MAPO}""")
-		// 세션을 받느라 계정·세션 행은 생긴다. 그 밖의 어떤 테이블에도 행이 없어야 한다.
+		// 세션을 받느라 계정·세션 행은 생긴다. 그 밖의 어떤 테이블에도 행이 없어야 한다(감사 기록은 아래에서 내용까지 본다.
+		// `app_configs`·`app_maintenance` 는 마이그레이션이 넣은 서버 설정 행뿐이고 사용자의 것이 아니다 — 결정 016·017).
 		val tables = jdbc.queryForList(
 			"select table_name from information_schema.tables where table_schema = 'public' " +
-				"and table_name not in ('flyway_schema_history', 'accounts', 'sessions')",
+				"and table_name not in ('flyway_schema_history', 'accounts', 'sessions', 'audit_logs', 'app_configs', 'app_maintenance')",
 			String::class.java,
 		)
 		val rows = tables.sumOf { jdbc.queryForObject("select count(*) from \"$it\"", Long::class.java)!! }
 		assertEquals(0L, rows, "출생 정보를 담을 수 있는 테이블: $tables")
+		// 감사 기록에는 세션을 받은 로그인 한 줄뿐이고, 차트 요청은 남지 않으며, 그 줄에 대상·덧붙임이 없다.
+		val audit = jdbc.queryForList("select action, target_type, target_id, detail::text as detail from audit_logs")
+		assertEquals(listOf(mapOf("action" to "USER_LOGIN", "target_type" to null, "target_id" to null, "detail" to null)), audit)
 	}
 }
 

@@ -1,14 +1,14 @@
 package com.byeolmyeong.api.synastry
 
 import com.byeolmyeong.api.chart.Chart
-import com.byeolmyeong.api.chart.SynastryTarget
-import com.byeolmyeong.api.generation.ASCENDANT_LABEL
 import com.byeolmyeong.api.generation.GenerationRequest
+import com.byeolmyeong.api.generation.SynastryFacts
 import com.byeolmyeong.api.generation.basisSchema
-import com.byeolmyeong.api.generation.label
 import com.byeolmyeong.api.generation.promptResource
 import com.byeolmyeong.api.generation.stringOrNull
 import com.byeolmyeong.api.generation.stringsOrNull
+import com.byeolmyeong.api.generation.synastryBasisVocabulary
+import com.byeolmyeong.api.generation.synastryFactsText
 import com.fasterxml.jackson.annotation.JsonInclude
 import tools.jackson.databind.JsonNode
 
@@ -36,10 +36,6 @@ private val REPORT_RULES: String by lazy { promptResource("synastry-report.md") 
 private val AREA_RULES: Map<SynastryReportArea, String> by lazy {
 	SynastryReportArea.entries.associateWith { promptResource("synastry-report-${it.name.lowercase()}.md") }
 }
-
-/** 궁합 글의 근거로 쓸 수 있는 말: 점수에서 보는 내 쪽 요소(태양·달·수성·금성·화성, 시각을 알면 상승점). */
-fun synastryBasisVocabulary(mine: Chart): List<String> =
-	SynastryTarget.entries.mapNotNull { target -> target.body?.label ?: ASCENDANT_LABEL.takeIf { mine.houses != null } }
 
 /** 한 영역의 글을 쓰게 하는 요청. 재료는 네 영역이 같고(요약과도 같다) 지시문만 다르다. */
 fun synastryAreaRequest(area: SynastryReportArea, facts: SynastryFacts): GenerationRequest {

@@ -1,6 +1,7 @@
 package com.byeolmyeong.api.synastry
 
 import com.byeolmyeong.api.chart.Relation
+import com.byeolmyeong.api.generation.scoreLabel
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.stereotype.Repository
@@ -134,6 +135,9 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 			run.synastryId, run.startedAt,
 		)
 	}
+
+	/** 소유자의 궁합 하나를 지운다(리포트는 `on delete cascade`). 남의 것이면 지우지 않고 false. */
+	fun delete(ownerId: UUID, id: UUID): Boolean = jdbc.update("delete from synastries where owner_id = ? and id = ?", ownerId, id) == 1
 
 	/** 아직 그 생성의 자리인지. 행이 지워졌거나, 실패로 끝났거나, 다른 생성이 자리를 잡았으면 false. */
 	fun ownsReport(run: SynastryReportRun): Boolean = jdbc.queryForObject(

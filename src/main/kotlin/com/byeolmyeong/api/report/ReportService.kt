@@ -7,6 +7,10 @@ import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.generation.GenerationRequest
 import com.byeolmyeong.api.generation.TextGenerator
+import com.byeolmyeong.api.share.NextTurnCardRequested
+import com.byeolmyeong.api.web.AuditAction
+import com.byeolmyeong.api.web.AuditActor
+import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
@@ -14,6 +18,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.event.EventListener
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import org.springframework.stereotype.Service
@@ -95,6 +100,14 @@ class ReportService(
 		return ReportStatusResponse(statusOf(stored), report)
 	}
 
+	/** 공유 카드에 실을 다음 변곡점을 묻는 이벤트(결정 012). 그 소유자의 완성된 리포트에 오늘 뒤의 마디가 있을 때만 답한다. 본문은 주지 않는다. */
+	@EventListener
+	fun on(event: NextTurnCardRequested) {
+		val next = current(event.ownerId).report?.timing?.current?.nextMilestone ?: return
+		event.date = next.date
+		event.theme = next.title
+	}
+
 	/** 지금 차트의 리포트를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다. */
 	fun request(ownerId: UUID): ReportStatus {
 		val birth = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
@@ -103,6 +116,8 @@ class ReportService(
 		val run = repository.claim(ownerId, birth.hash, STALE_SECONDS)
 			?: return repository.find(ownerId, birth.hash, STALE_SECONDS)?.let(::statusOf) ?: ReportStatus.WRITING
 		log.info("event=report_started")
+		// 감사 기록(결정 015): 만들기 시작한 요청만 남긴다. 뒤에서 끝난 결과는 리포트 행의 상태에 있다.
+		events.publishEvent(AuditEvent(AuditAction.REPORT_REQUESTED, AuditActor.user(ownerId)))
 		return start(run, birth, chart)
 	}
 
