@@ -382,27 +382,55 @@ class SynastryReportApiIntegrationTest {
 		assertEquals(1, reportRows())
 	}
 
+	private fun awaitAreaCalls(count: Int) {
+		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+		while (generator.areas.size < count) {
+			check(System.nanoTime() < deadline) { "생성기가 요청을 받지 않는다" }
+			Thread.sleep(10)
+		}
+	}
+
 	@Test
-	fun `멈춘 줄 알고 다시 시작한 뒤에 옛 생성이 뒤늦게 끝나도 덮어쓰지 못한다`() {
+	fun `다른 생성이 자리를 잡으면 옛 생성은 모델을 더 부르지 않고 그만두며 덮어쓰지도 못한다`() {
 		val token = tokenWithProfile()
 		val id = synastry(token)
 		val gate = closeGate()
+		// 옛 생성이 받을 답(호출 2~5번, 1번은 요약)은 모두 틀렸다(문단 2개): 자리를 잃지 않았다면 다시 불렀을 것이다
+		generator.respond = { request, call -> areaJson(request, call, count = if (call <= 5) 2 else 4) }
 		post(token, id)
-		assertEquals(WRITING, get(token, id).body())
+		awaitAreaCalls(4)
 
 		jdbc.update("update synastry_reports set active_at = now() - interval '3 minutes'")
-
 		assertEquals(FAILED, get(token, id).body())
 		assertEquals("FAILED", reportStatusOf(token, id))
-		// 다시 요청하면 새로 시작하고, 멈춘 줄 알았던 옛 생성(호출 2~5번, 1번은 요약)이 뒤늦게 끝나도 덮어쓰지 않는다
-		generator.respond = { request, call -> areaJson(request, call, count = if (call <= 5) 3 else 4) }
-		assertEquals(WRITING, post(token, id).body())
+		assertEquals(WRITING, post(token, id).body(), "다시 시작한다")
+
 		gate.countDown()
 		val done = await(token, id, "DONE")
 		settle()
-		assertEquals(8, generator.areas.size)
+		assertEquals(8, generator.areas.size, "옛 생성이 이미 부른 4번 + 다시 시작한 4번. 옛 생성은 틀린 답을 받고도 다시 부르지 않는다")
 		assertEquals(listOf(4, 4, 4, 4), done["report"]["sections"].values().map { it["paragraphs"].size() }, "새 생성의 글이 남는다")
 		assertEquals(done["report"], mapper.readTree(storedBody()))
+	}
+
+	@Test
+	fun `줄에서 기다리던 생성이 자리를 잃으면 차례가 와도 모델을 부르지 않는다`() {
+		val token = tokenWithProfile()
+		val (first, second, waiting) = (1..3).map { synastry(token) }
+		val gate = closeGate()
+		// 일꾼 다섯이 모두 앞의 두 리포트를 붙잡고 있다(넷 + 하나). 셋째 리포트의 일은 모두 줄에서 기다린다
+		post(token, first)
+		post(token, second)
+		awaitAreaCalls(5)
+		assertEquals(WRITING, post(token, waiting).body())
+
+		jdbc.update("update synastry_reports set active_at = now() - interval '3 minutes' where synastry_id = ?", UUID.fromString(waiting))
+		assertEquals(WRITING, post(token, waiting).body(), "다른 생성이 자리를 잡는다")
+
+		gate.countDown()
+		for (id in listOf(first, second, waiting)) await(token, id, "DONE")
+		settle()
+		assertEquals(12, generator.areas.size, "리포트 세 편의 네 영역씩. 자리를 잃은 생성은 한 번도 부르지 않는다")
 	}
 
 	@Test

@@ -139,13 +139,13 @@ class SynastryService(
 
 	// 네 영역을 일꾼에게 하나씩 맡긴다. 요청 스레드는 기다리지 않는다. 재료([facts])는 이 생성이 끝나면 버려진다.
 	private fun start(run: SynastryReportRun, facts: SynastryFacts): SynastryReportStatus {
-		// 한 영역이 끝내 실패하면 리포트를 저장할 수 없으므로, 나머지 영역은 다음 시도부터 그만둔다(모델 호출을 아낀다).
+		// 한 영역이 끝내 실패하거나 이 생성이 자리를 잃으면 리포트를 저장할 수 없으므로, 나머지 영역은 다음 시도부터 그만둔다(모델 호출을 아낀다).
 		val abandoned = AtomicBoolean(false)
 		val attempts = AtomicInteger()
 		live += run
 		val areas = try {
 			SynastryReportArea.entries.map { area ->
-				CompletableFuture.supplyAsync({ writeArea(area, facts, abandoned, attempts) }, executor)
+				CompletableFuture.supplyAsync({ writeArea(run, area, facts, abandoned, attempts) }, executor)
 			}
 		} catch (e: RejectedExecutionException) {
 			abandoned.set(true)
@@ -160,11 +160,28 @@ class SynastryService(
 		return SynastryReportStatus.WRITING
 	}
 
+	/**
+	 * 이 생성을 그만둬야 하는지. 모델을 부르기 전마다 본다(줄에서 나온 직후, 그리고 답을 받고 다시 부르기 전).
+	 * 그만두는 경우: 다른 영역이 끝내 실패했다, 줄이 차서 실패로 끝났다, 행이 지워졌다, 다른 생성이 자리를 잡았다.
+	 */
+	private fun stopped(run: SynastryReportRun, abandoned: AtomicBoolean): Boolean {
+		if (abandoned.get()) return true
+		if (repository.ownsReport(run)) return false
+		abandoned.set(true)
+		return true
+	}
+
 	/** 한 영역을 쓴다. 검증을 통과한 글을 돌려주고, 만들지 못했으면 null. */
-	private fun writeArea(area: SynastryReportArea, facts: SynastryFacts, abandoned: AtomicBoolean, attempts: AtomicInteger): SynastryReportSection? {
+	private fun writeArea(
+		run: SynastryReportRun,
+		area: SynastryReportArea,
+		facts: SynastryFacts,
+		abandoned: AtomicBoolean,
+		attempts: AtomicInteger,
+	): SynastryReportSection? {
 		val request = synastryAreaRequest(area, facts)
 		repeat(MAX_ATTEMPTS) { attempt ->
-			if (abandoned.get()) return null
+			if (stopped(run, abandoned)) return null
 			attempts.incrementAndGet()
 			val section = try {
 				generator.generate(request)?.let { parseSynastrySection(area, it) }
@@ -189,8 +206,12 @@ class SynastryService(
 		try {
 			val report = SynastryReport(sections.filterNotNull())
 			if (!isComplete(report)) {
-				repository.failReport(run)
-				log.warn("event=synastry_report_failed attempts={}", attempts)
+				// 자리를 잃어 그만둔 생성이면 바꿀 행이 없다.
+				if (repository.failReport(run)) {
+					log.warn("event=synastry_report_failed attempts={}", attempts)
+				} else {
+					log.info("event=synastry_report_discarded attempts={}", attempts)
+				}
 			} else if (repository.completeReport(run, report)) {
 				log.info("event=synastry_report_done attempts={}", attempts)
 			} else {

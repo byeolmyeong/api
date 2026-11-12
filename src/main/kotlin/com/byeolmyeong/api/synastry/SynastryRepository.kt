@@ -135,6 +135,12 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 		)
 	}
 
+	/** 아직 그 생성의 자리인지. 행이 지워졌거나, 실패로 끝났거나, 다른 생성이 자리를 잡았으면 false. */
+	fun ownsReport(run: SynastryReportRun): Boolean = jdbc.queryForObject(
+		"select count(*) from synastry_reports where synastry_id = ? and status = 'WRITING' and started_at = ?",
+		Int::class.java, run.synastryId, run.startedAt,
+	) == 1
+
 	/** 글을 저장하고 `DONE` 으로 바꾼다. 그 사이 행이 지워졌거나 다른 생성이 자리를 잡았으면 아무것도 하지 않고 false. */
 	fun completeReport(run: SynastryReportRun, report: SynastryReport): Boolean = jdbc.update(
 		"""
@@ -144,11 +150,10 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 		mapper.writeValueAsString(report), run.synastryId, run.startedAt,
 	) == 1
 
-	/** `FAILED` 로 바꾼다. 아직 그 생성의 자리일 때만. */
-	fun failReport(run: SynastryReportRun) {
+	/** `FAILED` 로 바꾼다. 아직 그 생성의 자리일 때만(아니면 false). */
+	fun failReport(run: SynastryReportRun): Boolean =
 		jdbc.update(
 			"update synastry_reports set status = 'FAILED', updated_at = now() where synastry_id = ? and status = 'WRITING' and started_at = ?",
 			run.synastryId, run.startedAt,
-		)
-	}
+		) == 1
 }
