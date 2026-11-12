@@ -30,7 +30,7 @@ last_reviewed: 2026-11-12
 - `direction` — 방향성 제시(해 볼 만한 것 3개). 주제는 이성·미래·궁합이다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형·숫자 검증, 미래 주제의 "지금의 시기" 가리기)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래 주제의 시기는 `chart` 로 직접 계산한다(`report` 의 저장본을 읽지 않는다). 궁합 주제는 상대의 출생 정보를 요청으로 다시 받아 그 안에서만 쓰고(결정 010), 글이 붙는 궁합의 소유자·관계 유형·점수·그때의 내 차트 해시는 `synastries` 표에서 읽기만 한다(`synastry` 의 클래스를 쓰지 않는다). 결정: docs/decisions/009-direction-storage-and-advice-check.md, docs/decisions/011-direction-future-and-synastry.md
 - `inquiry` — 문의하기. 설정의 문의 글을 검증해 저장만 한다(관리 화면·메일 발송 없음). 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md
 - `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자), 현황 수치(개수만), FAQ 편집. 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
-- `audit` — 감사 기록(결정 015). 다른 기능과 `auth` 가 낸 `web.AuditEvent` 를 듣고(`AuditRecorder`, 커밋 뒤·자기 트랜잭션·실패는 삼킨다) `audit_logs` 에 넣기만 한다. 다른 기능은 이 패키지를 모른다.
+- `audit` — 감사 기록(결정 015). 다른 기능과 `auth` 가 낸 `web.AuditEvent` 를 듣고(`AuditRecorder`, 커밋 뒤·자기 트랜잭션·실패는 삼킨다) `audit_logs` 에 넣기만 한다. 관리자가 읽는 경로(`GET /admin/audit-logs`)도 여기 있다 — 경로가 `/admin/` 아래라 관리자 세션 검사가 걸리지만 `admin` 의 코드는 쓰지 않는다. 다른 기능은 이 패키지를 모른다.
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
 - `share` — 공유 카드 4종(요약 해석·궁합 점수·랭킹·다음 변곡점): 만들기·공개 조회·지우기. 공유하는 순간의 공개 글만 `shares` 에 따로 저장하고(스냅샷) 공개 조회는 그 표만 읽는다. 카드의 글은 그 글을 가진 기능에게 이벤트(`ReadingCardRequested` 등)로 묻는다. 이름을 이니셜로, 날짜를 해 + 계절로 줄이는 것도 여기서 한다. 결정: docs/decisions/012-share-cards-snapshot.md
 - `push` — 기기 토큰과 알림 발송.
@@ -50,7 +50,7 @@ src/main/kotlin/com/byeolmyeong/api/
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증) · DirectionFuture(미래: 지금의 시기·대상) · DirectionSynastry(궁합: 재료·지시문)
   inquiry/     InquiryController · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증)
   admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다) · AdminFaqController · AdminFaqService(+ AdminFaqRepository)
-  audit/       AuditRecorder(이벤트를 듣는다) · AuditService(+ AuditRepository — 넣기만 한다)
+  audit/       AuditRecorder(이벤트를 듣는다) · AuditService(+ AuditRepository — 넣고 읽기만 한다) · AuditLogController(`GET /admin/audit-logs`)
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
   share/       ShareController · ShareService · ShareRepository · ShareCard(카드의 모양·이니셜·계절) · ShareCardRequested(이벤트 넷)
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
@@ -182,7 +182,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `GET /shared/{shareId}`: 세션 없이 열린다. 저장된 `ShareCard` 를 그대로 준다. 없는(지워진) 식별자는 404 `NOT_FOUND`. 주소별 분당 한도를 넘으면 429 `RATE_LIMITED`. CORS 는 다른 경로와 같다(`ALLOWED_ORIGINS` 에 적힌 앱의 웹 주소만).
   - 이니셜(서버가 만든다): 한글 음절은 첫소리 글자로(지영 → `ㅈㅇ`, 쌍자음은 그대로), 이미 낱자인 한글은 그대로, 그 밖의 글자·숫자는 이어진 덩어리의 첫 글자만 대문자로(`Mike` → `M`, `김 Min` → `ㄱM`), 공백·기호·그림 문자는 뺀다. 남는 것이 없으면 `○`.
 
-## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014)
+## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015)
 관리 화면(웹)이 부르는 API 다. 앱은 부르지 않는다. 경로는 모두 `/admin/` 아래다.
 
 ### 공통
@@ -214,6 +214,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `PATCH /admin/faqs/{id}` | `{ question?, answer?, published? }` | 200 `Faq` |
 | `DELETE /admin/faqs/{id}` | 없음 | 204 |
 | `PUT /admin/faqs/order` | `{ ids: [id, …] }` | 200 `[Faq]` 새 순서의 전체 목록 |
+| `GET /admin/audit-logs?actorType=&action=&from=&to=&actorRef=&page=&size=` | 쿼리(모두 선택) | 200 `{ items: [AuditLog], page, size, total }` 새것부터 |
 
 ### 로그인·세션
 - `Admin` = `{ id, loginId, name }`. `AdminAccount` = `{ id, loginId, name, active, createdAt }`. 비밀번호와 그 해시는 어떤 응답에도 없다.
@@ -293,6 +294,80 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - 400 `INVALID_ORDER`: 빠진 id 가 있거나, 없는 id·UUID 가 아닌 글자가 있거나, 같은 id 가 두 번 있다 — 그 사이 다른 관리자가 FAQ 를 만들거나 지웠을 때도 이 답이므로 화면은 목록을 다시 받아 온다. 400 `INVALID_REQUEST`: `ids` 가 없거나 배열이 아니거나 원소가 글자가 아니다. FAQ 가 하나도 없을 때의 `{ "ids": [] }` 는 200 `[]`.
 - 앱 쪽 공개 조회는 `GET /faqs`(세션 없음, 위 "API 계약"): 공개한 것만 같은 순서로 `[{ id, question, answer }]`. 응답이 5분 캐시될 수 있어(`Cache-Control: public, max-age=300`) 공개·수정·내리기가 앱에 보이기까지 5분쯤 걸릴 수 있다. 관리 화면의 출처는 `GET /faqs` 를 부를 수 없다(CORS) — 미리 보기는 `GET /admin/faqs` 의 `published` 로 그린다.
 - 처음 글은 서버에 없다(빈 목록). 관리 화면으로 넣는다.
+
+### 감사 기록
+- 관리자와 앱 사용자의 주요 행동을 "누가 무엇을 언제" 만 남긴 목록이다(결정 015). 읽기만 있다 — 고치거나 지우는 경로가 없다. 이 조회 자체와 다른 목록·수치 조회는 기록되지 않는다.
+- `AuditLog` = `{ id, occurredAt, actorType, actor, action, targetType, targetId, outcome, detail }`.
+  - `occurredAt`: 기록된 때(그 일이 끝난 직후).
+  - `actorType`: `ADMIN`(관리자) · `USER`(앱 사용자) · `SYSTEM`(로그인하지 않은 채 일어난 일: 실패한 관리자 로그인, 서버가 만든 첫 관리자).
+  - `actor`: `{ ref, label }` 또는 `null`(`SYSTEM` 이면 언제나 `null`). `label` 은 화면에 보여 줄 글, `ref` 는 `actorRef` 조건에 그대로 넣는 값이다.
+    - `ADMIN`: 둘 다 **그때의** 로그인 아이디다(예 `"root-admin"`). 관리자 id 가 아니다.
+    - `USER`: 둘 다 `ownerRef`(12자 16진수) — 문의(`Inquiry.ownerRef`)와 같은 값이라 같은 사람의 문의와 행동을 묶어 볼 수 있다. 계정 id·이름·이메일은 어떤 응답에도 없다.
+    - 지금은 `ref` 와 `label` 이 같은 글자지만 화면은 둘을 구분해 쓴다(보여 줄 때는 `label`, 거를 때는 `ref`).
+  - `action`: 아래 표의 코드. 서버가 모르는 코드가 늘 수 있으므로 화면은 모르는 코드를 글자 그대로 보여 준다.
+  - `targetType`·`targetId`: 무엇에 한 일인지(`"ADMIN"`·`"INQUIRY"`·`"FAQ"`·`"SYNASTRY"`·`"APP_CONFIG"` 와 그 id) 또는 둘 다 `null`. `INQUIRY` 의 id 는 `GET /admin/inquiries/{id}` 의 id, `ADMIN` 의 id 는 `AdminAccount.id`, `FAQ` 의 id 는 `Faq.id` 다. 대상이 그 뒤 지워졌을 수 있다(그때 그 경로는 404).
+  - `outcome`: `SUCCESS` · `FAILURE`. `FAILURE` 는 표에 "실패도 남는다" 고 적힌 행동에만 있다. 거절된 요청(400·404·409·429)은 기록되지 않는다.
+  - `detail`: 코드 값만 담은 작은 객체 또는 `null`. 키는 행동마다 아래 표와 같다. 글(메모·문의·FAQ)·이름·이메일·출생 정보·비밀번호·토큰은 어디에도 없다.
+- 행동(`action`) — 관리자:
+
+  | `action` | 언제 | `actorType` | 대상 | `detail` |
+  |---|---|---|---|---|
+  | `ADMIN_LOGIN` | 관리자 로그인. **실패도 남는다**(401 `INVALID_CREDENTIALS`): 그때는 `actorType: SYSTEM`·`actor: null`·`outcome: FAILURE` 이고 시도한 아이디는 남지 않는다. 형식이 틀린 요청(400)과 제한에 걸린 요청(429)은 남지 않는다 | `ADMIN` / `SYSTEM` | 없음 | `null` |
+  | `ADMIN_LOGOUT` | `POST /admin/auth/logout` | `ADMIN` | 없음 | `null` |
+  | `ADMIN_PASSWORD_CHANGED` | `PUT /admin/me/password` 성공 | `ADMIN` | 없음 | `null` |
+  | `ADMIN_CREATED` | `POST /admin/admins` | `ADMIN` | `ADMIN` 만든 관리자의 id | `null` |
+  | `ADMIN_DEACTIVATED` · `ADMIN_REACTIVATED` | `PATCH /admin/admins/{id}` 로 끄거나 켰을 때. 이미 그 상태였으면 남지 않는다 | `ADMIN` | `ADMIN` 그 관리자의 id | `null` |
+  | `ADMIN_BOOTSTRAPPED` | 서버가 뜨면서 첫 관리자를 만들었을 때 | `SYSTEM` | `ADMIN` 첫 관리자의 id | `null` |
+  | `INQUIRY_VIEWED` | `GET /admin/inquiries/{id}`(한 건 보기). 목록은 남지 않는다 | `ADMIN` | `INQUIRY` id | `null` |
+  | `INQUIRY_UPDATED` | `PATCH /admin/inquiries/{id}` | `ADMIN` | `INQUIRY` id | `{ status?, memoChanged }` — `status` 는 보냈을 때만 그 값, `memoChanged` 는 `memo` 키를 보냈는지(불리언). 메모의 글은 없다 |
+  | `FAQ_CREATED` | `POST /admin/faqs` | `ADMIN` | `FAQ` id | `{ published }` |
+  | `FAQ_UPDATED` | `PATCH /admin/faqs/{id}` 에 `question` 이나 `answer` 를 보냈을 때 | `ADMIN` | `FAQ` id | `null` |
+  | `FAQ_PUBLISHED` · `FAQ_UNPUBLISHED` | `PATCH /admin/faqs/{id}` 에 `published: true` · `false` 를 보냈을 때(이미 그 상태였어도 남는다). 글과 함께 보내면 `FAQ_UPDATED` 와 두 줄이 된다 | `ADMIN` | `FAQ` id | `null` |
+  | `FAQ_DELETED` | `DELETE /admin/faqs/{id}` | `ADMIN` | `FAQ` id(이제 없는 id) | `null` |
+  | `FAQ_REORDERED` | `PUT /admin/faqs/order` | `ADMIN` | 없음 | `{ count }` — 순서를 정한 FAQ 의 수 |
+  | `APP_CONFIG_UPDATED` | `PUT /admin/app-config/{platform}`(아래 "앱 설정") | `ADMIN` | `APP_CONFIG` `ios` 또는 `android` | `{ platform, minVersion?, blockNow }` — `minVersion` 은 값이 있을 때만. 안내 글과 스토어 주소는 없다 |
+
+- 행동(`action`) — 앱 사용자(모두 `actorType: USER`):
+
+  | `action` | 언제 | 대상 | `detail` |
+  |---|---|---|---|
+  | `USER_LOGIN` | 로그인해 세션을 받았을 때(지금은 개발용 로그인, 소셜 로그인도 이 코드를 쓴다) | 없음 | `null` |
+  | `PROFILE_SAVED` | 출생 정보를 저장했을 때(`PUT /profile`) | 없음 | `{ change: "CREATED" \| "CHANGED" }` — 처음 저장인지 고친 것인지. 값은 없다 |
+  | `READING_GENERATED` | 요약 해석을 **새로** 만들었을 때. **실패도 남는다**(502) | 없음 | `null` |
+  | `REPORT_REQUESTED` | 심층 리포트를 만들기 시작했을 때(뒤에서 끝난 결과는 남지 않는다 — 수치의 `reports.byStatus` 로 본다) | 없음 | `null` |
+  | `SYNASTRY_CREATED` | 궁합을 만들었을 때. **실패도 남는다**(502, 그때는 대상이 없다) | `SYNASTRY` id | `{ relation: "LOVE" \| "FRIEND" \| "WORK" \| "FAMILY" }` |
+  | `SYNASTRY_REPORT_REQUESTED` | 궁합 리포트를 만들기 시작했을 때 | `SYNASTRY` id | `null` |
+  | `DIRECTION_GENERATED` | 방향성 제시를 **새로** 만들었을 때. **실패도 남는다**(502, 그때는 대상이 없다) | 궁합 주제만 `SYNASTRY` id | `{ topic: "LOVE" \| "FUTURE" \| "SYNASTRY" }` |
+  | `SHARE_CREATED` | 공유 카드를 **새로** 만들었을 때(같은 내용을 다시 공유한 것은 남지 않는다) | 없음(공유 식별자는 남기지 않는다) | `{ kind: "READING" \| "SCORE" \| "RANKING" \| "NEXT_TURN" }` |
+  | `SHARE_DELETED` | 공유를 지웠을 때 | 없음 | `null` |
+  | `INQUIRY_SUBMITTED` | 문의를 보냈을 때 | `INQUIRY` id | `{ category }` |
+  | `ACCOUNT_DELETED` | 계정을 지웠을 때 | 없음 | `null` |
+
+  - 저장된 글을 다시 받는 요청(같은 차트의 요약 해석·방향성 제시, 이미 쓰는 중이거나 완성된 리포트)은 남지 않는다. 그래서 `READING_GENERATED`·`DIRECTION_GENERATED`·`SYNASTRY_CREATED` 의 `SUCCESS`·`FAILURE` 수가 수치(`GET /admin/stats`)가 세지 못하던 "생성 실패" 를 보여 준다.
+  - **계정을 지워도 그 사람의 행은 남는다**(문의·수치와 다르다). `ownerRef` 는 그대로이고, 그 계정의 문의는 지워져 `targetId` 의 문의는 404 가 된다.
+  - 드물게 일은 됐는데 행이 없을 수 있다(기록을 넣다 실패하면 사용자의 요청을 막지 않고 건너뛴다).
+- `GET /admin/audit-logs`: 기록된 때가 늦은 것부터(같으면 id 가 큰 것부터). 쿼리는 모두 없어도 되고, 빈 값(`action=`)은 없는 것으로 본다. 조건을 여러 개 주면 모두 맞는 것만 온다.
+  - `actorType`: `ADMIN`·`USER`·`SYSTEM` 중 하나. 그 밖의 값은 400 `INVALID_ACTOR_TYPE`(소문자도 틀리다).
+  - `action`: 위 두 표의 코드 중 하나. 그 밖의 값은 400 `INVALID_ACTION`. 맞는 코드인데 행이 없으면 빈 목록이다.
+  - `from`·`to`: **한국 시간의 날짜 `YYYY-MM-DD`** 이고 두 끝을 포함한다 — `from=2026-11-10&to=2026-11-10` 은 한국 시간 11월 10일 00:00:00 부터 23:59:59 까지다. 하나만 줘도 된다. 모양이 다르거나(`2026-11-1`, 시각이 붙은 값) 없는 날(`2026-02-30`)이면 400 `INVALID_DATE`. `from` 이 `to` 보다 늦으면 오류가 아니라 빈 목록이다. 응답의 `occurredAt` 은 UTC 이므로 화면이 한국 시간으로 바꿔 보여 준다.
+  - `actorRef`: 관리자의 로그인 아이디 또는 사용자의 `ownerRef`(`actor.ref` 의 값). 앞뒤 공백과 대소문자를 가리지 않고 **전체가 같은 것만** 준다(일부만 맞는 검색은 없다). 맞는 것이 없으면 빈 목록이다. `SYSTEM` 의 행은 이 조건에 걸리지 않는다.
+  - `page`: 0 부터 세는 쪽 번호(기본 0). `size`: 한 쪽의 개수 1~100(기본 20). 정수가 아니거나 범위를 벗어나면 400 `INVALID_PAGE`.
+  - 여러 조건이 틀리면 `INVALID_ACTOR_TYPE` → `INVALID_ACTION` → `INVALID_DATE` → `INVALID_PAGE` 순서로 처음 걸린 것 하나다.
+  - 응답 `{ items, page, size, total }`: 문의 목록과 같다 — `page`·`size` 는 서버가 쓴 값, `total` 은 조건에 맞는 전체 수, 마지막 쪽을 넘으면 `items` 가 빈 배열이다.
+  - 예:
+    ```
+    GET /admin/audit-logs?actorType=ADMIN&from=2026-11-12&size=2
+    {
+      "items": [
+        { "id": "0b0e…", "occurredAt": "2026-11-12T04:05:06Z", "actorType": "ADMIN", "actor": { "ref": "root-admin", "label": "root-admin" },
+          "action": "INQUIRY_UPDATED", "targetType": "INQUIRY", "targetId": "7c1d…", "outcome": "SUCCESS", "detail": { "status": "DONE", "memoChanged": true } },
+        { "id": "02aa…", "occurredAt": "2026-11-12T04:00:00Z", "actorType": "ADMIN", "actor": { "ref": "root-admin", "label": "root-admin" },
+          "action": "ADMIN_LOGIN", "targetType": null, "targetId": null, "outcome": "SUCCESS", "detail": null }
+      ],
+      "page": 0, "size": 2, "total": 7
+    }
+    ```
+- 보관 기한이 없다(행이 계속 쌓인다). 수치(`Stats`)에는 감사 기록의 수가 없다.
 
 ### 브라우저 출처 (CORS)
 - 관리 화면이 열리는 주소를 서버의 환경 변수 `ADMIN_ALLOWED_ORIGINS`(설정 `byeolmyeong.cors.admin-allowed-origins`, 쉼표로 구분, 예 `https://admin.example.com,http://localhost:5173`)에 적어야 브라우저가 부를 수 있다. 주소는 `스킴://호스트[:포트]` 까지이고 끝에 `/` 를 붙이지 않는다.
