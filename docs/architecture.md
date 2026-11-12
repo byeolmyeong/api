@@ -47,7 +47,7 @@ src/main/kotlin/com/byeolmyeong/api/
   generation/  TextGenerator(인터페이스) · ClaudeTextGenerator · ChartFacts · TimelineFacts(시기 한 줄의 글) · SynastryFacts(두 차트 사이 연결의 글) · Basis
   reading/     ReadingController · ReadingService · ReadingRepository · ReadingDraft(지시문·구조·검증)
   report/      ReportController · ReportService(+ 일꾼 설정 ReportExecutorConfig) · ReportRepository · Report(모양·지시문·구조·검증) · ReportTiming(시기: 모양·모델에게 맡길 줄·연도 대조·지금) · TimingThemes(시기의 표의 글) · ReportDone(이벤트)
-  synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · (초대 때) InviteService · InviteAccepted(이벤트)
+  synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · SynastryDeleted(이벤트) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증) · DirectionFuture(미래: 지금의 시기·대상) · DirectionSynastry(궁합: 재료·지시문)
   inquiry/     InquiryController · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증)
   admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다) · AdminFaqController · AdminFaqService(+ AdminFaqRepository) · AdminAppConfigController(+ AdminAppConfigService · AdminAppConfigRepository) · AppConfigChanged(이벤트) · AdminAudit(감사 기록에 알린다)
@@ -67,7 +67,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
-| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 궁합이 지워졌다는 `synastry.SynastryDeleted`(`direction` 이 그 궁합의 글을 지운다 — 결정 019), 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
 | 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
 | `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
 | `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
@@ -107,6 +107,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /invites/{inviteId}/accept` | 세션 | `{ name }` | `Synastry` |
 | `GET /synastry` · `GET /synastry/{id}` | 세션 | 없음 | `[Synastry]` 새것부터 · `Synastry` · 둘 다 `overlay` 없음 · 남의 것·없는 것 404 `NOT_FOUND` |
 | `GET /synastry/ranking?relation=` | 세션 | 관계 유형(필수) | `[{ id, name, score, scoreLabel?, keywords[3] }]` 점수가 높은 순(같으면 먼저 만든 것), 인원 제한 없음 · 유형이 없거나 틀리면 400 `INVALID_RELATION` |
+| `DELETE /synastry/{id}` | 세션 | 없음 | 204 · 남의 것·없는 것·UUID 가 아닌 값 404 `NOT_FOUND` · 아래 "궁합 지우기" |
 | `POST /directions` | 세션 | `{ topic: LOVE }` · `{ topic: FUTURE }` (둘 다 프로필의 출생 정보를 쓴다) · `{ topic: SYNASTRY, synastryId, date?, time? \| null, placeId? }` (`date`·`time`·`placeId` 는 **상대의** 출생 정보이고 그 궁합의 글을 처음 만들 때만 필요하다) | 200 `Direction` · `topic` 이 없거나 받는 값이 아니면 400 `INVALID_TOPIC` · 본문이 JSON 이 아니면 400 `INVALID_REQUEST` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 만든 글이 있으면 바로 준다 · `SYNASTRY` 에만 있는 오류와 주제별 규칙은 아래 "방향성 제시" |
 | `POST /synastry/{id}/report` | 세션 | `{ date, time \| null, placeId? }` (상대의 출생 정보를 다시 보낸다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 아래 "궁합 리포트" |
 | `GET /synastry/{id}/report` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report? }` · `report` 는 `DONE` 일 때만 · 남의 것·없는 것 404 `NOT_FOUND` |
@@ -128,6 +129,9 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`·`UNKNOWN_PLACE`. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
 - `GET /places?q=`: 검색어를 공백으로 나눈 낱말이 이름에 모두 든 곳을 20개까지. `q` 가 없으면 전체 목록(229곳)을 준다. 앱의 출생지 고르기 화면이 쓴다. `name` 은 `시·도 시·군·구` 꼴이고 세종만 `세종특별자치시` 한 낱말이다.
 - `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`. `shareId` 는 **더 쓰지 않는다**(결정 012): 공유 주소가 아니고 `GET /shared/{그 값}` 은 404 다. 공유는 `POST /shares` 로 만든다. 앱이 읽지 않게 되면 응답에서 뺀다 [확인 필요].
+- 궁합 지우기 `DELETE /synastry/{id}` (2026-11-12 구현, 결정 019): 소유자만 지운다. 204(본문 없음). 남의 것·없는 것·이미 지운 것·UUID 가 아닌 값은 모두 404 `NOT_FOUND` 다. 되돌릴 수 없다.
+  - 함께 지워지는 것: 그 궁합, 그 궁합의 리포트(쓰는 중이어도 — 뒤에서 끝난 글은 저장되지 않는다), 그 궁합에 붙은 방향성 제시(`topic: SYNASTRY`). 지운 뒤 `GET /synastry`·`GET /synastry/ranking` 에서 바로 빠지고 `GET /synastry/{id}`·`GET /synastry/{id}/report`·그 `synastryId` 의 `POST /directions`·`POST /shares` 는 404 다.
+  - **그대로 남는 것**: 이미 만든 공유 카드(궁합 점수·랭킹)는 공유한 순간의 스냅샷이라(결정 012) 궁합을 지워도 `GET /shared/{shareId}` 로 계속 열린다. 없애려면 `DELETE /shares/{shareId}` 로 따로 지운다 — 앱은 궁합을 지울 때 이것을 알린다.
 - 궁합(직접 입력) (2026-11-11 구현, 결정 010. 초대로 연결된 궁합은 아직 없다)
   - `Synastry` = `{ id, name, relation: LOVE | FRIEND | WORK | FAMILY, score, scoreLabel?, headline, keywords[3], reportStatus: NONE | WRITING | FAILED | DONE, createdAt, overlay? }`. `id` 는 UUID, `name` 은 상대를 부를 이름, `score` 는 나 기준 40~100 의 정수(서버 계산), `headline` 은 한 줄 요약, `createdAt` 은 UTC `YYYY-MM-DDTHH:mm:ssZ`. 값이 없는 키는 보내지 않는다(`null` 로 보내지 않는다).
   - `scoreLabel`: 점수가 60 미만이면 `"다른 결의 사이"`, 60 이상이면 키가 없다. 앱은 이 키가 있으면 점수 옆에 그대로 붙인다(60 을 앱에서 다시 판정하지 않는다). 그때 키워드와 한 줄 요약은 끌리는 점부터 쓰여 있다.
@@ -366,6 +370,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `REPORT_REQUESTED` | 심층 리포트를 만들기 시작했을 때(뒤에서 끝난 결과는 남지 않는다 — 수치의 `reports.byStatus` 로 본다) | 없음 | `null` |
   | `SYNASTRY_CREATED` | 궁합을 만들었을 때. **실패도 남는다**(502, 그때는 대상이 없다) | `SYNASTRY` id | `{ relation: "LOVE" \| "FRIEND" \| "WORK" \| "FAMILY" }` |
   | `SYNASTRY_REPORT_REQUESTED` | 궁합 리포트를 만들기 시작했을 때 | `SYNASTRY` id | `null` |
+  | `SYNASTRY_DELETED` | 궁합을 지웠을 때(`DELETE /synastry/{id}`) | `SYNASTRY` id(이제 없는 id) | `null` |
   | `DIRECTION_GENERATED` | 방향성 제시를 **새로** 만들었을 때. **실패도 남는다**(502, 그때는 대상이 없다) | 궁합 주제만 `SYNASTRY` id | `{ topic: "LOVE" \| "FUTURE" \| "SYNASTRY" }` |
   | `SHARE_CREATED` | 공유 카드를 **새로** 만들었을 때(같은 내용을 다시 공유한 것은 남지 않는다) | 없음(공유 식별자는 남기지 않는다) | `{ kind: "READING" \| "SCORE" \| "RANKING" \| "NEXT_TURN" }` |
   | `SHARE_DELETED` | 공유를 지웠을 때 | 없음 | `null` |

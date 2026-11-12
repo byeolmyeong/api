@@ -22,6 +22,7 @@ import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
@@ -98,6 +99,19 @@ class SynastryService(
 	fun ranking(ownerId: UUID, relation: Relation): List<RankingEntry> = repository.ranking(ownerId, relation, STALE_SECONDS)
 		.map { it.synastry }
 		.map { RankingEntry(it.id, it.name, it.score, it.scoreLabel, it.keywords) }
+
+	/**
+	 * 궁합 한 건을 지운다(결정 019). 남의 것과 없는 것은 같은 404. 리포트는 외래 키로 함께 지워지고, 그 궁합의 방향성 제시는
+	 * [SynastryDeleted] 를 들은 `direction` 이 같은 트랜잭션에서 지운다. 공유 카드는 스냅샷이라 건드리지 않는다(결정 012).
+	 * 쓰는 중인 리포트는 자기 행이 없어진 것을 보고 그만둔다(저장할 때도 행이 없어 아무것도 넣지 않는다).
+	 */
+	@Transactional
+	fun delete(ownerId: UUID, id: UUID) {
+		if (!repository.delete(ownerId, id)) throw NotFoundException("NOT_FOUND")
+		events.publishEvent(SynastryDeleted(ownerId, id))
+		log.info("event=synastry_deleted")
+		events.publishEvent(AuditEvent(AuditAction.SYNASTRY_DELETED, AuditActor.user(ownerId), "SYNASTRY", id.toString()))
+	}
 
 	/** 공유 카드에 실을 글을 묻는 이벤트(결정 012). 그 소유자의 궁합일 때만 답한다(남의 것·없는 것에는 답하지 않는다). */
 	@EventListener

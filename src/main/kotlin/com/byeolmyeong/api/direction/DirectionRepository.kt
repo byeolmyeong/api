@@ -39,6 +39,11 @@ class DirectionRepository(private val jdbc: JdbcTemplate, private val mapper: Js
 		)
 	}
 
+	/** 소유자의 그 주제·대상의 글을 지운다(없으면 아무 일도 없다). */
+	fun delete(ownerId: UUID, topic: String, target: String) {
+		jdbc.update("delete from directions where owner_id = ? and topic = ? and target = ?", ownerId, topic, target)
+	}
+
 	/**
 	 * 소유자의 궁합 한 건에서 글에 필요한 것만 읽는다. 남의 것이면 없는 것이다.
 	 * `synastry` 의 표를 읽기만 한다 — 기능 패키지는 서로의 클래스를 쓸 수 없고, 이 값들은 앱에서 받으면 안 된다(결정 011).

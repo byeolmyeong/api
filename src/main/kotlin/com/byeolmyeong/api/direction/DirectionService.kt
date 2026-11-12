@@ -14,6 +14,7 @@ import com.byeolmyeong.api.generation.SynastryFacts
 import com.byeolmyeong.api.generation.TextGenerator
 import com.byeolmyeong.api.generation.basisVocabulary
 import com.byeolmyeong.api.generation.synastryBasisVocabulary
+import com.byeolmyeong.api.synastry.SynastryDeleted
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
@@ -21,6 +22,7 @@ import com.byeolmyeong.api.web.BadRequestException
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Service
 import java.time.LocalDate
 import java.util.UUID
@@ -89,6 +91,12 @@ class DirectionService(
 		if (facts.score != about.score) throw BadRequestException("BIRTH_MISMATCH")
 		val draft = generate(ownerId, TOPIC_SYNASTRY, synastryDirectionRequest(facts)) { draftProblem(it, synastryBasisVocabulary(mine), numbers = false) }
 		return store(ownerId, TOPIC_SYNASTRY, target, draft)
+	}
+
+	/** 궁합이 지워졌다(결정 019): 그 궁합에 붙은 궁합 주제의 글을 지운다. 궁합을 지우는 트랜잭션 안에서 불린다. */
+	@EventListener
+	fun on(event: SynastryDeleted) {
+		repository.delete(event.ownerId, TOPIC_SYNASTRY, event.synastryId.toString())
 	}
 
 	// 동시에 두 요청이 생성했으면 먼저 들어간 글만 남고, 둘 다 그 글을 돌려준다.

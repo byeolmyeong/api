@@ -34,6 +34,8 @@ class ArchitectureTest {
         private val EVENTS = setOf(
             "$ROOT.report.ReportDone",
             "$ROOT.synastry.InviteAccepted",
+            // 궁합이 지워지면 direction 이 그 궁합의 글을 지운다(결정 019)
+            "$ROOT.synastry.SynastryDeleted",
             // 공유 카드에 실을 글을 그 글을 가진 기능에게 묻는다(결정 012)
             "$ROOT.share.ReadingCardRequested",
             "$ROOT.share.ScoreCardRequested",

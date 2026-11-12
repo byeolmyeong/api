@@ -9,6 +9,7 @@ import com.byeolmyeong.api.web.BirthRequestParser
 import com.byeolmyeong.api.web.ErrorResponse
 import com.byeolmyeong.api.web.NotFoundException
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -45,6 +46,13 @@ class SynastryController(
 
 	@GetMapping("/synastry/{id}")
 	fun get(@PathVariable id: String): Synastry = synastries.get(owner.id(), id(id))
+
+	/** 궁합을 지운다(리포트·그 궁합의 방향성 제시도 함께). 남의 것·없는 것은 404. */
+	@DeleteMapping("/synastry/{id}")
+	fun delete(@PathVariable id: String): ResponseEntity<Void> {
+		synastries.delete(owner.id(), id(id))
+		return ResponseEntity.noContent().build()
+	}
 
 	/** 글을 기다리지 않고 202 로 답한다. 본문은 상대의 출생 정보다(저장돼 있지 않아 다시 받는다). 이미 완성됐거나 쓰는 중이면 본문을 읽지 않는다. */
 	@PostMapping("/synastry/{id}/report")
