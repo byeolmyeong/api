@@ -7,6 +7,7 @@ import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.generation.GenerationRequest
 import com.byeolmyeong.api.generation.TextGenerator
+import com.byeolmyeong.api.share.NextTurnCardRequested
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.event.EventListener
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import org.springframework.stereotype.Service
@@ -93,6 +95,14 @@ class ReportService(
 		// "지금 나의 구간" 은 저장하지 않는다. 읽을 때마다 오늘 날짜로 가린다.
 		val report = stored.report?.let { it.copy(timing = it.timing.copy(current = timingNow(it.timing, LocalDate.now(KOREA_ZONE)))) }
 		return ReportStatusResponse(statusOf(stored), report)
+	}
+
+	/** 공유 카드에 실을 다음 변곡점을 묻는 이벤트(결정 012). 그 소유자의 완성된 리포트에 오늘 뒤의 마디가 있을 때만 답한다. 본문은 주지 않는다. */
+	@EventListener
+	fun on(event: NextTurnCardRequested) {
+		val next = current(event.ownerId).report?.timing?.current?.nextMilestone ?: return
+		event.date = next.date
+		event.theme = next.title
 	}
 
 	/** 지금 차트의 리포트를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다. */

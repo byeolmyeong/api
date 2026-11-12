@@ -31,7 +31,7 @@ last_reviewed: 2026-11-12
 - `inquiry` — 문의하기. 설정의 문의 글을 검증해 저장만 한다(관리 화면·메일 발송 없음). 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md
 - `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(상태·메모·처리한 관리자), 현황 수치(개수만), FAQ 편집. 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
-- `share` — 공유 조회(공유 카드 4종).
+- `share` — 공유 카드 4종(요약 해석·궁합 점수·랭킹·다음 변곡점): 만들기·공개 조회·지우기. 공유하는 순간의 공개 글만 `shares` 에 따로 저장하고(스냅샷) 공개 조회는 그 표만 읽는다. 카드의 글은 그 글을 가진 기능에게 이벤트(`ReadingCardRequested` 등)로 묻는다. 이름을 이니셜로, 날짜를 해 + 계절로 줄이는 것도 여기서 한다. 결정: docs/decisions/012-share-cards-snapshot.md
 - `push` — 기기 토큰과 알림 발송.
 
 ## 디렉터리 구조
@@ -50,7 +50,7 @@ src/main/kotlin/com/byeolmyeong/api/
   inquiry/     InquiryController · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증)
   admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸만 쓴다) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다) · AdminFaqController · AdminFaqService(+ AdminFaqRepository)
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
-  share/       ShareController · ShareService
+  share/       ShareController · ShareService · ShareRepository · ShareCard(카드의 모양·이니셜·계절) · ShareCardRequested(이벤트 넷)
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
 src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
@@ -63,7 +63,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
-| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`)로만 한다 | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다 | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
 | 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
 | `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
 | `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
@@ -106,7 +106,9 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /synastry/{id}/report` | 세션 | `{ date, time \| null, placeId? }` (상대의 출생 정보를 다시 보낸다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 아래 "궁합 리포트" |
 | `GET /synastry/{id}/report` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report? }` · `report` 는 `DONE` 일 때만 · 남의 것·없는 것 404 `NOT_FOUND` |
 | `POST /inquiries` | 세션 | `{ category: ACCOUNT \| READING \| SYNASTRY \| BUG \| OTHER, body, replyEmail? \| null }` | 201 `{ id }` · 아래 "문의하기" |
-| `GET /shared/{shareId}` | 없음 | 없음 | 요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나(글과 숫자만) |
+| `POST /shares` | 세션 | `{ kind: READING }` · `{ kind: SCORE, synastryId, myName }` · `{ kind: RANKING, relation, showNames? }` · `{ kind: NEXT_TURN }` | 200 `{ shareId, card }` · `card` 는 `ShareCard` · 공유할 글이 없거나 남의 것이면 404 `NOT_FOUND` · 아래 "공유" |
+| `DELETE /shares/{shareId}` | 세션 | 없음 | 204 · 남의 것·없는 것 404 `NOT_FOUND` |
+| `GET /shared/{shareId}` | 없음 | 없음 | 200 `ShareCard`(요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나, 글과 숫자만) · 없는 식별자 404 `NOT_FOUND` · 429 `RATE_LIMITED` |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
 
 - 세션: 요청 헤더 `Authorization: Bearer <token>`. 없거나 틀리면 401 `UNAUTHORIZED`. 표에서 인증이 "없음" 인 경로와 `GET /health` 말고는 모두 세션이 필요하다(새 경로는 기본이 세션 필요다). 토큰은 서버가 원문을 저장하지 않는다(해시만). `/admin/**` 는 이 표에 없다 — 아래 "관리자 API" 가 따로 다루고, 사용자 세션 토큰은 거기서 통하지 않는다(관리자 토큰도 이 표의 경로에서 통하지 않는다).
@@ -120,7 +122,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 태어난 시각을 모르면 태어난 곳을 받지 않는다(결정 007): `time` 이 `null`(또는 키 없음)이면 `placeId` 는 없어도 되고, 보내도 읽지 않으며(목록에 없는 id 여도 400 이 아니다) 저장하지 않는다. 그때 `GET`·`PUT /profile` 의 응답은 `placeId: null` 이다. `time` 이 있으면 `placeId` 는 필수이고 없거나 `null` 이거나 목록에 없으면 400 `UNKNOWN_PLACE` 다. 시각을 모르는 날의 기준 시각은 한국 표준시 정오다.
 - 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`·`UNKNOWN_PLACE`. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
 - `GET /places?q=`: 검색어를 공백으로 나눈 낱말이 이름에 모두 든 곳을 20개까지. `q` 가 없으면 전체 목록(229곳)을 준다. 앱의 출생지 고르기 화면이 쓴다. `name` 은 `시·도 시·군·구` 꼴이고 세종만 `세종특별자치시` 한 낱말이다.
-- `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`
+- `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`. `shareId` 는 **더 쓰지 않는다**(결정 012): 공유 주소가 아니고 `GET /shared/{그 값}` 은 404 다. 공유는 `POST /shares` 로 만든다. 앱이 읽지 않게 되면 응답에서 뺀다 [확인 필요].
 - 궁합(직접 입력) (2026-11-11 구현, 결정 010. 초대로 연결된 궁합은 아직 없다)
   - `Synastry` = `{ id, name, relation: LOVE | FRIEND | WORK | FAMILY, score, scoreLabel?, headline, keywords[3], reportStatus: NONE | WRITING | FAILED | DONE, createdAt, overlay? }`. `id` 는 UUID, `name` 은 상대를 부를 이름, `score` 는 나 기준 40~100 의 정수(서버 계산), `headline` 은 한 줄 요약, `createdAt` 은 UTC `YYYY-MM-DDTHH:mm:ssZ`. 값이 없는 키는 보내지 않는다(`null` 로 보내지 않는다).
   - `scoreLabel`: 점수가 60 미만이면 `"다른 결의 사이"`, 60 이상이면 키가 없다. 앱은 이 키가 있으면 점수 옆에 그대로 붙인다(60 을 앱에서 다시 판정하지 않는다). 그때 키워드와 한 줄 요약은 끌리는 점부터 쓰여 있다.
@@ -133,7 +135,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `POST /synastry/{id}/report`: 서버에 상대의 출생 정보가 없으므로 본문으로 다시 받는다(형식·`placeId` 규칙은 `POST /synastry/direct` 와 같다). 계산 직후에는 앱이 입력 화면의 값을 그대로 보내고, 나중에 처음 요청할 때는 다시 입력받는다. 글을 기다리지 않고 202 로 답하고, 앱은 `GET /synastry/{id}/report` 를 몇 초 간격으로 다시 부른다(`Synastry.reportStatus` 도 같은 값이다).
   - 상태: `NONE` 요청한 적 없다(`GET` 만) · `WRITING` 쓰는 중 · `DONE` 완성 · `FAILED` 만들지 못했다(다시 `POST` 하면 새로 시작한다). 없거나 `FAILED` 면 생성을 시작하고 `WRITING`. 이미 `DONE`·`WRITING` 이면 다시 만들지 않고 그 상태를 준다(그때는 본문을 읽지 않으므로 없어도 된다). 뒤에서 일할 자리가 꽉 차면 `FAILED`. `WRITING` 인데 살아 있다는 표시(`active_at`, 서버가 15초마다 적는다)가 2분 넘게 끊겼으면 `FAILED` 로 보이고 `POST` 는 다시 시작한다. 줄에서 오래 기다리는 것만으로는 `FAILED` 가 되지 않는다(심층 리포트와 같다 — 아래 "리포트 상태"). 궁합(`id`)마다 리포트는 하나다.
   - `POST` 오류: 400 `INVALID_REQUEST`(본문이 없거나 형식이 틀림)·`INVALID_DATE`·`INVALID_TIME`·`UNKNOWN_PLACE`·`BIRTH_MISMATCH`(보낸 출생 정보로 계산한 점수가 그 궁합의 점수와 다르다 — 다른 사람의 정보다) · 404 `NOT_FOUND`(남의 것·없는 것)·`NO_PROFILE` · 409 `PROFILE_CHANGED`(내 출생 정보가 그 궁합을 계산한 때와 다르다. 궁합을 새로 계산해야 한다).
-- 초대(아직 구현 전): 초대로 연결된 궁합에서는 `overlay.theirs` 를 내려보내지 않는다. 이유: 행성 위치로 생일을 역산할 수 있다. `GET /invites/{inviteId}` 의 `status` = `PENDING \| ACCEPTED \| EXPIRED`. 두 사람의 이름(`names[2]`)·`shareId` 를 `Synastry` 에 더할지는 초대·공유(태스크 9 의 나머지·10)에서 정한다.
+- 초대(아직 구현 전): 초대로 연결된 궁합에서는 `overlay.theirs` 를 내려보내지 않는다. 이유: 행성 위치로 생일을 역산할 수 있다. `GET /invites/{inviteId}` 의 `status` = `PENDING \| ACCEPTED \| EXPIRED`. 두 사람의 이름(`names[2]`)을 `Synastry` 에 더할지는 초대(태스크 9 의 나머지)에서 정한다. `Synastry` 에 `shareId` 는 두지 않는다(결정 012).
 - `Report` = `{ sections[{ area: PERSONALITY \| RELATIONSHIP \| WORK \| EMOTION, title, paragraphs[{ title, body, basis[] }] }], timing }`. `sections` 는 정확히 이 네 영역이 이 순서로 오고, 영역마다 문단 4~6개다. `basis` 는 `Reading` 과 같은 말이다. `timing` 은 아래 "시기" 이고 `DONE` 인 리포트에는 언제나 있다(null 이 아니다). (2026-11-11 구현)
 - 리포트 상태(`POST /reports` · `GET /reports/me`): `NONE` 지금 차트의 리포트를 만든 적이 없다(`GET` 만) · `WRITING` 쓰는 중 · `DONE` 완성 · `FAILED` 만들지 못했다(다시 `POST` 하면 새로 시작한다).
   - `POST`: 없거나 `FAILED` 면 생성을 시작하고 `WRITING`. 이미 `DONE` 이면 다시 만들지 않고 `DONE`. 쓰는 중이면 두 번째 생성을 시작하지 않고 `WRITING`. 뒤에서 일할 자리가 꽉 차 시작하지 못하면 `FAILED`(잠시 뒤 다시 `POST`).
@@ -157,7 +159,19 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - 오류: 400 `INVALID_REQUEST`(본문이 JSON 객체가 아니거나, `category`·`body`·`replyEmail` 이 글자가 아닌 타입이다 — 숫자·배열·객체·불리언)·`INVALID_CATEGORY`(없거나 `null` 이거나 목록에 없다)·`INVALID_BODY`(없거나 `null` 이거나 길이가 틀리다)·`INVALID_EMAIL` · 401 `UNAUTHORIZED` · 429 `RATE_LIMITED`. 여러 개가 틀리면 이 순서로 처음 걸린 것 하나를 준다. 오류 응답에 입력값은 없다.
   - 429: 한 계정이 한 시간(서버 시계의 정시부터 정시까지)에 5건까지 저장할 수 있고 여섯 번째부터 429 다. 검증에서 걸린 요청(400)은 세지 않는다. 같은 계정의 다른 기기도 같이 센다.
 - 자주 묻는 질문 `GET /faqs` (2026-11-12 구현, 결정 014): 세션 없이 읽는다(로그인 전 화면에서도). 관리자가 공개한 것만, 관리자가 정한 순서대로 온다. `id` 는 UUID, `question` 은 1~200자, `answer` 는 1~2000자의 꾸밈 없는 글자(줄바꿈이 들어 있을 수 있다. HTML·마크다운이 아니다). 아직 글이 없으면 `[]` 다(오류가 아니다). 응답 헤더 `Cache-Control: public, max-age=300`. 주소별 분당 120번을 넘으면 429 `RATE_LIMITED`. 같은 경로의 다른 메서드와 `/faqs/` 아래 경로는 없다. 글을 쓰는 곳은 "관리자 API" 의 `/admin/faqs` 다.
-- `GET /shared/{shareId}` = `{ kind: READING \| SCORE \| RANKING \| NEXT_TURN, title, lines[], score?, items?[{ name, score }] }` (글과 숫자만, 출생 정보·근거 없음).
+- 공유 (2026-11-12 구현, 결정 012. 규칙의 원본은 앱 저장소 release-1.0.0 F6)
+  - `ShareCard` 는 `kind` 로 가리는 네 모양 가운데 하나다. 아래 적힌 키가 전부이고, 값이 없는 키는 보내지 않는다. 출생 정보·근거(`basis`)·본문·소유자·궁합 id·날짜는 어느 카드에도 없다.
+    - `{ kind: "READING", headline, keywords[3] }` — 요약 해석의 한 줄 총평과, 앞의 세 문단 제목.
+    - `{ kind: "SCORE", names[2], score, scoreLabel?, headline }` — `names` 는 `[공유하는 사람, 상대]` 순서. `score`·`scoreLabel`·`headline` 은 `Synastry` 의 것과 같다(`scoreLabel` 은 60점 미만일 때만).
+    - `{ kind: "RANKING", relation: LOVE | FRIEND | WORK | FAMILY, entries[1~3 × { name, score }] }` — 그 관계 유형의 랭킹(`GET /synastry/ranking` 과 같은 순서)에서 앞의 3명까지. `name` 은 기본이 이니셜이고, 공유할 때 `showNames: true` 였으면 적은 이름 그대로다.
+    - `{ kind: "NEXT_TURN", year, season: SPRING | SUMMER | AUTUMN | WINTER, theme }` — 리포트 시기의 `current.nextMilestone`(오늘 뒤의 첫 마디)의 `date` 를 해와 계절로 줄인 것과 그 마디의 `title`. 3~5월 `SPRING`, 6~8월 `SUMMER`, 9~11월 `AUTUMN`, 12·1·2월 `WINTER`. `year`(정수)는 그 날의 달력 해다(2028년 1월도 12월도 2028 · `WINTER`). 앱이 "2027년 봄" 으로 적는다.
+  - `POST /shares` 요청: `kind` 는 필수. `SCORE` 는 `synastryId`(내 궁합의 `id`)와 `myName`(공유하는 사람을 부를 이름, 앞뒤 공백을 뗀 1~20자 — 서버에 내 이름이 없어 매번 받는다). `RANKING` 은 `relation`(필수)과 `showNames`(boolean, 없으면 `false`). `READING`·`NEXT_TURN` 은 다른 필드가 없다(지금 프로필의 차트 기준). 그 종류가 쓰지 않는 필드는 읽지 않는다.
+  - `POST /shares` 응답: 200 `{ shareId, card }`. `card` 는 `GET /shared/{shareId}` 가 주는 것과 같다(앱은 이것으로 이미지를 그리고 `shareId` 로 주소를 만든다). `shareId` 는 무작위 128비트를 URL 용 Base64 로 적은 22자(`A-Z a-z 0-9 - _`)다.
+  - 스냅샷: 카드는 공유한 순간의 내용으로 저장되고 그 뒤 글·랭킹·프로필이 바뀌어도 바뀌지 않는다. 같은 내용의 카드를 다시 만들면 새로 만들지 않고 있던 `shareId` 를 준다. 내용이 달라졌으면(랭킹이 바뀜, `showNames`·`myName` 이 다름) 새 `shareId` 다. 예전 공유는 지우기 전까지 열린다. 만료는 없다.
+  - `POST /shares` 오류: 400 `INVALID_REQUEST`(본문이 JSON 이 아님, `SCORE` 에 `synastryId` 없음)·`INVALID_KIND`·`INVALID_NAME`(`myName`)·`INVALID_RELATION` · 401 `UNAUTHORIZED` · 404 `NOT_FOUND`(공유할 것이 없다: 지금 차트의 요약 해석이 없다 / 남의 궁합·없는 궁합·id 모양이 아님 / 그 관계 유형의 궁합이 하나도 없다 / 지금 차트의 완성된(`DONE`) 리포트가 없거나 다음 마디가 없다). 모델을 부르지 않으므로 바로 답한다.
+  - `DELETE /shares/{shareId}`: 내 공유를 지운다. 그 뒤 `GET /shared/{shareId}` 는 404 다. 같은 카드를 다시 만들면 새 `shareId` 가 나온다. 계정을 지우면(`DELETE /account`) 그 사람의 공유가 모두 사라진다.
+  - `GET /shared/{shareId}`: 세션 없이 열린다. 저장된 `ShareCard` 를 그대로 준다. 없는(지워진) 식별자는 404 `NOT_FOUND`. 주소별 분당 한도를 넘으면 429 `RATE_LIMITED`. CORS 는 다른 경로와 같다(`ALLOWED_ORIGINS` 에 적힌 앱의 웹 주소만).
+  - 이니셜(서버가 만든다): 한글 음절은 첫소리 글자로(지영 → `ㅈㅇ`, 쌍자음은 그대로), 이미 낱자인 한글은 그대로, 그 밖의 글자·숫자는 이어진 덩어리의 첫 글자만 대문자로(`Mike` → `M`, `김 Min` → `ㄱM`), 공백·기호·그림 문자는 뺀다. 남는 것이 없으면 `○`.
 
 ## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014)
 관리 화면(웹)이 부르는 API 다. 앱은 부르지 않는다. 경로는 모두 `/admin/` 아래다.
@@ -282,12 +296,13 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 설정(`application.properties`): `byeolmyeong.admin.session-hours`(12) · `byeolmyeong.admin.bcrypt-strength`(12) · `byeolmyeong.rate-limit.admin-login-per-ip`(20) · `byeolmyeong.rate-limit.admin-login-per-id`(5).
 
 ## 데이터
-- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보. 태어난 곳은 시각을 알 때만 있다) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만 — 네 영역의 글과 시기(`timing`: 마디·구간의 날짜와 글, "지금" 은 없음), 생성을 시작한 때(그 생성의 표식)·살아 있다는 표시를 마지막으로 적은 때(`active_at`, V9)·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자·주제·대상 unique, 본문. 대상의 뜻은 주제가 정한다: `LOVE` 는 차트 해시 — 결정 009) · `inquiries`(V11: 소유자, 종류, 글, 답장 받을 이메일 — 없으면 null, 만든 때. 기기 정보·주소는 없다 — 결정 013) · `push_tokens`.
+- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보. 태어난 곳은 시각을 알 때만 있다) · `readings`(소유자, 종류, 차트 해시, 본문, 더 쓰지 않는 공유 식별자 `share_id` — 결정 012) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만 — 네 영역의 글과 시기(`timing`: 마디·구간의 날짜와 글, "지금" 은 없음), 생성을 시작한 때(그 생성의 표식)·살아 있다는 표시를 마지막으로 적은 때(`active_at`, V9)·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자·주제·대상 unique, 본문. 대상의 뜻은 주제가 정한다: `LOVE` 는 차트 해시 — 결정 009) · `inquiries`(V11: 소유자, 종류, 글, 답장 받을 이메일 — 없으면 null, 만든 때. 기기 정보·주소는 없다 — 결정 013) · `push_tokens`.
 - 소유자를 가리키는 테이블은 모두 `on delete cascade` 다: 계정을 지우면 문의도 함께 지워진다. 문의는 관리자 API(`/admin/inquiries`)로 읽고 처리한다(결정 014).
 - 관리자 쪽 테이블(V12, 결정 014): `admin_accounts`(로그인 아이디 unique·소문자, bcrypt 해시, 표시 이름, 활성 여부, 만든 때) · `admin_sessions`(토큰 해시, 관리자, 끝나는 때) · `faqs`(질문, 답, 순서, 공개 여부, 고친 때, 고친 관리자). `inquiries` 에는 처리 칸 넷이 더해졌다: 상태(`NEW`·`IN_PROGRESS`·`DONE`, 기본 `NEW`)·관리자 메모·처리한 관리자·처리한 때. 관리자 테이블은 `accounts`·`sessions` 와 아무 관계가 없고, 관리자는 지우지 않는다(끄기만 한다).
 - 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
-- 지금의 궁합 테이블(직접 입력, V7. 위 줄의 `synastries` 설명보다 이쪽이 맞다): `synastries`(소유자, 부를 이름, 관계 유형, 나 기준 점수, 한 줄 요약, 키워드, 계산할 때의 내 차트 해시) · `synastry_reports`(궁합마다 한 행, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때, 살아 있다는 표시를 마지막으로 적은 때 `active_at` — V9). 초대로 연결된 두 참여자와 공유 식별자는 초대·공유 때 더한다.
+- `shares`(V10, 결정 012): 공유 식별자(기본 키, 무작위 128비트), 소유자(계정을 지우면 함께 지워진다), 카드 종류, 카드(공개 조회가 그대로 주는 JSON — 공개 필드뿐이다), 카드의 해시(같은 소유자의 같은 내용은 한 행), 만든 때. 랭킹 카드에는 앞의 3명만, 이름을 가렸으면 이니셜만 들어 있다. 다음 변곡점 카드에는 날짜가 아니라 해와 계절이 들어 있다.
+- 지금의 궁합 테이블(직접 입력, V7. 위 줄의 `synastries` 설명보다 이쪽이 맞다): `synastries`(소유자, 부를 이름, 관계 유형, 나 기준 점수, 한 줄 요약, 키워드, 계산할 때의 내 차트 해시) · `synastry_reports`(궁합마다 한 행, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때, 살아 있다는 표시를 마지막으로 적은 때 `active_at` — V9). 초대로 연결된 두 참여자는 초대 때 더한다. 공유 식별자는 `synastries` 에 두지 않는다(`shares`).
 - 직접 입력한 상대의 행성 황경·별자리와 두 차트 사이의 각도 목록도 저장하지 않는다. 이유: 내 차트와 겹쳐 보면 상대의 생일을 좁힐 수 있다(결정 010).
 
 ## 글 생성 규칙
@@ -308,7 +323,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 
 ## 요청 속도 제한 (남용 방지, 서버에서만 판정한다)
 - 리포트·궁합·방향성 제시에 기능 횟수 제한은 없다(앱 결정 011). 같은 차트·같은 두 사람의 글은 한 번만 만든다.
-- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다)·`GET /faqs`(주소별, `faqs-per-minute` 120).
+- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다)·`GET /faqs`(주소별, `faqs-per-minute` 120)·`GET /shared/{shareId}`(주소별 `shared-per-minute`, 식별자를 마구 넣어 보는 것을 늦춘다).
 - 관리자 로그인(`POST /admin/auth/login`)은 10분에 주소별 `byeolmyeong.rate-limit.admin-login-per-ip`(20)번·아이디별 `admin-login-per-id`(5)번까지다. `admin.AdminAuthService` 가 같은 `web.RateLimiter` 를 쓴다(결정 014).
 - 계정별 제한은 `POST /inquiries` 하나뿐이다: 소유자 id 별로 한 시간에 `byeolmyeong.rate-limit.inquiries-per-hour`(5)건, 같은 `web.RateLimiter`(고정 창, 서버 메모리)를 `inquiry.InquiryService` 가 쓴다(결정 013). 다른 엔드포인트의 계정별 제한은 미뤄져 있다(계획 "배포 전 확인" 1번).
 - 광고 시청 판정은 1.1.0 에 더한다(앱 결정 015).

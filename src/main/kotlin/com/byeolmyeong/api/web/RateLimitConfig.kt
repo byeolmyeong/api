@@ -11,13 +11,14 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 
 private const val WINDOW_MILLIS = 60_000L
 
-/** `POST /charts`·`GET /places`·`POST /synastry/direct`·`GET /faqs` 의 주소별 요청 수 제한. 한도를 넘으면 429. */
+/** `POST /charts`·`GET /places`·`POST /synastry/direct`·`GET /faqs`·`GET /shared/{shareId}` 의 주소별 요청 수 제한. 한도를 넘으면 429. */
 @Configuration
 class RateLimitConfig(
 	@Value("\${byeolmyeong.rate-limit.charts-per-minute}") private val chartsPerMinute: Int,
 	@Value("\${byeolmyeong.rate-limit.places-per-minute}") private val placesPerMinute: Int,
 	@Value("\${byeolmyeong.rate-limit.synastry-per-minute}") private val synastryPerMinute: Int,
 	@Value("\${byeolmyeong.rate-limit.faqs-per-minute}") private val faqsPerMinute: Int,
+	@Value("\${byeolmyeong.rate-limit.shared-per-minute}") private val sharedPerMinute: Int,
 ) : WebMvcConfigurer {
 
 	override fun addInterceptors(registry: InterceptorRegistry) {
@@ -25,6 +26,7 @@ class RateLimitConfig(
 		registry.addInterceptor(RateLimitInterceptor(placesPerMinute)).addPathPatterns("/places")
 		registry.addInterceptor(RateLimitInterceptor(synastryPerMinute)).addPathPatterns("/synastry/direct")
 		registry.addInterceptor(RateLimitInterceptor(faqsPerMinute)).addPathPatterns("/faqs")
+		registry.addInterceptor(RateLimitInterceptor(sharedPerMinute)).addPathPatterns("/shared/*")
 	}
 }
 
