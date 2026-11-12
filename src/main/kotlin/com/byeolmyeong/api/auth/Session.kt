@@ -18,6 +18,12 @@ private const val BEARER = "Bearer "
 private val PUBLIC_PATHS = arrayOf("/health", "/places", "/auth/dev", "/auth/login", "/invites/*", "/shared/*", "/error")
 
 /**
+ * 관리자 API. 사용자 세션 검사는 이 아래를 보지 않는다 — 열어 두는 것이 아니라, 같은 경로 전부를 관리자 세션 검사
+ * (`admin.AdminSessionInterceptor`)가 맡는다(결정 014). 사용자 토큰은 거기서 통하지 않는다.
+ */
+private const val ADMIN_PATHS = "/admin/**"
+
+/**
  * 소유자를 얻는 한 곳. 요청 본문이나 경로의 id 를 소유자로 믿지 않고, 세션 토큰으로 확인한 계정만 돌려준다.
  * 세션이 필요한 엔드포인트의 컨트롤러가 주입받아 쓴다.
  */
@@ -56,6 +62,6 @@ class SessionInterceptor(private val auth: AuthService) : HandlerInterceptor {
 class SessionConfig(private val interceptor: SessionInterceptor) : WebMvcConfigurer {
 
 	override fun addInterceptors(registry: InterceptorRegistry) {
-		registry.addInterceptor(interceptor).excludePathPatterns(*PUBLIC_PATHS)
+		registry.addInterceptor(interceptor).excludePathPatterns(*PUBLIC_PATHS, ADMIN_PATHS)
 	}
 }

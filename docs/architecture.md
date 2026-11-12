@@ -1,6 +1,6 @@
 ---
 type: architecture
-tags: [서버 아키텍처, API 계약, 차트 계산, 해석 생성, 로그인, 의존 규칙, ArchUnit, 용어]
+tags: [서버 아키텍처, API 계약, 관리자 API, 차트 계산, 해석 생성, 로그인, 의존 규칙, ArchUnit, 용어]
 status: active
 last_reviewed: 2026-11-12
 ---
@@ -29,6 +29,7 @@ last_reviewed: 2026-11-12
 - `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹, 궁합 리포트(202 로 답하고 뒤에서 영역마다 쓴다). 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 010). 초대·수락은 아직 없다(태스크 9 의 나머지).
 - `direction` — 방향성 제시(해 볼 만한 것 3개). 지금은 이성 주제 하나다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래·궁합 주제는 리포트 시기·궁합이 들어온 뒤에 더한다. 결정: docs/decisions/009-direction-storage-and-advice-check.md
 - `inquiry` — 문의하기. 설정의 문의 글을 검증해 저장만 한다(관리 화면·메일 발송 없음). 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md
+- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
 - `share` — 공유 조회(공유 카드 4종).
 - `push` — 기기 토큰과 알림 발송.
 
@@ -46,6 +47,7 @@ src/main/kotlin/com/byeolmyeong/api/
   synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·두 차트 사이 연결의 글·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증)
   inquiry/     InquiryController · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증)
+  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository)
   share/       ShareController · ShareService
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
@@ -59,7 +61,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
-| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`)로만 한다 | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`)로만 한다 | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
 | 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
 | `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
 | `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
@@ -104,7 +106,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /shared/{shareId}` | 없음 | 없음 | 요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나(글과 숫자만) |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
 
-- 세션: 요청 헤더 `Authorization: Bearer <token>`. 없거나 틀리면 401 `UNAUTHORIZED`. 표에서 인증이 "없음" 인 경로와 `GET /health` 말고는 모두 세션이 필요하다(새 경로는 기본이 세션 필요다). 토큰은 서버가 원문을 저장하지 않는다(해시만).
+- 세션: 요청 헤더 `Authorization: Bearer <token>`. 없거나 틀리면 401 `UNAUTHORIZED`. 표에서 인증이 "없음" 인 경로와 `GET /health` 말고는 모두 세션이 필요하다(새 경로는 기본이 세션 필요다). 토큰은 서버가 원문을 저장하지 않는다(해시만). `/admin/**` 는 이 표에 없다 — 아래 "관리자 API" 가 따로 다루고, 사용자 세션 토큰은 거기서 통하지 않는다(관리자 토큰도 이 표의 경로에서 통하지 않는다).
 - 브라우저의 다른 출처 요청(CORS): 설정 `byeolmyeong.cors.allowed-origins`(환경 변수 `ALLOWED_ORIGINS`, 쉼표 구분)에 적힌 주소만 허용한다. 비어 있으면 허용하지 않는다. 허용 메서드 GET·POST·PUT·DELETE, 허용 헤더 `Authorization`·`Content-Type`. 쿠키는 쓰지 않는다.
 - `Chart` = `{ timeKnown, houseSystem: "PLACIDUS", moonSignMayChange?, positions[{ body, sign, degree, minute, longitude, house?, retrograde }], points[{ point, sign, degree, minute, longitude, house? }], houses?[12 × { house, sign, degree, minute, longitude }], angles?{ asc{ sign, degree, minute, longitude }, mc{ sign, degree, minute, longitude } }, aspects[{ a, b, type, orb, applying }] }`
   - `longitude` 는 황경 0 이상 360 미만(소수 둘째 자리, 도·분처럼 올리지 않고 버린다). 앱이 휠을 그릴 때 쓴다. `moonSignMayChange: true` 는 시각을 모르고 그날 안에 달 별자리가 바뀔 때만 보낸다. 상승점·중천은 `angles` 에만 온다. `houses` 는 1번부터 순서대로. `houseSystem` 은 시각을 몰라도 보낸다. (2026-11-11 확정·구현)
@@ -153,6 +155,54 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - 429: 한 계정이 한 시간(서버 시계의 정시부터 정시까지)에 5건까지 저장할 수 있고 여섯 번째부터 429 다. 검증에서 걸린 요청(400)은 세지 않는다. 같은 계정의 다른 기기도 같이 센다.
 - `GET /shared/{shareId}` = `{ kind: READING \| SCORE \| RANKING \| NEXT_TURN, title, lines[], score?, items?[{ name, score }] }` (글과 숫자만, 출생 정보·근거 없음).
 
+## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014)
+관리 화면(웹)이 부르는 API 다. 앱은 부르지 않는다. 경로는 모두 `/admin/` 아래다.
+
+### 공통
+- 요청·응답 본문은 JSON(`Content-Type: application/json`, UTF-8). 본문이 없는 응답(204)은 빈 본문이다.
+- 인증: `POST /admin/auth/login` 말고는 모두 요청 헤더 `Authorization: Bearer <token>` 이 필요하다. `token` 은 로그인 응답의 값이다. 헤더가 없거나, 토큰이 틀리거나, 세션이 끝났거나(로그인 뒤 12시간), 로그아웃했거나, 그 관리자가 꺼졌으면 **401 `{ "error": "UNAUTHORIZED" }`** 다. `/admin/` 아래의 없는 경로도 토큰 없이는 401 이다. 화면은 401 을 받으면 토큰을 버리고 로그인 화면으로 보낸다.
+- 관리자 세션은 앱 사용자의 세션과 완전히 따로다: 앱 사용자의 토큰으로 `/admin/**` 를 부르면 401, 관리자 토큰으로 앱의 경로(`/profile` 등)를 부르면 401 이다.
+- 세션 수명: 로그인한 때부터 12시간(응답의 `expiresAt`). 쓰는 동안 늘어나지 않고, 갱신 경로는 없다(다시 로그인한다). 한 관리자가 여러 곳에서 동시에 로그인할 수 있다. 서버는 토큰 원문을 저장하지 않는다(해시만). 쿠키는 쓰지 않는다.
+- 오류 응답은 언제나 `{ "error": "<코드>" }` 하나다(입력값·설명 글 없음). 코드는 경로마다 아래에 적었다. 공통: 400 `INVALID_REQUEST`(본문이 없거나 JSON 객체가 아니거나, 필드의 타입이 틀리다 — 글자 자리에 숫자·배열·객체·불리언 등) · 401 `UNAUTHORIZED` · 404 `NOT_FOUND`(경로의 id 가 UUID 가 아니거나 그런 것이 없다) · 429 `RATE_LIMITED`.
+- 응답의 값이 없는 필드는 키를 빼지 않고 `null` 로 보낸다(앱 쪽 계약과 다르다). 요청에서 읽지 않는 키는 무시한다.
+- 시각은 모두 UTC 의 `YYYY-MM-DDTHH:mm:ssZ` 글자다(예 `2026-11-12T04:05:06Z`). id 는 UUID 글자다.
+- 글자 수는 유니코드 코드 포인트로 센다(한글 한 글자가 1, 이모지 한 개도 1 — JavaScript 의 `.length` 가 아니라 `[...text].length`).
+
+### 경로
+| 메서드·경로 | 요청 | 응답 |
+|---|---|---|
+| `POST /admin/auth/login` (인증 없음) | `{ loginId, password }` | 200 `{ token, expiresAt, admin: Admin }` |
+| `POST /admin/auth/logout` | 없음 | 204 |
+| `GET /admin/me` | 없음 | 200 `Admin` |
+| `PUT /admin/me/password` | `{ currentPassword, newPassword }` | 204 |
+| `GET /admin/admins` | 없음 | 200 `[AdminAccount]` 먼저 만든 관리자부터 |
+| `POST /admin/admins` | `{ loginId, name, password }` | 201 `AdminAccount` |
+| `PATCH /admin/admins/{id}` | `{ active }` | 200 `AdminAccount` |
+
+### 로그인·세션
+- `Admin` = `{ id, loginId, name }`. `AdminAccount` = `{ id, loginId, name, active, createdAt }`. 비밀번호와 그 해시는 어떤 응답에도 없다.
+- `POST /admin/auth/login`: `loginId` 는 앞뒤 공백과 대소문자를 가리지 않는다. `password` 는 글자 그대로 본다.
+  - 200 `{ token, expiresAt, admin }`. `token` 을 화면이 보관해 이후 요청의 `Authorization: Bearer <token>` 에 넣는다. `expiresAt` 은 이 세션이 끝나는 때다.
+  - 401 `INVALID_CREDENTIALS`: 없는 아이디, 틀린 비밀번호, 꺼진 관리자 — 셋을 구분해 주지 않는다. 관리자가 한 명도 없는 서버에서도 이 답이다.
+  - 400 `INVALID_REQUEST`: `loginId`·`password` 가 없거나 `null` 이거나 글자가 아니다.
+  - 429 `RATE_LIMITED`: 로그인 시도는 10분(서버 시계의 10분 단위 창)에 아이디별 5번·주소(IP)별 20번까지다. 성공한 로그인도 센다. 넘으면 맞는 비밀번호여도 그 창이 끝날 때까지 429 다.
+- `POST /admin/auth/logout`: 이 요청의 토큰만 끝낸다(같은 관리자의 다른 세션은 그대로). 204. 그 뒤 그 토큰은 401 이다.
+- `PUT /admin/me/password`: 자기 비밀번호만 바꾼다. 204. 바꾸면 이 요청의 세션은 그대로이고 **같은 관리자의 다른 세션은 모두 끝난다**.
+  - 400 `INVALID_CURRENT_PASSWORD`(지금 비밀번호가 틀리다) · `INVALID_PASSWORD`(새 비밀번호가 규칙에 안 맞다) · `INVALID_REQUEST`(둘 중 하나가 없거나 글자가 아니다) · 429 `RATE_LIMITED`(지금 비밀번호 확인도 아이디별 로그인 시도에 같이 센다).
+- 비밀번호 규칙: 10자 이상, UTF-8 로 72바이트 이하(영문·숫자·기호만이면 72자, 한글만이면 24자까지). 앞뒤 공백을 떼지 않는다. 그 밖의 조합 규칙은 없다.
+
+### 관리자 관리
+- 역할 구분은 없다. 관리자는 누구나 다른 관리자를 만들고 끄고 켤 수 있다. 관리자를 지우거나, 이름·아이디를 고치거나, 남의 비밀번호를 다시 정하는 경로는 없다.
+- `POST /admin/admins`: `loginId` 는 앞뒤 공백을 떼고 소문자로 바꾼 뒤 소문자·숫자·`.`·`_`·`-` 3~32자(첫 글자는 소문자나 숫자). `name` 은 앞뒤 공백을 뗀 1~40자. `password` 는 위 규칙(처음 비밀번호이고, 받은 관리자가 `PUT /admin/me/password` 로 바꾼다). 201 `AdminAccount`(`active: true`).
+  - 400 `INVALID_LOGIN_ID` · `INVALID_NAME` · `INVALID_PASSWORD`(없거나 `null` 이어도 이 코드. 여러 개가 틀리면 이 순서로 처음 걸린 것 하나) · `INVALID_REQUEST`(타입이 틀리다) · 409 `LOGIN_ID_TAKEN`(이미 있는 아이디 — 꺼진 관리자의 아이디도 다시 쓸 수 없다).
+- `PATCH /admin/admins/{id}`: `{ "active": false }` 로 끄고 `{ "active": true }` 로 켠다. 200 바뀐 `AdminAccount`. 이미 그 상태여도 200 이다.
+  - 끄면 그 관리자의 세션이 모두 지워져 그 사람의 다음 요청부터 401 이고, 로그인도 401 `INVALID_CREDENTIALS` 다. 다시 켜면 로그인할 수 있다(예전 토큰은 되살아나지 않는다). 그 관리자가 남긴 처리 기록은 그대로다.
+  - 409 `CANNOT_DEACTIVATE_SELF`(자기 자신은 끌 수 없다) · 409 `LAST_ACTIVE_ADMIN`(마지막 남은 활성 관리자는 끌 수 없다 — 두 관리자가 동시에 서로를 끌 때만 나온다) · 400 `INVALID_REQUEST`(`active` 가 없거나 `null` 이거나 불리언이 아니다 — `"false"`·`0` 도 틀리다) · 404 `NOT_FOUND`.
+
+### 첫 관리자와 환경 변수
+- 첫 관리자는 API 로 만들 수 없다. 서버가 뜰 때 **관리자가 한 명도 없고** 환경 변수 `ADMIN_BOOTSTRAP_ID`·`ADMIN_BOOTSTRAP_PASSWORD` 가 **둘 다** 있으면 그 값으로 만든다(표시 이름은 아이디와 같다). 아이디·비밀번호 규칙은 위와 같고, 규칙에 안 맞으면 만들지 않는다(로그 `event=admin_bootstrap_skipped reason=…`). 관리자가 한 명이라도 있으면 두 변수는 읽지 않는다(비밀번호를 덮어쓰지 않는다). 하나라도 없으면 관리자가 없는 채로 뜨고 `/admin/**` 는 전부 401 이다.
+- 설정(`application.properties`): `byeolmyeong.admin.session-hours`(12) · `byeolmyeong.admin.bcrypt-strength`(12) · `byeolmyeong.rate-limit.admin-login-per-ip`(20) · `byeolmyeong.rate-limit.admin-login-per-id`(5).
+
 ## 데이터
 - `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보. 태어난 곳은 시각을 알 때만 있다) · `readings`(소유자, 종류, 차트 해시, 본문, 공유 식별자) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만 — 네 영역의 글과 시기(`timing`: 마디·구간의 날짜와 글, "지금" 은 없음), 생성을 시작한 때(그 생성의 표식)·살아 있다는 표시를 마지막으로 적은 때(`active_at`, V9)·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자·주제·대상 unique, 본문. 대상의 뜻은 주제가 정한다: `LOVE` 는 차트 해시 — 결정 009) · `inquiries`(V11: 소유자, 종류, 글, 답장 받을 이메일 — 없으면 null, 만든 때. 기기 정보·주소는 없다 — 결정 013) · `push_tokens`.
 - 소유자를 가리키는 테이블은 모두 `on delete cascade` 다: 계정을 지우면 문의도 함께 지워진다. 문의는 관리 화면이 없어 소유자가 `inquiries` 를 직접 읽는다(SQL 은 결정 013).
@@ -181,6 +231,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 ## 요청 속도 제한 (남용 방지, 서버에서만 판정한다)
 - 리포트·궁합·방향성 제시에 기능 횟수 제한은 없다(앱 결정 011). 같은 차트·같은 두 사람의 글은 한 번만 만든다.
 - 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다).
+- 관리자 로그인(`POST /admin/auth/login`)은 10분에 주소별 `byeolmyeong.rate-limit.admin-login-per-ip`(20)번·아이디별 `admin-login-per-id`(5)번까지다. `admin.AdminAuthService` 가 같은 `web.RateLimiter` 를 쓴다(결정 014).
 - 계정별 제한은 `POST /inquiries` 하나뿐이다: 소유자 id 별로 한 시간에 `byeolmyeong.rate-limit.inquiries-per-hour`(5)건, 같은 `web.RateLimiter`(고정 창, 서버 메모리)를 `inquiry.InquiryService` 가 쓴다(결정 013). 다른 엔드포인트의 계정별 제한은 미뤄져 있다(계획 "배포 전 확인" 1번).
 - 광고 시청 판정은 1.1.0 에 더한다(앱 결정 015).
 

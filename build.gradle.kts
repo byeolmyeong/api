@@ -32,6 +32,8 @@ dependencies {
 	implementation("io.github.cosinekitty:astronomy:2.1.19")
 	// Claude API 공식 Java SDK. generation.ClaudeTextGenerator 만 쓴다(결정 006).
 	implementation("com.anthropic:anthropic-java:3.3.0")
+	// 관리자 비밀번호의 bcrypt 해시만 쓴다(admin.AdminPasswords, 결정 014). Spring Security 의 웹 쪽(필터 체인)은 들이지 않는다.
+	implementation("org.springframework.security:spring-security-crypto")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-flyway-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-jdbc-test")
