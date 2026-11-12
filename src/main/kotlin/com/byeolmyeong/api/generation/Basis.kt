@@ -4,6 +4,7 @@ import com.byeolmyeong.api.chart.Body
 import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.chart.PointKind
 import com.byeolmyeong.api.chart.Sign
+import com.byeolmyeong.api.chart.SynastryTarget
 import com.byeolmyeong.api.chart.signOf
 
 // 근거(basis)에 쓰는 말. 프롬프트의 차트와 응답의 근거 대조가 같은 말을 쓰도록 여기 한 곳에서만 정한다.
@@ -66,3 +67,7 @@ fun basisVocabulary(chart: Chart): List<String> {
 	val occupiedHouses = chart.positions.mapNotNull { it.house }.toSet()
 	return names + Sign.entries.filter { it in occupiedSigns }.map { it.label } + (1..12).filter { it in occupiedHouses }.map(::houseLabel)
 }
+
+/** 궁합 글의 근거로 쓸 수 있는 말: 점수에서 보는 내 쪽 요소(태양·달·수성·금성·화성, 시각을 알면 상승점). */
+fun synastryBasisVocabulary(mine: Chart): List<String> =
+	SynastryTarget.entries.mapNotNull { target -> target.body?.label ?: ASCENDANT_LABEL.takeIf { mine.houses != null } }

@@ -7,6 +7,7 @@ import com.byeolmyeong.api.chart.scoreOfSum
 import com.byeolmyeong.api.chart.synastryAspects
 import com.byeolmyeong.api.chart.synastrySum
 import com.byeolmyeong.api.generation.GenerationException
+import com.byeolmyeong.api.generation.SynastryFacts
 import com.byeolmyeong.api.generation.TextGenerator
 import com.byeolmyeong.api.web.BadRequestException
 import com.byeolmyeong.api.web.NotFoundException
