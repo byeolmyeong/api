@@ -154,7 +154,7 @@ class SynastryApiIntegrationTest {
 			jdbc.queryForList("select column_name from information_schema.columns where table_name = 'synastries'", String::class.java).toSet(),
 		)
 		assertEquals(
-			setOf("synastry_id", "status", "body", "started_at", "updated_at"),
+			setOf("synastry_id", "status", "body", "started_at", "active_at", "updated_at"),
 			jdbc.queryForList("select column_name from information_schema.columns where table_name = 'synastry_reports'", String::class.java).toSet(),
 		)
 		// 프로필(내 것)을 뺀 모든 테이블의 모든 행을 글로 떠서 본다

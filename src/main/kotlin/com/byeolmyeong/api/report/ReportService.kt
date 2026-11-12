@@ -14,22 +14,29 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
 import java.time.LocalDate
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** 영역마다(시기 글도): 처음 한 번 + 다시 생성 2번(요약 해석과 같다). */
 private const val MAX_ATTEMPTS = 3
 
-/** `WRITING` 인 채 이만큼 지나면 멈춘 것으로 본다(서버가 쓰는 도중 재시작된 경우). */
-private const val STALE_MINUTES = 10
+/**
+ * `WRITING` 인데 살아 있다는 표시(`active_at`)가 이만큼 끊기면 멈춘 것으로 본다(서버가 쓰는 도중 꺼진 경우).
+ * 표시는 `byeolmyeong.report.heartbeat-seconds`(15초)마다 적으므로 여덟 번을 놓쳐야 한다.
+ * 자리를 잡은 뒤 흐른 시간으로는 가리지 않는다: 줄에서 오래 기다리는 것은 멈춘 것이 아니다.
+ */
+private const val STALE_SECONDS = 120
 
 /**
  * 리포트의 글을 쓰는 뒤쪽 일꾼. 스레드 수와 대기 줄이 정해져 있어 요청이 몰려도 스레드가 늘지 않는다.
@@ -64,10 +71,25 @@ class ReportService(
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
+	// 이 서버가 맡아 아직 끝내지 않은 생성(줄에서 기다리는 것 포함).
+	private val live = ConcurrentHashMap.newKeySet<ReportRun>()
+
+	/** 이 서버가 맡은 생성이 살아 있다고 행에 적는다. 서버가 꺼지면 더 적히지 않아 그 행은 멈춘 것으로 보인다. */
+	@Scheduled(fixedDelayString = "\${byeolmyeong.report.heartbeat-seconds}", timeUnit = TimeUnit.SECONDS)
+	fun heartbeat() {
+		for (run in live) {
+			try {
+				repository.beat(run)
+			} catch (e: Exception) {
+				log.warn("event=report_heartbeat_failed error={}", e.javaClass.simpleName)
+			}
+		}
+	}
+
 	/** 지금 차트의 리포트 상태. 프로필이 없거나 만든 적이 없으면 `NONE`. */
 	fun current(ownerId: UUID): ReportStatusResponse {
 		val birth = profiles.chartInput(ownerId) ?: return ReportStatusResponse(ReportStatus.NONE)
-		val stored = repository.find(ownerId, birth.hash, STALE_MINUTES) ?: return ReportStatusResponse(ReportStatus.NONE)
+		val stored = repository.find(ownerId, birth.hash, STALE_SECONDS) ?: return ReportStatusResponse(ReportStatus.NONE)
 		// "지금 나의 구간" 은 저장하지 않는다. 읽을 때마다 오늘 날짜로 가린다.
 		val report = stored.report?.let { it.copy(timing = it.timing.copy(current = timingNow(it.timing, LocalDate.now(KOREA_ZONE)))) }
 		return ReportStatusResponse(statusOf(stored), report)
@@ -76,8 +98,8 @@ class ReportService(
 	/** 지금 차트의 리포트를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다. */
 	fun request(ownerId: UUID): ReportStatus {
 		val birth = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
-		val run = repository.claim(ownerId, birth.hash, STALE_MINUTES)
-			?: return repository.find(ownerId, birth.hash, STALE_MINUTES)?.let(::statusOf) ?: ReportStatus.WRITING
+		val run = repository.claim(ownerId, birth.hash, STALE_SECONDS)
+			?: return repository.find(ownerId, birth.hash, STALE_SECONDS)?.let(::statusOf) ?: ReportStatus.WRITING
 		log.info("event=report_started")
 		return start(run, birth)
 	}
@@ -93,6 +115,7 @@ class ReportService(
 		val attempts = AtomicInteger()
 		val areas: List<CompletableFuture<ReportSection?>>
 		val timing: CompletableFuture<ReportTiming?>
+		live += run
 		try {
 			areas = ReportArea.entries.map { area ->
 				CompletableFuture.supplyAsync({ writeArea(area, chart, abandoned, attempts) }, executor)
@@ -100,6 +123,7 @@ class ReportService(
 			timing = CompletableFuture.supplyAsync({ writeTiming(birth, chart, abandoned, attempts) }, executor)
 		} catch (e: RejectedExecutionException) {
 			abandoned.set(true)
+			live -= run
 			repository.fail(run)
 			log.warn("event=report_failed reason=EXECUTOR_FULL")
 			return ReportStatus.FAILED
@@ -156,7 +180,7 @@ class ReportService(
 		return null
 	}
 
-	// 일꾼 스레드에서 돈다. 여기서 난 오류는 받을 곳이 없으므로 삼키고 로그만 남긴다(행은 WRITING 인 채 남아 10분 뒤 멈춘 것으로 본다).
+	// 일꾼 스레드에서 돈다. 여기서 난 오류는 받을 곳이 없으므로 삼키고 로그만 남긴다(행은 WRITING 인 채 남고, 살아 있다는 표시가 끊겨 멈춘 것으로 보인다).
 	private fun finish(run: ReportRun, sections: List<ReportSection?>, timing: ReportTiming?, attempts: Int) {
 		try {
 			val report = timing?.let { Report(sections.filterNotNull(), it) }
@@ -172,6 +196,8 @@ class ReportService(
 			}
 		} catch (e: Exception) {
 			log.error("event=report_finish_failed error={}", e.javaClass.simpleName)
+		} finally {
+			live -= run
 		}
 	}
 }

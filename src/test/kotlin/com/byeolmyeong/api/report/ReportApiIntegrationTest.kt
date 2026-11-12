@@ -139,7 +139,11 @@ class DoneEvents {
 }
 
 @Import(TestcontainersConfiguration::class, ReportApiIntegrationTest.FakeConfig::class)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [DEV_AUTH_ON])
+// 살아 있다는 표시(`active_at`)를 적는 주기를 길게 둬, 테스트가 그 값을 옮겨 놓은 사이에 다시 적히지 않게 한다.
+@SpringBootTest(
+	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+	properties = [DEV_AUTH_ON, "byeolmyeong.report.heartbeat-seconds=3600"],
+)
 class ReportApiIntegrationTest {
 
 	@TestConfiguration(proxyBeanMethods = false)
@@ -398,16 +402,39 @@ class ReportApiIntegrationTest {
 	}
 
 	@Test
-	fun `WRITING 인 채 10분이 지나면 GET 은 FAILED 이고 POST 는 다시 시작한다`() {
+	fun `쓰는 도중 서버가 꺼진 리포트는 살아 있다는 표시가 2분 끊기면 FAILED 이고 다시 시작할 수 있다`() {
+		val token = tokenWithProfile(KNOWN)
+		generator.respond = { _, _ -> throw GenerationException("HTTP_500") }
+		post(token)
+		await(token, "FAILED")
+		settle()
+		generator.reset()
+		// 다른 서버(또는 재시작하기 전의 이 서버)가 30분 전에 자리를 잡고 쓰다가 꺼졌다: 이 서버에는 그 생성이 없다
+		jdbc.update("update reports set status = 'WRITING', started_at = now() - interval '30 minutes', active_at = now() - interval '1 minute'")
+
+		assertEquals(WRITING, get(token).body(), "표시가 끊긴 지 2분이 안 됐으면 쓰는 중으로 본다")
+		assertEquals(WRITING, post(token).body())
+		settle()
+		assertEquals(0, generator.requests.size, "다시 시작하지 않았다")
+
+		jdbc.update("update reports set active_at = now() - interval '3 minutes'")
+		assertEquals(FAILED, get(token).body(), "멈춘 것으로 본다")
+		assertEquals(WRITING, post(token).body(), "다시 시작한다")
+		await(token, "DONE")
+		settle()
+
+		assertEquals(4, generator.requests.size)
+		assertEquals(1, rows())
+		assertEquals(1, events.owners.size)
+	}
+
+	@Test
+	fun `멈춘 줄 알고 다시 시작한 뒤에 옛 생성이 뒤늦게 끝나도 덮어쓰지 못한다`() {
 		val token = tokenWithProfile(KNOWN)
 		val gate = closeGate()
 		post(token)
 
-		jdbc.update("update reports set started_at = now() - interval '9 minutes'")
-		assertEquals(WRITING, get(token).body(), "10분이 안 됐으면 쓰는 중이다")
-		assertEquals(WRITING, post(token).body())
-
-		jdbc.update("update reports set started_at = now() - interval '11 minutes'")
+		jdbc.update("update reports set active_at = now() - interval '3 minutes'")
 		assertEquals(FAILED, get(token).body(), "멈춘 것으로 본다")
 		assertEquals(WRITING, post(token).body(), "다시 시작한다")
 		assertEquals(WRITING, get(token).body())
