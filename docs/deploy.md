@@ -64,22 +64,23 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 1. Storage → Buckets → Create Bucket: `byeolmyeong-backups`, Standard, 공개 안 함.
 2. 수명 규칙이 돌려면 정책이 하나 있어야 한다. Identity & Security → Policies → 루트 구획에 `Allow service objectstorage-ap-chuncheon-1 to manage object-family in tenancy` (홈 리전이 서울이면 `ap-seoul-1`).
 3. 버킷 → Lifecycle Policy Rules → 객체를 30일 뒤 Delete.
-4. 버킷 → Pre-Authenticated Requests → Create: 대상 Bucket, 접근 "Permit object writes", 만료는 1년쯤. 만든 URL(끝이 `/o/`)은 한 번만 보인다 → 운영 VM `.env` 의 `BACKUP_UPLOAD_URL`. **만료일을 달력에 적는다**(만료되면 백업 업로드가 실패한다).
+4. 버킷 → Pre-Authenticated Requests → Create: 대상 Bucket, 접근 "Permit object writes", 만료는 1년쯤. 만든 URL(끝이 `/o/`)은 한 번만 보인다 → 운영 VM `backup.env` 의 `BACKUP_UPLOAD_URL`(9번). **만료일을 달력에 적는다**(만료되면 백업 업로드가 실패한다).
 
 ### 7. Anthropic
 - Console 에서 워크스페이스를 둘(운영·스테이징) 만들고 각각 API 키를 발급한다. 스테이징 워크스페이스에는 지출 한도를 건다. 스테이징은 주소를 아는 누구나 개발용 계정으로 모델을 부를 수 있다(결정 020).
 
 ### 8. VM 초기 설정 (Claude 가 SSH 로)
 두 VM 의 IP 와 `~/.ssh/byeolmyeong-oci` 를 알려 주면 Claude 가 한다. 손으로 하려면 저장소 루트에서:
-- `scp -i ~/.ssh/byeolmyeong-oci deploy/bootstrap-vm.sh deploy/.env.example ubuntu@<IP>:~/`
+- `scp -i ~/.ssh/byeolmyeong-oci deploy/bootstrap-vm.sh deploy/.env.example deploy/backup.env.example ubuntu@<IP>:~/`
 - `ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<IP> "sudo ./bootstrap-vm.sh staging"` (운영 VM 은 `prod`)
 - 끝에 `event=bootstrap_done` 한 줄이 나오면 된다. 두 번 돌려도 같다.
 
 ### 9. VM 의 `.env` 채우기 (소유자가 직접)
 - `ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<IP>`
 - `cp ~/.env.example /opt/byeolmyeong/.env && chmod 600 /opt/byeolmyeong/.env && nano /opt/byeolmyeong/.env`
-- 이름과 환경별 값의 모양은 `deploy/.env.example` 의 주석에 있다. **값이 빈 줄(`이름=`)을 남기지 않는다** — 빈 값이 서버의 기본값을 덮는다.
-- DB 비밀번호는 VM 마다 새로 만든다: `openssl rand -base64 24`.
+- 이름과 환경별 값의 모양은 `deploy/.env.example` 의 주석에 있다. **값이 빈 줄(`이름=`)을 남기지 않는다** — 빈 값이 서버의 기본값을 덮는다. 값에 따옴표·`$`·공백을 쓰지 않는다.
+- 비밀번호(`POSTGRES_ADMIN_PASSWORD`·`DATABASE_PASSWORD`)는 VM 마다 새로 만든다: `openssl rand -hex 24`.
+- 운영 VM 만: 백업 업로드 URL 은 `.env` 가 아니라 `backup.env` 에 둔다(서버 컨테이너가 보지 않게). `cp ~/backup.env.example /opt/byeolmyeong/backup.env && chmod 600 /opt/byeolmyeong/backup.env && nano /opt/byeolmyeong/backup.env`
 
 ### 10. GitHub (저장소 Settings → Secrets and variables → Actions)
 - Secrets: `STAGING_SSH_HOST`·`PROD_SSH_HOST`(VM 공인 IP), `STAGING_SSH_KEY`·`PROD_SSH_KEY`(`~/.ssh/byeolmyeong-deploy` 파일 내용, 둘 다 같은 키), `STAGING_SSH_KNOWN_HOSTS`·`PROD_SSH_KNOWN_HOSTS`(`ssh-keyscan -t ed25519 <IP>` 의 출력 한 줄).

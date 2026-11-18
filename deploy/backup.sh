@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 운영 DB 를 덤프해 VM 에 7개 남기고 Object Storage 에 올린다(결정 020). 운영 VM 의 cron 이 매일 04:00 에 돌린다.
-# 같은 디렉터리의 .env 에서 DATABASE_USERNAME·BACKUP_UPLOAD_URL 두 값만 읽는다. URL·비밀번호는 출력하지 않는다.
+# 같은 디렉터리의 .env 에서 DATABASE_USERNAME 을, backup.env 에서 BACKUP_UPLOAD_URL 을 읽는다.
+# 업로드 URL 은 서버 컨테이너가 보지 않게 backup.env 에만 둔다(compose 의 env_file 은 .env 만 넘긴다). URL·비밀번호는 출력하지 않는다.
 # 결과는 한 줄: event=backup_done(파일·바이트) 또는 event=backup_failed(단계). 실패하면 0 이 아닌 값으로 끝난다.
 set -euo pipefail
 
@@ -10,12 +11,12 @@ cd "$(dirname "$0")"
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) event=$*"; }
 fail() { log "backup_failed step=$1${2:+ $2}"; exit 1; }
 
-# .env 를 셸로 실행하지 않고 필요한 이름의 값만 꺼낸다.
-env_value() { grep -E "^$1=" .env | tail -n 1 | cut -d= -f2- || true; }
-DB_USER="$(env_value DATABASE_USERNAME)"
-UPLOAD_URL="$(env_value BACKUP_UPLOAD_URL)"
+# 파일을 셸로 실행하지 않고 필요한 이름의 값만 꺼낸다. 파일이 없으면 빈 값.
+file_value() { [ -f "$1" ] || return 0; grep -E "^$2=" "$1" | tail -n 1 | cut -d= -f2- || true; }
+DB_USER="$(file_value .env DATABASE_USERNAME)"
+UPLOAD_URL="$(file_value backup.env BACKUP_UPLOAD_URL)"
 [ -n "$DB_USER" ] || fail read_env "name=DATABASE_USERNAME"
-[ -n "$UPLOAD_URL" ] || fail read_env "name=BACKUP_UPLOAD_URL"
+[ -n "$UPLOAD_URL" ] || fail read_env "file=backup.env name=BACKUP_UPLOAD_URL"
 
 mkdir -p backups
 NAME="byeolmyeong-$(date -u +%Y%m%dT%H%M%SZ).dump"
