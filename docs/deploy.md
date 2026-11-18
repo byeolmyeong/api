@@ -1,28 +1,34 @@
 ---
 type: runbook
-tags: [배포, 운영, 오라클 클라우드, 스테이징, 백업, 복원]
+tags: [배포, 운영, 오라클 클라우드, 스테이징, 백업, 복원, 브랜치]
 status: active
 last_reviewed: 2026-11-18
 ---
 # 배포·서버 운영
 
 > 결정 docs/decisions/020-hosting-oracle-vercel.md · 계획 docs/plans/2026-11-18-deploy-oracle.md
-> 무료 한도·요금은 결정 020 의 "무료 한도·요금" 절이 단일 출처다. 이 문서에 숫자를 옮겨 적지 않는다.
+> 오라클·버셀 무료 한도는 결정 020 의 "무료 한도" 절, Claude 요금은 Anthropic 가격표가 단일 출처다. 이 문서에 숫자를 옮겨 적지 않는다.
 > IP·키·비밀번호·URL 값은 이 문서에 적지 않는다. 이름만 적는다.
 
 ## 한눈에
 | | 운영(prod) | 스테이징(staging) |
 |---|---|---|
+| 브랜치 | `main` | `develop` |
+| 올라가는 때 | `main` 에 합쳐지고 CI 가 통과할 때(jar 를 바꾸기 직전에 DB 백업) | `develop` 에 합쳐지고 CI 가 통과할 때 |
 | 서버 주소 | `https://api.byeolmyeong.com` | `https://api-staging.byeolmyeong.com` |
 | 앱 웹·관리 화면(버셀) | `byeolmyeong.com` · `admin.byeolmyeong.com` | `staging.byeolmyeong.com` · `admin-staging.byeolmyeong.com` |
 | 오라클 VM 이름 | `byeolmyeong-prod` | `byeolmyeong-staging` |
-| 올라가는 때 | `v*` 태그를 달 때(빌드·테스트를 다시 돌린 뒤) | `main` 에 합쳐지고 CI 가 통과할 때 |
-| DB 백업 | 매일 04:00 → VM 7개 + Object Storage 30일 | 없음(버려도 되는 데이터) |
-| 개발용 로그인 | 끔 | 켬 |
+| DB 백업 | 매일 04:00 + 배포 직전 → VM 7개 + Object Storage 30일 | 없음(버려도 되는 데이터) |
+| 개발용 로그인 | 끔 | 켬(실제 출생 정보는 넣지 않는다) |
+
+흐름: 작업 브랜치 → PR → `develop`(스테이징에서 확인) → `develop` → `main` PR → `main`(운영). 두 브랜치 모두 직접 push 하지 않는다(`.claude/hooks/guard.sh` 가 막는다). GitHub 무료 요금제라 보호 규칙이 없으니 **CI 가 통과했는지 보고 합친다**.
 
 VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`backup.sh`·`restore.sh`·`.env`·`backup.env`(운영)·`app.jar`·`app.jar.good`(마지막으로 /health 200 을 받은 jar)·`backups/`. 컨테이너는 `api`(서버)·`postgres`·`caddy`(HTTPS).
 
 ## (가) 처음 한 번 — 순서대로
+
+### 0. 계정 보안 (가장 먼저)
+- 오라클·GitHub·Anthropic·버셀·도메인 업체 계정에 2단계 인증(MFA)을 켠다. 이 구성에서 가장 큰 위험은 계정을 빼앗기는 것이다.
 
 ### 1. 오라클: 예전 자원 정리 (필요할 때만)
 지운 것은 되돌릴 수 없다. 남길 데이터가 있으면 먼저 뺀다.
@@ -32,13 +38,13 @@ VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`backup.
 4. Networking → Reserved public IPs: 남은 예약 IP 삭제.
 
 ### 2. 오라클: 한도 확인
-- 홈 리전이 춘천(`ap-chuncheon-1`) 또는 서울인지 본다. 무료 자원은 홈 리전에서만 나온다.
-- Governance → Limits, Quotas and Usage → Compute 에서 `VM.Standard.A1.Flex` 의 OCPU·메모리 한도를 본다. VM 한 대는 그 **절반**으로 만든다.
+- 홈 리전이 춘천(`ap-chuncheon-1`)인지 본다. 무료 자원은 홈 리전에서만 나온다.
+- Governance → Limits, Quotas and Usage → Compute 에서 `vm-standard-e2-1-micro-count` 가 2 인지 본다(이 테넌시는 ARM `A1` 한도가 0 이라 E2.1.Micro 를 쓴다, 결정 020).
 - 무료 계정은 쉬는 VM 이 회수될 수 있다. 종량제(Pay As You Go)로 올리면 회수 대상에서 빠지고 무료 범위 안이면 0원이다. 올리면 Billing → Budgets 에 예산 알림(예: 1달러)을 건다.
 
-### 3. 오라클: 네트워크
-1. Networking → Virtual cloud networks → Start VCN Wizard → "Create VCN with Internet Connectivity". 이름 `byeolmyeong-vcn`.
-2. 만든 VCN → Public subnet → 보안 목록(Default Security List) → Add Ingress Rules: 소스 `0.0.0.0/0`, TCP, 대상 포트 `80` 하나, `443` 하나. 22 는 기본으로 열려 있다. **5432 는 열지 않는다.**
+### 3. 오라클: 네트워크 (2026-11-18 Claude 가 OCI CLI 로 만들었다)
+- VCN `byeolmyeong-vcn`(10.0.0.0/16) · 인터넷 게이트웨이 `byeolmyeong-igw` · 공개 서브넷 `byeolmyeong-public-subnet`(10.0.0.0/24) · 보안 목록 `byeolmyeong-public`(인바운드 TCP 22·80·443 과 ICMP). **5432 는 열지 않는다.**
+- 콘솔로 다시 만들 때: Networking → Virtual cloud networks → Start VCN Wizard → "Create VCN with Internet Connectivity" → 공개 서브넷의 보안 목록에 TCP 80·443 인바운드를 더한다.
 
 ### 4. 오라클: VM 두 대
 이 맥에서 키를 먼저 만든다. 사람이 쓰는 키 하나, 배포용 키는 환경마다 하나씩(하나가 새도 다른 VM 은 안전하다).
@@ -46,11 +52,10 @@ VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`backup.
 - GitHub Actions 배포용 키: `ssh-keygen -t ed25519 -N "" -f ~/.ssh/byeolmyeong-deploy-staging`, `ssh-keygen -t ed25519 -N "" -f ~/.ssh/byeolmyeong-deploy-prod`
 
 Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `byeolmyeong-prod`):
-- Image: Canonical Ubuntu 24.04 (A1 을 고르면 aarch64 판이 잡힌다)
-- Shape: Ampere → `VM.Standard.A1.Flex`, OCPU·메모리는 2번에서 정한 절반
-- Networking: `byeolmyeong-vcn` 의 public subnet, "Assign a public IPv4 address" 켬
+- Image: Canonical Ubuntu 24.04 **Minimal**(x86_64)
+- Shape: `VM.Standard.E2.1.Micro`(Always Free, 1 OCPU·1GB)
+- Networking: `byeolmyeong-vcn` 의 공개 서브넷, "Assign a public IPv4 address" 켬
 - SSH keys: `~/.ssh/byeolmyeong-oci.pub` 올리기
-- "Out of capacity" 가 나면 시간을 바꿔 다시 시도한다(무료 ARM 은 자리가 자주 찬다).
 
 만든 뒤 각 VM 에 **그 환경의** 배포용 키를 `restrict` 를 붙여 더한다. 파일 복사·명령 실행만 되고 포트 포워딩·터미널은 막힌다:
 `echo "restrict $(cat ~/.ssh/byeolmyeong-deploy-staging.pub)" | ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<스테이징 IP> "cat >> ~/.ssh/authorized_keys"` (운영 VM 은 `-prod` 키와 운영 IP)
@@ -59,22 +64,22 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - A 레코드 `api` → 운영 VM 의 공인 IP
 - A 레코드 `api-staging` → 스테이징 VM 의 공인 IP
 - 버셀 쪽 레코드(`@`·`admin`·`staging`·`admin-staging`)는 버셀이 알려 주는 값으로 넣는다(11번).
-- Cloudflare 를 쓰면 `api`·`api-staging` 은 처음엔 프록시를 끈다(회색 구름). Caddy 가 인증서를 직접 받아야 한다.
+- Cloudflare 를 쓰면 `api`·`api-staging` 은 프록시를 끈다(회색 구름). Caddy 가 인증서를 직접 받아야 하고, 켜려면 먼저 Caddyfile 에 `trusted_proxies` 를 정한다(안 하면 주소별 요청 제한이 Cloudflare 주소로 뭉친다).
 
 ### 6. 오라클 Object Storage (운영 백업)
 1. Storage → Buckets → Create Bucket: `byeolmyeong-backups`, Standard, 공개 안 함.
-2. 수명 규칙이 돌려면 정책이 하나 있어야 한다. Identity & Security → Policies → 루트 구획에 `Allow service objectstorage-ap-chuncheon-1 to manage object-family in tenancy` (홈 리전이 서울이면 `ap-seoul-1`).
+2. 수명 규칙이 돌려면 정책이 하나 있어야 한다. Identity & Security → Policies → 루트 구획에 `Allow service objectstorage-ap-chuncheon-1 to manage object-family in tenancy`.
 3. 버킷 → Lifecycle Policy Rules → 객체를 30일 뒤 Delete.
 4. 버킷 → Pre-Authenticated Requests → Create: 대상 Bucket, 접근 "Permit object writes", 만료는 1년쯤. 만든 URL(끝이 `/o/`)은 한 번만 보인다 → 운영 VM `backup.env` 의 `BACKUP_UPLOAD_URL`(9번). **만료일을 달력에 적는다**(만료되면 백업 업로드가 실패한다).
 
 ### 7. Anthropic
-- Console 에서 워크스페이스를 둘(운영·스테이징) 만들고 각각 API 키를 발급한다. 스테이징 워크스페이스에는 지출 한도를 건다. 스테이징은 주소를 아는 누구나 개발용 계정으로 모델을 부를 수 있다(결정 020).
+- Console 에서 워크스페이스를 둘(운영·스테이징) 만들고 각각 API 키를 발급한다. **두 워크스페이스 모두 지출 한도를 건다**(스테이징은 낮게). 스테이징은 주소를 아는 누구나 개발용 계정으로 모델을 부를 수 있다(결정 020).
 
 ### 8. VM 초기 설정 (Claude 가 SSH 로)
 두 VM 의 IP 와 `~/.ssh/byeolmyeong-oci` 를 알려 주면 Claude 가 한다. 손으로 하려면 저장소 루트에서:
 - `scp -i ~/.ssh/byeolmyeong-oci deploy/bootstrap-vm.sh deploy/.env.example deploy/backup.env.example ubuntu@<IP>:~/`
 - `ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<IP> "sudo ./bootstrap-vm.sh staging"` (운영 VM 은 `prod`)
-- 끝에 `event=bootstrap_done` 한 줄이 나오면 된다. 두 번 돌려도 같다.
+- 끝에 `event=bootstrap_done` 한 줄이 나오면 된다. 두 번 돌려도 같다. SSH 가 키로만 로그인되는 상태가 아니면 아무것도 바꾸지 않고 `bootstrap_failed step=ssh_check` 로 멈춘다.
 
 ### 9. VM 의 `.env` 채우기 (소유자가 직접)
 - `ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<IP>`
@@ -84,14 +89,16 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - 운영 VM 만: 백업 업로드 URL 은 `.env` 가 아니라 `backup.env` 에 둔다(서버 컨테이너가 보지 않게). `cp ~/backup.env.example /opt/byeolmyeong/backup.env && chmod 600 /opt/byeolmyeong/backup.env && nano /opt/byeolmyeong/backup.env`
 
 ### 10. GitHub (저장소 Settings → Secrets and variables → Actions)
+- `develop` 브랜치가 없으면 `main` 에서 만든다(GitHub 화면의 Branches → New branch, 또는 `git push origin origin/main:refs/heads/develop`).
 - Secrets: `STAGING_SSH_HOST`·`PROD_SSH_HOST`(VM 공인 IP), `STAGING_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-staging` 파일 내용)·`PROD_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-prod`), `STAGING_SSH_KNOWN_HOSTS`·`PROD_SSH_KNOWN_HOSTS`(`ssh-keyscan -t ed25519 <IP>` 의 출력 한 줄). 명령으로 넣으면 값이 화면에 나오지 않는다: `gh secret set STAGING_SSH_KEY < ~/.ssh/byeolmyeong-deploy-staging`.
 - 등록한 뒤 이 맥의 배포용 **개인 키는 지운다**: `rm ~/.ssh/byeolmyeong-deploy-staging ~/.ssh/byeolmyeong-deploy-prod`(`.pub` 은 남긴다). 다시 필요하면 새로 만들어 VM 의 authorized_keys 와 GitHub 비밀값을 함께 바꾼다.
 - Variables: `STAGING_BASE_URL` = `https://api-staging.byeolmyeong.com`, `PROD_BASE_URL` = `https://api.byeolmyeong.com`.
 - Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-18-pre-deploy-hardening.md`)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
 
 ### 11. 버셀 (앱·관리 화면 저장소의 일)
-- 서버 주소: 앱 `EXPO_PUBLIC_API_URL`, 관리 화면 `VITE_API_URL` 을 운영 배포에는 `https://api.byeolmyeong.com`, 스테이징 도메인이 붙은 배포에는 `https://api-staging.byeolmyeong.com` 으로.
-- 서버는 출처를 정확히 일치로만 허용한다. 미리보기마다 바뀌는 주소가 아니라 위 "한눈에" 표의 고정 도메인을 버셀에 붙이고, 서버 `.env` 에 같은 값을 넣는다:
+- 브랜치: 버셀의 운영 브랜치(Production Branch)는 `main`. `develop` 브랜치에 스테이징 도메인(`staging.byeolmyeong.com`·`admin-staging.byeolmyeong.com`)을 붙인다(Settings → Domains → 도메인의 Git Branch 를 `develop` 으로). 앱·관리 화면 저장소에도 `develop` 브랜치가 있어야 한다.
+- 서버 주소: 앱 `EXPO_PUBLIC_API_URL`, 관리 화면 `VITE_API_URL` 을 운영(Production)에는 `https://api.byeolmyeong.com`, `develop` 브랜치(Preview, 브랜치 지정)에는 `https://api-staging.byeolmyeong.com` 으로.
+- 서버는 출처를 정확히 일치로만 허용한다. 미리보기마다 바뀌는 주소가 아니라 위 "한눈에" 표의 고정 도메인을 서버 `.env` 에 넣는다:
   - 운영: `ALLOWED_ORIGINS=https://byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin.byeolmyeong.com`
   - 스테이징: `ALLOWED_ORIGINS=https://staging.byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin-staging.byeolmyeong.com`
 - 버셀 Hobby 는 비상업용만이다(결정 020). 결제·수익이 생기기 전에 다시 본다.
@@ -101,20 +108,21 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 
 | 하려는 일 | 방법 |
 |---|---|
-| 스테이징에 올리기 | PR → CI 통과 확인 → 합치기. Actions 의 `deploy` 가 알아서 올린다 |
-| 운영에 올리기 | `git tag v0.1.0 <커밋> && git push origin v0.1.0` (태그를 다는 것이 "사람의 확인"이다) |
+| 스테이징에 올리기 | 작업 브랜치 → `develop` 으로 PR → CI 통과 확인 → 합치기. Actions 의 `deploy` 가 알아서 올린다 |
+| 운영에 올리기 | 스테이징에서 확인 → `develop` → `main` PR → CI 통과 확인 → 합치기(합치는 것이 "사람의 확인"이다). jar 를 바꾸기 직전에 DB 를 백업한다 |
 | 되돌리기(자동) | 바꿔 띄우기가 중간에 실패하거나 `/health` 가 3분 안에 200 이 아니면 마지막 정상 jar(`app.jar.good`)로 돌아가고 작업이 실패로 끝난다. **DB 는 되돌리지 않는다**(새 jar 가 적용한 마이그레이션은 남는다) |
-| DB 까지 되돌려야 할 때(운영) | 운영 배포는 바꾸기 직전에 `backup.sh` 를 돌린다. 그 덤프로 `./restore.sh backups/<배포 직전 파일> --into-live` 를 한 뒤 이전 태그를 수동 실행으로 올린다. 그래서 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
-| 되돌리기(더 이전 버전) | Actions → `deploy` → Run workflow → 대상·이전 태그 |
+| 되돌리기(더 이전 버전) | Actions → `deploy` → Run workflow → 대상·이전 커밋(또는 브랜치). 수동 실행은 빌드·테스트를 다시 돌린다 |
+| DB 까지 되돌려야 할 때(운영) | 배포 직전 덤프로 `./restore.sh backups/<배포 직전 파일> --into-live` 를 한 뒤 이전 커밋을 수동 실행으로 올린다. 그래서 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
 | 상태 | `docker compose ps` (셋 다 Up) · `curl -s https://<서버 주소>/health` |
 | 로그 | `docker compose logs --tail 200 api` (`caddy`·`postgres` 도 같다) |
 | `.env` 를 바꾼 뒤 | `docker compose up -d --force-recreate api` (다시 만들어야 새 값을 읽는다) |
+| DB 비밀번호 바꾸기 | DB 에서 먼저 `docker compose exec postgres psql -U postgres -c "alter role <DB 사용자> password '<새 값>'"` → `.env` 의 `DATABASE_PASSWORD` 를 바꾸고 → 위 명령(`.env` 만 바꾸면 Postgres 는 처음 값을 그대로 쓴다) |
 | 첫 관리자 만들기(운영) | `.env` 의 `ADMIN_BOOTSTRAP_*` 주석을 풀고 값 → 위 명령 → 관리 화면 로그인 확인 → 다시 주석 → 위 명령 |
 | 백업 확인(주 1회) | `tail -n 3 backups/backup.log` 에 `event=backup_done`, 버킷에 오늘 덤프. 실패 알림은 없다 |
 | 손으로 백업 | `./backup.sh` |
-| 복원 연습 | `./restore.sh backups/<파일>` → 표별 행 수. 실제 DB 와 몇 표만 견준다: `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select count(*) from accounts"` |
-| 비상 복원 | `./restore.sh backups/<파일> --into-live` (확인 문구를 받고, 그동안 서버를 멈춘다. 되돌릴 수 없다) |
+| 복원 연습 | `./restore.sh backups/<파일>` → 표별 행 수(일회용 컨테이너·볼륨은 지워진다). 실제 DB 와 몇 표만 견준다: `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select count(*) from accounts"` |
+| 비상 복원 | `./restore.sh backups/<파일> --into-live` (확인 문구를 받고, 지금 DB 를 `backups/before-restore-*.dump` 로 먼저 남기고, 그동안 서버를 멈춘다. 한 트랜잭션이라 실패하면 DB 는 그대로다) |
 | 재부팅 뒤 | `docker compose ps` 로 셋 다 다시 떴는지 본다(`restart: unless-stopped`) |
 
-- 운영 덤프는 운영 VM 밖으로 옮기지 않는다(출생 정보). VM 을 잃었을 때만 버킷에서 내려받아 새 VM 에 올리고, 옮긴 컴퓨터의 사본은 바로 지운다.
-- 스테이징 VM 이 회수되면 (가) 4·8·9 를 다시 하고 합치기 한 번으로 올린다. 데이터는 버린다.
+- 운영 덤프는 운영 VM 밖으로 옮기지 않는다(출생 정보). VM 을 잃었을 때만 버킷에서 내려받아 새 VM 에 올리고, 옮긴 컴퓨터의 사본은 바로 지운다. `before-restore-*.dump` 는 자동으로 지워지지 않으니 필요 없어지면 지운다.
+- 스테이징 VM 이 회수되면 (가) 4·8·9 를 다시 하고 `develop` 합치기 한 번으로 올린다. 데이터는 버린다.
