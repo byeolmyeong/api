@@ -41,7 +41,7 @@ class AuthService(
 		return token
 	}
 
-	/** 토큰의 주인. 토큰이 없는 것이거나 계정이 지워졌거나 마지막 사용 후 [sessionDays]일이 지났으면 null(결정 020). */
+	/** 토큰의 주인. 토큰이 없는 것이거나 계정이 지워졌거나 마지막 사용 후 [sessionDays]일이 지났으면 null(결정 021). */
 	fun ownerOf(token: String): UUID? = sessions.use(hash(token), sessionDays)
 
 	/** 로그아웃. 이 세션만 지운다(다른 기기의 세션은 그대로). */

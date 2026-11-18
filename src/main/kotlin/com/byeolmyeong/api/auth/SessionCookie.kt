@@ -10,11 +10,11 @@ import java.time.Duration
 
 private const val NAME = "bm_session"
 
-/** 브라우저가 쿠키를 들고 있을 수 있는 가장 긴 기간. 실제 만료는 서버가 정한다(마지막 사용 후 90일, 결정 020). */
+/** 브라우저가 쿠키를 들고 있을 수 있는 가장 긴 기간. 실제 만료는 서버가 정한다(마지막 사용 후 90일, 결정 021). */
 private val MAX_AGE = Duration.ofDays(400)
 
 /**
- * 웹의 세션 쿠키(결정 020)를 쓰고 지우고 읽는 한 곳. `HttpOnly; SameSite=Lax; Path=/`, Domain 속성 없이 이 서버 주소에만 간다.
+ * 웹의 세션 쿠키(결정 021)를 쓰고 지우고 읽는 한 곳. `HttpOnly; SameSite=Lax; Path=/`, Domain 속성 없이 이 서버 주소에만 간다.
  * `Secure` 는 로컬 http 개발에서만 끈다(`SESSION_COOKIE_SECURE=false`). 쿠키 값(세션 토큰)은 로그에 남기지 않는다.
  */
 @Component

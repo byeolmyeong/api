@@ -32,7 +32,7 @@ private fun cookieLogin(port: Int): String {
 	return response.sessionCookieValue()
 }
 
-// 웹의 쿠키 세션(결정 020).
+// 웹의 쿠키 세션(결정 021).
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

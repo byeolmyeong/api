@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 
-/** 세션 토큰. 웹이 쿠키로 받기로 했으면 null 이고 본문에서 빠진다(결정 020). */
+/** 세션 토큰. 웹이 쿠키로 받기로 했으면 null 이고 본문에서 빠진다(결정 021). */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class TokenResponse(val token: String?)
 
@@ -34,7 +34,7 @@ class AuthController(
 	@GetMapping("/auth/session")
 	fun session(): ResponseEntity<Void> = ResponseEntity.noContent().build()
 
-	/** 로그아웃. 이 세션만 지운다(결정 020). */
+	/** 로그아웃. 이 세션만 지운다(결정 021). */
 	@DeleteMapping("/auth/session")
 	fun logout(response: HttpServletResponse): ResponseEntity<Void> {
 		auth.logout(owner.sessionToken())

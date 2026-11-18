@@ -39,7 +39,7 @@ interface ProviderTokenVerifier {
 }
 
 /**
- * 공급자별 발급자(iss)와 키 주소. 공급자의 OpenID 설정 문서(`/.well-known/openid-configuration`)에서 확인했다(2026-11-18, 결정 020).
+ * 공급자별 발급자(iss)와 키 주소. 공급자의 OpenID 설정 문서(`/.well-known/openid-configuration`)에서 확인했다(2026-11-18, 결정 021).
  * 구글은 `https://` 없는 발급자도 쓴다(구글 ID 토큰 검증 문서).
  */
 private val ISSUERS = mapOf(

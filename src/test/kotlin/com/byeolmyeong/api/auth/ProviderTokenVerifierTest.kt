@@ -21,7 +21,7 @@ import kotlin.test.assertFailsWith
 private const val KID = "test-key"
 private const val AUD = "our-client-id"
 
-// 공급자 ID 토큰 확인(결정 020). 공급자의 키 대신 메모리 키로 서명한 토큰을 쓴다.
+// 공급자 ID 토큰 확인(결정 021). 공급자의 키 대신 메모리 키로 서명한 토큰을 쓴다.
 class ProviderTokenVerifierTest {
 
 	private val key: RSAKey = RSAKeyGenerator(2048).keyID(KID).generate()

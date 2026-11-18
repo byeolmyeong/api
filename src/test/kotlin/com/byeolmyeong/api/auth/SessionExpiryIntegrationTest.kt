@@ -16,7 +16,7 @@ import java.util.HexFormat
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-// 세션 만료(마지막 사용 후 90일)와 로그아웃. 결정 020.
+// 세션 만료(마지막 사용 후 90일)와 로그아웃. 결정 021.
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [DEV_AUTH_ON])
 class SessionExpiryIntegrationTest {

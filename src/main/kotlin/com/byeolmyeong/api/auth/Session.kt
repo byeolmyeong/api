@@ -16,7 +16,7 @@ private const val OWNER_ATTRIBUTE = "byeolmyeong.ownerId"
 private const val TOKEN_ATTRIBUTE = "byeolmyeong.sessionToken"
 private const val BEARER = "Bearer "
 
-/** 쿠키로 인증돼도 `Origin` 을 보지 않는 메서드. 나머지는 상태를 바꾸므로 허용한 주소에서 온 것이어야 한다(결정 020). */
+/** 쿠키로 인증돼도 `Origin` 을 보지 않는 메서드. 나머지는 상태를 바꾸므로 허용한 주소에서 온 것이어야 한다(결정 021). */
 private val SAFE_METHODS = setOf("GET", "HEAD")
 
 /** 로그인 전에 쓰는 곳. 여기 없는 경로는 모두 세션이 있어야 한다(새 엔드포인트는 기본이 "세션 필요"다). */
@@ -49,7 +49,7 @@ class CurrentOwner(private val request: HttpServletRequest) {
 }
 
 /**
- * 세션 검사. `Authorization: Bearer <token>` 이 없으면 웹의 쿠키 `bm_session` 을 읽는다(결정 020). 없거나 틀리면 401 `UNAUTHORIZED`.
+ * 세션 검사. `Authorization: Bearer <token>` 이 없으면 웹의 쿠키 `bm_session` 을 읽는다(결정 021). 없거나 틀리면 401 `UNAUTHORIZED`.
  * 쿠키로 인증된 GET 이 아닌 요청은 `Origin` 이 앱의 허용 주소(`byeolmyeong.cors.allowed-origins`)여야 하고, 아니면 403 `FORBIDDEN_ORIGIN` —
  * 브라우저는 다른 사이트에서 연 요청에도 쿠키를 실어 보낼 수 있다.
  * 서블릿 필터가 아니라 인터셉터다: 브라우저의 다른 출처 요청에 CORS 허용 헤더가 먼저 붙어야 앱이 401 을 읽을 수 있다.

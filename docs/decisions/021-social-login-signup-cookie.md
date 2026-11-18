@@ -5,7 +5,7 @@ status: active
 last_reviewed: 2026-11-18
 superseded_by:
 ---
-# 020. 소셜 로그인은 가입권을 거쳐 출생 정보와 함께 가입하고, 웹은 쿠키 세션을 쓴다
+# 021. 소셜 로그인은 가입권을 거쳐 출생 정보와 함께 가입하고, 웹은 쿠키 세션을 쓴다
 
 > 상태: 활성 · 결정일 2026-11-18(소유자) · 결정 005 의 "브랜딩 뒤" 를 채운다 · 계획: 앱 저장소 `docs/plans/2026-11-18-social-login.md` · 계약은 docs/architecture.md "API 계약"
 
@@ -40,7 +40,7 @@ superseded_by:
 - nonce — 이번에는 넣지 않는다. ID 토큰은 TLS 로만 오가고 수명이 짧다. 넣으려면 서버 nonce 발급 경로 하나와 앱 세 곳을 고친다.
 
 ## 결과·재검토 조건
-- 웹 앱과 서버는 같은 도메인 아래 주소여야 한다(예: `<도메인>` 과 `api.<도메인>`). 다른 도메인이면 `SameSite=Lax` 쿠키가 가지 않는다 — 호스팅을 고를 때의 제약이다.
+- 웹 앱과 서버는 같은 도메인 아래 주소여야 한다. 다른 도메인이면 `SameSite=Lax` 쿠키가 가지 않는다. 호스팅 결정 020(같은 날, 브랜치 `chore/deploy-oracle`)의 주소 — 앱 웹 `byeolmyeong.com`·`staging.byeolmyeong.com`, 서버 `api.byeolmyeong.com`·`api-staging.byeolmyeong.com` — 는 이 조건을 채운다. 번호 020 은 그 결정이 먼저 썼다.
 - 애플 refresh token 을 DB 에 둔다(`apple_tokens`). 새면 그 사람의 애플 연동을 끊을 수 있는 정도다.
 - 안드로이드에는 애플 로그인이 없다(앱 결정 034). 애플로 가입한 사람이 안드로이드로 옮기면 그 기기에서는 들어올 수 없다. 요청이 생기면 서버 리디렉트 경로를 더한다.
 - 애플 웹 로그인과 Services ID 등록은 https 서버(테스트 서버)가 뜬 뒤에 할 수 있다.
