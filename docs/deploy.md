@@ -20,7 +20,7 @@ last_reviewed: 2026-11-18
 | DB 백업 | 매일 04:00 → VM 7개 + Object Storage 30일 | 없음(버려도 되는 데이터) |
 | 개발용 로그인 | 끔 | 켬 |
 
-VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`backup.sh`·`restore.sh`·`.env`·`app.jar`·`app.jar.prev`·`backups/`. 컨테이너는 `api`(서버)·`postgres`·`caddy`(HTTPS).
+VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`backup.sh`·`restore.sh`·`.env`·`backup.env`(운영)·`app.jar`·`app.jar.good`(마지막으로 /health 200 을 받은 jar)·`backups/`. 컨테이너는 `api`(서버)·`postgres`·`caddy`(HTTPS).
 
 ## (가) 처음 한 번 — 순서대로
 
@@ -85,6 +85,7 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 ### 10. GitHub (저장소 Settings → Secrets and variables → Actions)
 - Secrets: `STAGING_SSH_HOST`·`PROD_SSH_HOST`(VM 공인 IP), `STAGING_SSH_KEY`·`PROD_SSH_KEY`(`~/.ssh/byeolmyeong-deploy` 파일 내용, 둘 다 같은 키), `STAGING_SSH_KNOWN_HOSTS`·`PROD_SSH_KNOWN_HOSTS`(`ssh-keyscan -t ed25519 <IP>` 의 출력 한 줄).
 - Variables: `STAGING_BASE_URL` = `https://api-staging.byeolmyeong.com`, `PROD_BASE_URL` = `https://api.byeolmyeong.com`.
+- Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-18-pre-deploy-hardening.md`)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
 
 ### 11. 버셀 (앱·관리 화면 저장소의 일)
 - 서버 주소: 앱 `EXPO_PUBLIC_API_URL`, 관리 화면 `VITE_API_URL` 을 운영 배포에는 `https://api.byeolmyeong.com`, 스테이징 도메인이 붙은 배포에는 `https://api-staging.byeolmyeong.com` 으로.
@@ -100,7 +101,8 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 |---|---|
 | 스테이징에 올리기 | PR → CI 통과 확인 → 합치기. Actions 의 `deploy` 가 알아서 올린다 |
 | 운영에 올리기 | `git tag v0.1.0 <커밋> && git push origin v0.1.0` (태그를 다는 것이 "사람의 확인"이다) |
-| 되돌리기(자동) | 배포 뒤 `/health` 가 3분 안에 200 이 아니면 직전 jar 로 돌아가고 작업이 실패로 끝난다 |
+| 되돌리기(자동) | 바꿔 띄우기가 중간에 실패하거나 `/health` 가 3분 안에 200 이 아니면 마지막 정상 jar(`app.jar.good`)로 돌아가고 작업이 실패로 끝난다. **DB 는 되돌리지 않는다**(새 jar 가 적용한 마이그레이션은 남는다) |
+| DB 까지 되돌려야 할 때(운영) | 운영 배포는 바꾸기 직전에 `backup.sh` 를 돌린다. 그 덤프로 `./restore.sh backups/<배포 직전 파일> --into-live` 를 한 뒤 이전 태그를 수동 실행으로 올린다. 그래서 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
 | 되돌리기(더 이전 버전) | Actions → `deploy` → Run workflow → 대상·이전 태그 |
 | 상태 | `docker compose ps` (셋 다 Up) · `curl -s https://<서버 주소>/health` |
 | 로그 | `docker compose logs --tail 200 api` (`caddy`·`postgres` 도 같다) |
