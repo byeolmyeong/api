@@ -21,6 +21,9 @@ class AuthErrors {
 	@ExceptionHandler(UnderAgeException::class)
 	fun underAge() = error(403, "UNDER_AGE")
 
+	@ExceptionHandler(InvalidNotificationException::class)
+	fun invalidNotification() = error(400, "INVALID_NOTIFICATION")
+
 	@ExceptionHandler(ProviderUnavailableException::class)
 	fun providerUnavailable() = error(502, "PROVIDER_UNAVAILABLE")
 

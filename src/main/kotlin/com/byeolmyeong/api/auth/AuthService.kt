@@ -3,6 +3,7 @@ package com.byeolmyeong.api.auth
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.jdbc.core.JdbcTemplate
@@ -26,11 +27,14 @@ private const val TOKEN_BYTES = 32
 class AuthService(
 	private val accounts: AccountRepository,
 	private val sessions: SessionRepository,
+	private val appleTokens: AppleTokenRepository,
+	private val apple: AppleSignIn,
 	private val events: ApplicationEventPublisher,
 	@Value("\${byeolmyeong.auth.dev-enabled}") private val devEnabled: Boolean,
 	@Value("\${byeolmyeong.auth.session-days}") private val sessionDays: Int,
 ) {
 	private val random = SecureRandom()
+	private val log = LoggerFactory.getLogger(javaClass)
 
 	/** 개발용 로그인(결정 005). 꺼져 있으면 null. 켜져 있으면 개발용 계정을 찾거나 만들고 새 세션 토큰을 준다. */
 	fun devLogin(): String? {
@@ -49,11 +53,34 @@ class AuthService(
 		sessions.delete(hash(token))
 	}
 
-	/** 계정과 그 사람의 모든 행(세션·출생 정보·뒤에 생기는 글)을 지운다. 감사 기록만 남는다. */
+	/**
+	 * 계정과 그 사람의 모든 행(세션·출생 정보·뒤에 생기는 글)을 지운다. 감사 기록만 남는다.
+	 * 지우기 전에 공급자 연결을 정리한다(결정 021): 애플은 refresh token 철회. 실패해도 계정은 지운다(클라이언트가 로그를 남긴다).
+	 */
 	fun deleteAccount(ownerId: UUID) {
+		appleTokens.find(ownerId)?.let { apple.revoke(it.refreshToken, it.clientId) }
 		accounts.delete(ownerId)
 		// 감사 기록은 계정과 함께 지워지지 않는다(결정 015). 지운 뒤에도 "이 계정이 지워졌다" 가 남는다.
 		events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
+	}
+
+	/**
+	 * 애플 서버 알림(결정 021). 사용자가 애플 쪽에서 이 앱의 사용을 멈췄으면(`consent-revoked`) 그 계정의 세션을 모두 지우고,
+	 * 애플 계정을 지웠으면(`account-deleted`, 문서에 따라 `account-delete`) 계정을 지운다. 모르는 사용자 · 다른 종류는 아무것도 하지 않는다.
+	 * 같은 알림이 여러 번 와도 결과가 같다.
+	 */
+	fun appleNotification(payload: String) {
+		val event = apple.notification(payload)
+		log.info("event=apple_notification type={}", event.type)
+		val accountId = accounts.find(Provider.APPLE.name, event.subject) ?: return
+		when (event.type) {
+			"consent-revoked" -> sessions.deleteAll(accountId)
+			"account-deleted", "account-delete" -> {
+				// 애플 계정이 없어졌으니 철회는 부르지 않는다.
+				accounts.delete(accountId)
+				events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(accountId)))
+			}
+		}
 	}
 
 	/** 새 세션을 만들고 토큰 원문을 돌려준다(DB 에는 해시만). 개발용 로그인과 소셜 로그인 · 가입(`LoginService`)이 쓴다. */
@@ -130,5 +157,9 @@ class SessionRepository(private val jdbc: JdbcTemplate) {
 
 	fun delete(tokenHash: String) {
 		jdbc.update("delete from sessions where token_hash = ?", tokenHash)
+	}
+
+	fun deleteAll(accountId: UUID) {
+		jdbc.update("delete from sessions where account_id = ?", accountId)
 	}
 }

@@ -21,8 +21,11 @@ import java.text.ParseException
 /** 로그인 공급자. DEV 는 개발용 로그인(결정 005). */
 enum class Provider { DEV, GOOGLE, APPLE, KAKAO }
 
-/** 공급자가 확인해 준 사용자. 계정에는 이 둘만 둔다(V2 — 이메일·이름은 받지 않는다). */
-data class ProviderIdentity(val provider: Provider, val subject: String)
+/**
+ * 공급자가 확인해 준 사용자. 계정에는 공급자와 식별자만 둔다(V2 — 이메일·이름은 받지 않는다).
+ * [audience] 는 토큰이 발급된 우리 클라이언트 ID(애플은 iOS 번들 ID 와 웹 Services ID 가 다르고, 토큰 교환·철회 때 같은 값을 써야 한다).
+ */
+data class ProviderIdentity(val provider: Provider, val subject: String, val audience: String? = null)
 
 /** 공급자 ID 토큰이 틀렸다(서명·발급자·대상·만료·모양). 401 `INVALID_ID_TOKEN`. 토큰은 메시지에 넣지 않는다. */
 class InvalidIdTokenException : RuntimeException("INVALID_ID_TOKEN")
@@ -81,9 +84,9 @@ private class JwksTokenVerifier(
 			throw InvalidIdTokenException()
 		}
 		if (claims.issuer !in issuers) throw InvalidIdTokenException()
-		if (claims.audience.none { it in audiences }) throw InvalidIdTokenException()
+		val audience = claims.audience.firstOrNull { it in audiences } ?: throw InvalidIdTokenException()
 		val subject = claims.subject?.takeIf { it.isNotBlank() } ?: throw InvalidIdTokenException()
-		return ProviderIdentity(provider, subject)
+		return ProviderIdentity(provider, subject, audience)
 	}
 }
 

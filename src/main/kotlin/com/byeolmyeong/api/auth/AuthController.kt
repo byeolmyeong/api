@@ -18,7 +18,7 @@ data class TokenResponse(val token: String?)
 /** 세션을 본문 대신 쿠키로 달라는 요청(웹). */
 data class CookieRequest(val cookie: Boolean? = null)
 
-/** `POST /auth/login`. 값 검증은 `LoginService.identify` 가 한다. `authorizationCode`(애플)는 S7 이 쓴다. */
+/** `POST /auth/login`. 값 검증은 `LoginService.identify` 가 한다. `redirectUri` 는 카카오 웹(코드와 함께)과 애플 웹(`authorizationCode` 와 함께)이 쓴다. */
 data class LoginRequest(
 	val provider: String?,
 	val idToken: String?,
@@ -31,6 +31,9 @@ data class LoginRequest(
 /** `POST /auth/login` 의 응답. `SIGNED_IN` 이면 `token`(쿠키면 없음), `SIGNUP_REQUIRED` 면 `signupToken`·`expiresAt`. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class LoginResponse(val status: String, val token: String? = null, val signupToken: String? = null, val expiresAt: String? = null)
+
+/** 애플 서버 알림의 본문. */
+data class AppleNotificationRequest(val payload: String?)
 
 /** `POST /auth/signup`. 출생 정보는 `PUT /profile` 과 같은 칸이다. */
 data class SignupRequest(val signupToken: String?, val date: String?, val time: String?, val placeId: Int?, val cookie: Boolean?)
@@ -47,12 +50,19 @@ class AuthController(
 	@PostMapping("/auth/login")
 	fun login(@RequestBody request: LoginRequest, response: HttpServletResponse): LoginResponse {
 		val identity = login.identify(ProviderCredential(request.provider, request.idToken, request.code, request.redirectUri))
-		return when (val outcome = login.login(identity)) {
+		return when (val outcome = login.login(identity, request.authorizationCode, request.redirectUri)) {
 			is LoginOutcome.SignedIn ->
 				LoginResponse("SIGNED_IN", token = deliver(outcome.sessionToken, request.cookie == true, response).token)
 			is LoginOutcome.SignupRequired ->
 				LoginResponse("SIGNUP_REQUIRED", signupToken = outcome.signupToken, expiresAt = outcome.expiresAt.toString())
 		}
+	}
+
+	/** 애플 서버 알림(결정 021). 애플이 서명한 `payload` 를 확인하고 처리한다. */
+	@PostMapping("/auth/apple/notifications")
+	fun appleNotification(@RequestBody request: AppleNotificationRequest): ResponseEntity<Void> {
+		auth.appleNotification(request.payload?.takeIf { it.isNotBlank() } ?: throw InvalidNotificationException())
+		return ResponseEntity.ok().build()
 	}
 
 	/** 가입(결정 021). 만 14세 이상일 때만 계정·출생 정보·세션을 만든다. */

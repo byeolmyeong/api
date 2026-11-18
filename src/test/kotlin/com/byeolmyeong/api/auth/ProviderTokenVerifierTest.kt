@@ -57,7 +57,7 @@ class ProviderTokenVerifierTest {
 			Provider.APPLE to "https://appleid.apple.com",
 			Provider.KAKAO to "https://kauth.kakao.com",
 		)) {
-			assertEquals(ProviderIdentity(provider, "provider-user-1"), verifier(provider).verify(token(iss)), "$provider $iss")
+			assertEquals(ProviderIdentity(provider, "provider-user-1", AUD), verifier(provider).verify(token(iss)), "$provider $iss")
 		}
 	}
 
