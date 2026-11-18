@@ -42,7 +42,7 @@ src/main/kotlin/com/byeolmyeong/api/
   chart/       Positions · Houses · Aspects · Points · Timeline(마디·구간) · SynastryScore   ← 순수 계산
   birth/       Places · BirthTime · BirthProfile(Service·Repository · ChartInput) · PlacesController
   web/         ErrorResponse · BirthRequest(Parser: 검증, 요청의 출생 정보 → 차트 입력) · RateLimiter · CorsConfig · ChartController · AuditEvent(감사 기록 이벤트·행동 코드·행위자) · OwnerRef · AppVersion(버전 읽기·견주기)
-  auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor) · SessionCookie(웹 쿠키 bm_session, 결정 021) · ProviderToken(Provider · ProviderTokenVerifier · 공급자 셋의 검증기 설정) · KakaoOAuth(+ KakaoOAuthClient — 웹 인가 코드 교환) · LoginService(+ SignupTicketRepository · AppleTokenRepository — 로그인 · 가입권 · 가입) · AppleSignIn(+ AppleSignInClient — 애플 토큰 교환 · 철회 · 서버 알림 확인) · Age(만 14세 · 한국 날짜) · AuthErrors(로그인 · 가입 오류 응답)
+  auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor) · SessionCookie(웹 쿠키 bm_session, 결정 021) · ProviderToken(Provider · ProviderTokenVerifier · 공급자 셋의 검증기 설정) · KakaoOAuth(+ KakaoOAuthClient — 웹 인가 코드 교환 · 탈퇴 때 연결 끊기) · LoginService(+ SignupTicketRepository · AppleTokenRepository — 로그인 · 가입권 · 가입) · AppleSignIn(+ AppleSignInClient — 애플 토큰 교환 · 철회 · 서버 알림 확인) · Age(만 14세 · 한국 날짜) · AuthErrors(로그인 · 가입 오류 응답)
   profile/     ProfileController
   generation/  TextGenerator(인터페이스) · ClaudeTextGenerator · ChartFacts · TimelineFacts(시기 한 줄의 글) · SynastryFacts(두 차트 사이 연결의 글) · Basis
   reading/     ReadingController · ReadingService · ReadingRepository · ReadingDraft(지시문·구조·검증)

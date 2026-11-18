@@ -79,6 +79,9 @@ class SocialLoginIntegrationTest {
 	private lateinit var kakao: KakaoOAuth
 
 	companion object {
+		val unlinked = java.util.concurrent.CopyOnWriteArrayList<String>()
+		var unlinkResult = true
+
 		@JvmStatic
 		fun testKeys(): JWKSource<SecurityContext> = ImmutableJWKSet(JWKSet(TEST_KEY.toPublicJWK()))
 
@@ -89,6 +92,11 @@ class SocialLoginIntegrationTest {
 				if (redirectUri != KAKAO_REDIRECT || !code.startsWith("good-")) throw InvalidCodeException()
 				return idToken("https://kauth.kakao.com", KAKAO_AUD, code.removePrefix("good-"))
 			}
+
+			override fun unlink(userId: String): Boolean {
+				unlinked += userId
+				return unlinkResult
+			}
 		}
 	}
 
@@ -96,6 +104,8 @@ class SocialLoginIntegrationTest {
 	fun clean() {
 		jdbc.update("delete from signup_tickets")
 		jdbc.update("delete from accounts")
+		unlinked.clear()
+		unlinkResult = true
 	}
 
 	private fun count(table: String): Int = jdbc.queryForObject("select count(*) from $table", Int::class.java)!!
@@ -255,6 +265,25 @@ class SocialLoginIntegrationTest {
 		val bad = login("""{"provider":"KAKAO","code":"bad","redirectUri":"$KAKAO_REDIRECT"}""")
 		assertEquals(401, bad.statusCode())
 		assertEquals("""{"error":"INVALID_CODE"}""", bad.body())
+	}
+
+	@Test
+	fun `카카오 계정을 지우면 카카오 연결을 끊고 실패해도 계정은 지운다`() {
+		val ticket = json(login("""{"provider":"KAKAO","code":"good-k9","redirectUri":"$KAKAO_REDIRECT"}""").body())["signupToken"].asString()
+		val token = json(signup(ticket, adult()).body())["token"].asString()
+		unlinkResult = false
+
+		assertEquals(204, http(port, "DELETE", "/account", token = token).statusCode())
+
+		assertEquals(listOf("k9"), unlinked.toList())
+		assertEquals(0, count("accounts"))
+	}
+
+	@Test
+	fun `구글 계정을 지울 때는 카카오를 부르지 않는다`() {
+		val token = json(signup(signupToken("g9"), adult()).body())["token"].asString()
+		assertEquals(204, http(port, "DELETE", "/account", token = token).statusCode())
+		assertEquals(emptyList(), unlinked.toList())
 	}
 
 	@Test

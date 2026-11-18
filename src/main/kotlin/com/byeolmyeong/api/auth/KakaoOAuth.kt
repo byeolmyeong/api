@@ -24,29 +24,31 @@ interface KakaoOAuth {
 	 * 돌려준 ID 토큰은 [ProviderTokenVerifier] 로 다시 확인한다. 함께 오는 액세스 토큰은 버린다.
 	 */
 	fun exchange(code: String, redirectUri: String): String
+
+	/**
+	 * 탈퇴한 사용자와 앱의 연결을 끊는다(카카오 문서: 탈퇴 과정에 연결 해제를 반드시 포함). [userId] 는 카카오 회원번호(ID 토큰의 `sub`).
+	 * 어드민 키로 서버에서 부른다. 성공하면 true, 실패하거나 키가 없으면 false — 계정 삭제는 계속된다.
+	 */
+	fun unlink(userId: String): Boolean
 }
 
-/** 카카오 REST API. 키·시크릿·코드·토큰을 로그에 남기지 않는다. */
+/** 카카오 REST API. 키·시크릿·코드·토큰·회원번호를 로그에 남기지 않는다. 어드민 키는 모든 사용자의 연결을 끊을 수 있는 키다. */
 @Component
 class KakaoOAuthClient(
 	@Value("\${byeolmyeong.auth.kakao.rest-api-key}") private val restApiKey: String,
 	@Value("\${byeolmyeong.auth.kakao.client-secret}") private val clientSecret: String,
 	@Value("\${byeolmyeong.auth.kakao.redirect-uris}") redirectUris: List<String>,
 	@Value("\${byeolmyeong.auth.kakao.auth-url}") authUrl: String,
+	@Value("\${byeolmyeong.auth.kakao.admin-key}") private val adminKey: String,
+	@Value("\${byeolmyeong.auth.kakao.api-url}") apiUrl: String,
 ) : KakaoOAuth {
+
 
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val mapper = JsonMapper()
 	private val redirectUris = redirectUris.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-	private val auth = RestClient.builder()
-		.baseUrl(authUrl)
-		.requestFactory(
-			SimpleClientHttpRequestFactory().apply {
-				setConnectTimeout(Duration.ofSeconds(3))
-				setReadTimeout(Duration.ofSeconds(5))
-			},
-		)
-		.build()
+	private val auth = client(authUrl)
+	private val api = client(apiUrl)
 
 	override fun exchange(code: String, redirectUri: String): String {
 		if (redirectUri !in redirectUris) throw InvalidCodeException()
@@ -80,4 +82,37 @@ class KakaoOAuthClient(
 		}
 		return idToken
 	}
+
+	override fun unlink(userId: String): Boolean {
+		if (adminKey.isBlank()) {
+			log.warn("event=kakao_unlink_failed reason=NoAdminKey")
+			return false
+		}
+		val form = LinkedMultiValueMap<String, String>().apply {
+			add("target_id_type", "user_id")
+			add("target_id", userId)
+		}
+		return try {
+			api.post().uri("/v1/user/unlink")
+				.header("Authorization", "KakaoAK $adminKey")
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED)
+				.body(form)
+				.retrieve()
+				.toBodilessEntity()
+			true
+		} catch (e: RestClientException) {
+			log.warn("event=kakao_unlink_failed reason={}", e.javaClass.simpleName)
+			false
+		}
+	}
+
+	private fun client(baseUrl: String): RestClient = RestClient.builder()
+		.baseUrl(baseUrl)
+		.requestFactory(
+			SimpleClientHttpRequestFactory().apply {
+				setConnectTimeout(Duration.ofSeconds(3))
+				setReadTimeout(Duration.ofSeconds(5))
+			},
+		)
+		.build()
 }

@@ -20,6 +20,7 @@ class KakaoOAuthClientTest {
 	private var responseBody = """{"access_token":"a","token_type":"bearer","id_token":"the-id-token","expires_in":7199}"""
 	private var lastForm: Map<String, String> = emptyMap()
 	private var lastPath = ""
+	private var lastAuthorization: String? = null
 	private val calls = AtomicInteger()
 
 	@BeforeEach
@@ -28,6 +29,7 @@ class KakaoOAuthClientTest {
 		server.createContext("/") { exchange ->
 			calls.incrementAndGet()
 			lastPath = exchange.requestURI.path
+			lastAuthorization = exchange.requestHeaders.getFirst("Authorization")
 			lastForm = exchange.requestBody.readAllBytes().decodeToString().split("&").filter { it.isNotEmpty() }.associate {
 				val (k, v) = it.split("=", limit = 2)
 				URLDecoder.decode(k, Charsets.UTF_8) to URLDecoder.decode(v, Charsets.UTF_8)
@@ -43,8 +45,8 @@ class KakaoOAuthClientTest {
 	@AfterEach
 	fun stop() = server.stop(0)
 
-	private fun client(authUrl: String = "http://localhost:${server.address.port}") =
-		KakaoOAuthClient("rest-key", "secret", listOf(REDIRECT, " "), authUrl)
+	private fun client(authUrl: String = "http://localhost:${server.address.port}", adminKey: String = "admin-key") =
+		KakaoOAuthClient("rest-key", "secret", listOf(REDIRECT, " "), authUrl, adminKey, "http://localhost:${server.address.port}")
 
 	@Test
 	fun `인가 코드를 카카오의 토큰 경로에 보내고 ID 토큰을 돌려준다`() {
@@ -89,6 +91,25 @@ class KakaoOAuthClientTest {
 		assertFailsWith<ProviderUnavailableException> { client().exchange("the-code", REDIRECT) }
 		responseBody = "not json"
 		assertFailsWith<ProviderUnavailableException> { client().exchange("the-code", REDIRECT) }
+	}
+
+	@Test
+	fun `탈퇴한 사용자의 연결을 어드민 키로 끊는다`() {
+		responseBody = """{"id":12345}"""
+		assertEquals(true, client().unlink("12345"))
+		assertEquals("/v1/user/unlink", lastPath)
+		assertEquals("KakaoAK admin-key", lastAuthorization)
+		assertEquals(mapOf("target_id_type" to "user_id", "target_id" to "12345"), lastForm)
+	}
+
+	@Test
+	fun `연결 끊기에 실패하거나 어드민 키가 없으면 false 다`() {
+		status = 400
+		responseBody = """{"code":-101}"""
+		assertEquals(false, client().unlink("12345"))
+		val before = calls.get()
+		assertEquals(false, client(adminKey = "").unlink("12345"))
+		assertEquals(before, calls.get(), "어드민 키가 없으면 카카오를 부르지 않는다")
 	}
 
 	@Test

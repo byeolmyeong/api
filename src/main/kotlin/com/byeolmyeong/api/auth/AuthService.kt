@@ -29,6 +29,7 @@ class AuthService(
 	private val sessions: SessionRepository,
 	private val appleTokens: AppleTokenRepository,
 	private val apple: AppleSignIn,
+	private val kakao: KakaoOAuth,
 	private val events: ApplicationEventPublisher,
 	@Value("\${byeolmyeong.auth.dev-enabled}") private val devEnabled: Boolean,
 	@Value("\${byeolmyeong.auth.session-days}") private val sessionDays: Int,
@@ -55,10 +56,12 @@ class AuthService(
 
 	/**
 	 * 계정과 그 사람의 모든 행(세션·출생 정보·뒤에 생기는 글)을 지운다. 감사 기록만 남는다.
-	 * 지우기 전에 공급자 연결을 정리한다(결정 021): 애플은 refresh token 철회. 실패해도 계정은 지운다(클라이언트가 로그를 남긴다).
+	 * 지우기 전에 공급자 연결을 정리한다(결정 021): 애플은 refresh token 철회, 카카오는 연결 끊기.
+	 * 실패해도 계정은 지운다 — 사용자는 지웠다고 믿는다(클라이언트가 로그를 남긴다).
 	 */
 	fun deleteAccount(ownerId: UUID) {
 		appleTokens.find(ownerId)?.let { apple.revoke(it.refreshToken, it.clientId) }
+		accounts.identity(ownerId)?.takeIf { it.provider == Provider.KAKAO }?.let { kakao.unlink(it.subject) }
 		accounts.delete(ownerId)
 		// 감사 기록은 계정과 함께 지워지지 않는다(결정 015). 지운 뒤에도 "이 계정이 지워졌다" 가 남는다.
 		events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
@@ -100,6 +103,13 @@ class AuthService(
 
 @Repository
 class AccountRepository(private val jdbc: JdbcTemplate) {
+
+	/** 계정의 공급자와 공급자의 사용자 식별자. 없으면 null. */
+	fun identity(id: UUID): ProviderIdentity? = jdbc.query(
+		"select provider, provider_user_id from accounts where id = ?",
+		{ rs, _ -> ProviderIdentity(Provider.valueOf(rs.getString("provider")), rs.getString("provider_user_id")) },
+		id,
+	).firstOrNull()
 
 	/** 공급자·사용자의 계정. 없으면 null. */
 	fun find(provider: String, providerUserId: String): UUID? = jdbc.queryForList(
