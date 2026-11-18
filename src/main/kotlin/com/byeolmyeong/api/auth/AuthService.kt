@@ -36,7 +36,7 @@ class AuthService(
 	fun devLogin(): String? {
 		if (!devEnabled) return null
 		val accountId = accounts.findOrCreate(DEV_PROVIDER, DEV_USER)
-		val token = issue(accountId)
+		val token = issueSession(accountId)
 		events.publishEvent(AuditEvent(AuditAction.USER_LOGIN, AuditActor.user(accountId)))
 		return token
 	}
@@ -56,18 +56,28 @@ class AuthService(
 		events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
 	}
 
-	private fun issue(accountId: UUID): String {
-		val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(TOKEN_BYTES).also(random::nextBytes))
+	/** 새 세션을 만들고 토큰 원문을 돌려준다(DB 에는 해시만). 개발용 로그인과 소셜 로그인 · 가입(`LoginService`)이 쓴다. */
+	fun issueSession(accountId: UUID): String {
+		val token = newToken()
 		sessions.insert(hash(token), accountId)
 		return token
 	}
 
-	private fun hash(token: String): String =
+	/** 추측할 수 없는 토큰(32바이트, URL 에 안전한 Base64). 세션 토큰과 가입권이 쓴다. */
+	fun newToken(): String = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(TOKEN_BYTES).also(random::nextBytes))
+
+	/** 토큰을 DB 에 둘 때의 모양(SHA-256 16진수). */
+	fun hash(token: String): String =
 		HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.toByteArray()))
 }
 
 @Repository
 class AccountRepository(private val jdbc: JdbcTemplate) {
+
+	/** 공급자·사용자의 계정. 없으면 null. */
+	fun find(provider: String, providerUserId: String): UUID? = jdbc.queryForList(
+		"select id from accounts where provider = ? and provider_user_id = ?", UUID::class.java, provider, providerUserId,
+	).firstOrNull()
 
 	/** 같은 공급자·사용자의 계정은 하나다. 동시에 불러도 하나만 생긴다. */
 	fun findOrCreate(provider: String, providerUserId: String): UUID {

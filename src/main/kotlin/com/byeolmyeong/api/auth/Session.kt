@@ -20,7 +20,7 @@ private const val BEARER = "Bearer "
 private val SAFE_METHODS = setOf("GET", "HEAD")
 
 /** 로그인 전에 쓰는 곳. 여기 없는 경로는 모두 세션이 있어야 한다(새 엔드포인트는 기본이 "세션 필요"다). */
-private val PUBLIC_PATHS = arrayOf("/health", "/places", "/auth/dev", "/auth/login", "/invites/*", "/shared/*", "/error")
+private val PUBLIC_PATHS = arrayOf("/health", "/places", "/auth/dev", "/auth/login", "/auth/signup", "/invites/*", "/shared/*", "/error")
 
 /** 로그인 전에 쓰는 곳 가운데 읽기(GET)만 여는 경로. 같은 경로의 다른 메서드는 세션이 있어야 한다. */
 private val PUBLIC_GET_PATHS = setOf("/faqs", "/app-config")

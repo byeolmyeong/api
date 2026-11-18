@@ -1,7 +1,9 @@
 package com.byeolmyeong.api.auth
 
 import com.fasterxml.jackson.annotation.JsonInclude
+import com.byeolmyeong.api.web.BirthRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -16,12 +18,49 @@ data class TokenResponse(val token: String?)
 /** 세션을 본문 대신 쿠키로 달라는 요청(웹). */
 data class CookieRequest(val cookie: Boolean? = null)
 
+/** `POST /auth/login`. 값 검증은 `LoginService.identify` 가 한다. `authorizationCode`(애플)는 S7 이 쓴다. */
+data class LoginRequest(
+	val provider: String?,
+	val idToken: String?,
+	val code: String?,
+	val redirectUri: String?,
+	val authorizationCode: String?,
+	val cookie: Boolean?,
+)
+
+/** `POST /auth/login` 의 응답. `SIGNED_IN` 이면 `token`(쿠키면 없음), `SIGNUP_REQUIRED` 면 `signupToken`·`expiresAt`. */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class LoginResponse(val status: String, val token: String? = null, val signupToken: String? = null, val expiresAt: String? = null)
+
+/** `POST /auth/signup`. 출생 정보는 `PUT /profile` 과 같은 칸이다. */
+data class SignupRequest(val signupToken: String?, val date: String?, val time: String?, val placeId: Int?, val cookie: Boolean?)
+
 @RestController
 class AuthController(
 	private val auth: AuthService,
+	private val login: LoginService,
 	private val owner: CurrentOwner,
 	private val sessionCookie: SessionCookie,
 ) {
+
+	/** 소셜 로그인(결정 021). 계정이 있으면 세션, 없으면 가입권. */
+	@PostMapping("/auth/login")
+	fun login(@RequestBody request: LoginRequest, response: HttpServletResponse): LoginResponse {
+		val identity = login.identify(ProviderCredential(request.provider, request.idToken, request.code, request.redirectUri))
+		return when (val outcome = login.login(identity)) {
+			is LoginOutcome.SignedIn ->
+				LoginResponse("SIGNED_IN", token = deliver(outcome.sessionToken, request.cookie == true, response).token)
+			is LoginOutcome.SignupRequired ->
+				LoginResponse("SIGNUP_REQUIRED", signupToken = outcome.signupToken, expiresAt = outcome.expiresAt.toString())
+		}
+	}
+
+	/** 가입(결정 021). 만 14세 이상일 때만 계정·출생 정보·세션을 만든다. */
+	@PostMapping("/auth/signup")
+	fun signup(@RequestBody request: SignupRequest, response: HttpServletResponse): ResponseEntity<TokenResponse> {
+		val session = login.signup(request.signupToken, BirthRequest(request.date, request.time, request.placeId))
+		return ResponseEntity.status(HttpStatus.CREATED).body(deliver(session, request.cookie == true, response))
+	}
 
 	/** 개발용 로그인(결정 005). 설정이 꺼져 있으면(운영) 없는 경로처럼 404 다. */
 	@PostMapping("/auth/dev")
