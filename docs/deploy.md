@@ -41,9 +41,9 @@ VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`backup.
 2. 만든 VCN → Public subnet → 보안 목록(Default Security List) → Add Ingress Rules: 소스 `0.0.0.0/0`, TCP, 대상 포트 `80` 하나, `443` 하나. 22 는 기본으로 열려 있다. **5432 는 열지 않는다.**
 
 ### 4. 오라클: VM 두 대
-이 맥에서 키를 먼저 만든다(사람이 쓰는 키와 배포용 키를 나눈다).
-- 사람이 접속할 키: `ssh-keygen -t ed25519 -f ~/.ssh/byeolmyeong-oci`
-- GitHub Actions 배포용 키: `ssh-keygen -t ed25519 -f ~/.ssh/byeolmyeong-deploy -N ""`
+이 맥에서 키를 먼저 만든다. 사람이 쓰는 키 하나, 배포용 키는 환경마다 하나씩(하나가 새도 다른 VM 은 안전하다).
+- 사람이 접속할 키: `ssh-keygen -t ed25519 -f ~/.ssh/byeolmyeong-oci` — 비밀번호를 건다(이미 만들었으면 `ssh-keygen -p -f ~/.ssh/byeolmyeong-oci`).
+- GitHub Actions 배포용 키: `ssh-keygen -t ed25519 -N "" -f ~/.ssh/byeolmyeong-deploy-staging`, `ssh-keygen -t ed25519 -N "" -f ~/.ssh/byeolmyeong-deploy-prod`
 
 Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `byeolmyeong-prod`):
 - Image: Canonical Ubuntu 24.04 (A1 을 고르면 aarch64 판이 잡힌다)
@@ -52,7 +52,8 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - SSH keys: `~/.ssh/byeolmyeong-oci.pub` 올리기
 - "Out of capacity" 가 나면 시간을 바꿔 다시 시도한다(무료 ARM 은 자리가 자주 찬다).
 
-만든 뒤 각 VM 에 배포용 키를 더한다: `ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/byeolmyeong-deploy.pub`
+만든 뒤 각 VM 에 **그 환경의** 배포용 키를 `restrict` 를 붙여 더한다. 파일 복사·명령 실행만 되고 포트 포워딩·터미널은 막힌다:
+`echo "restrict $(cat ~/.ssh/byeolmyeong-deploy-staging.pub)" | ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<스테이징 IP> "cat >> ~/.ssh/authorized_keys"` (운영 VM 은 `-prod` 키와 운영 IP)
 
 ### 5. DNS (`byeolmyeong.com` 을 관리하는 곳)
 - A 레코드 `api` → 운영 VM 의 공인 IP
@@ -83,7 +84,8 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - 운영 VM 만: 백업 업로드 URL 은 `.env` 가 아니라 `backup.env` 에 둔다(서버 컨테이너가 보지 않게). `cp ~/backup.env.example /opt/byeolmyeong/backup.env && chmod 600 /opt/byeolmyeong/backup.env && nano /opt/byeolmyeong/backup.env`
 
 ### 10. GitHub (저장소 Settings → Secrets and variables → Actions)
-- Secrets: `STAGING_SSH_HOST`·`PROD_SSH_HOST`(VM 공인 IP), `STAGING_SSH_KEY`·`PROD_SSH_KEY`(`~/.ssh/byeolmyeong-deploy` 파일 내용, 둘 다 같은 키), `STAGING_SSH_KNOWN_HOSTS`·`PROD_SSH_KNOWN_HOSTS`(`ssh-keyscan -t ed25519 <IP>` 의 출력 한 줄).
+- Secrets: `STAGING_SSH_HOST`·`PROD_SSH_HOST`(VM 공인 IP), `STAGING_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-staging` 파일 내용)·`PROD_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-prod`), `STAGING_SSH_KNOWN_HOSTS`·`PROD_SSH_KNOWN_HOSTS`(`ssh-keyscan -t ed25519 <IP>` 의 출력 한 줄). 명령으로 넣으면 값이 화면에 나오지 않는다: `gh secret set STAGING_SSH_KEY < ~/.ssh/byeolmyeong-deploy-staging`.
+- 등록한 뒤 이 맥의 배포용 **개인 키는 지운다**: `rm ~/.ssh/byeolmyeong-deploy-staging ~/.ssh/byeolmyeong-deploy-prod`(`.pub` 은 남긴다). 다시 필요하면 새로 만들어 VM 의 authorized_keys 와 GitHub 비밀값을 함께 바꾼다.
 - Variables: `STAGING_BASE_URL` = `https://api-staging.byeolmyeong.com`, `PROD_BASE_URL` = `https://api.byeolmyeong.com`.
 - Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-18-pre-deploy-hardening.md`)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
 
