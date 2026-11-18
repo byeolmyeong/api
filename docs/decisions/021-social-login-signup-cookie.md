@@ -25,7 +25,7 @@ superseded_by:
 4. **웹은 httpOnly 쿠키 세션을 쓴다.** 로그인·가입·개발용 로그인 요청 본문에 `cookie: true` 가 있으면 토큰을 본문에 넣지 않고 쿠키 `bm_session`(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 속성 없음)으로만 준다. 세션 검사는 `Authorization: Bearer` 가 없을 때 이 쿠키를 읽는다. 쿠키로 인증된 GET 이 아닌 요청은 `Origin` 이 앱 허용 주소(`ALLOWED_ORIGINS`)에 있어야 하고 아니면 403 `FORBIDDEN_ORIGIN`. 앱 경로의 CORS 는 자격 증명(쿠키)을 허용한다. 관리자 API 는 쿠키를 받지 않는다(관리 화면은 sessionStorage, 결정 014).
    - 로컬 http 개발을 위해 `Secure` 만 설정으로 끈다(`SESSION_COOKIE_SECURE=false`).
 5. **탈퇴할 때 공급자 연결도 정리한다.** 카카오 계정은 지우기 전에 어드민 키로 연결 끊기(카카오 문서상 필수). 애플 계정은 로그인 때 authorization code 를 바로 교환해 둔 refresh token 을 철회(App Store 심사 지침 5.1.1(v)). 둘 다 실패해도 계정은 지우고 구조화 로그(`kakao_unlink_failed`·`apple_revoke_failed`)를 남긴다.
-6. **애플 서버 알림을 받는다.** 2026-01-01 부터 한국 개발자는 Services ID 를 등록할 때 서버 알림 주소가 필수다. `POST /auth/apple/notifications` 가 본문 `{ payload }` 의 애플 서명 JWT 를 확인하고 `consent-revoked` 면 그 계정의 세션을 모두 지우고, `account-deleted`(애플 문서의 이름. 다른 자료의 `account-delete` 도 받는다)면 계정을 지운다(감사 기록 `ACCOUNT_DELETED`). 같은 알림이 되풀이돼도 결과가 같다(되풀이 전송 보고가 있다).
+6. **애플 서버 알림을 받는다.** 2026-01-01 부터 한국 개발자는 Services ID 를 등록할 때 서버 알림 주소가 필수다. `POST /auth/apple/notifications` 가 본문 `{ payload }` 의 애플 서명 JWT 를 확인하고 `consent-revoked` 면 그 계정의 세션 가운데 알림이 일어난 때(`event_time`)보다 먼저 생긴 것을 지우고, `account-deleted`(애플 문서의 이름. 다른 자료의 `account-delete` 도 받는다)면 계정을 지운다(감사 기록 `ACCOUNT_DELETED`, 행위자 SYSTEM). 같은 알림이 되풀이돼도(되풀이 전송 보고가 있다) 그 뒤에 로그인한 세션은 남는다. 점검 중에도 받는다.
 7. **개발용 로그인(결정 005)은 그대로 둔다.** 운영 기본값(`AUTH_DEV_ENABLED` 없음)에서 `/auth/dev` 가 404 인 것을 테스트로 지킨다.
 
 ## 근거
@@ -44,7 +44,7 @@ superseded_by:
 - 애플 refresh token 을 DB 에 둔다(`apple_tokens`). 새면 그 사람의 애플 연동을 끊을 수 있는 정도다.
 - 안드로이드에는 애플 로그인이 없다(앱 결정 034). 애플로 가입한 사람이 안드로이드로 옮기면 그 기기에서는 들어올 수 없다. 요청이 생기면 서버 리디렉트 경로를 더한다.
 - 애플 웹 로그인과 Services ID 등록은 https 서버(테스트 서버)가 뜬 뒤에 할 수 있다.
-- 서버 계획 "배포 전 확인" 2(개발용 로그인 안전장치)·3(세션 만료·로그아웃)이 이 결정으로 풀린다.
+- 서버 계획 "배포 전 확인" 3(세션 만료·로그아웃)이 이 결정으로 풀린다. 2(개발용 로그인이 켜진 채 운영에서 뜨지 않게)는 풀리지 않았다 — 기본값이 꺼짐이라는 테스트만 있고, 기동 안전장치는 호스팅 결정 020 의 "배포 전 안전장치" 계획이 맡는다(독립 리뷰 2026-11-18 지적으로 바로잡음).
 
 ## 공급자 값 (2026-11-18 각 공급자의 `/.well-known/openid-configuration` 으로 확인 — 셋 다 서명 RS256)
 | 공급자 | iss | JWKS | aud(환경 변수) |
