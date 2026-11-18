@@ -46,9 +46,10 @@ superseded_by:
 - 애플 웹 로그인과 Services ID 등록은 https 서버(테스트 서버)가 뜬 뒤에 할 수 있다.
 - 서버 계획 "배포 전 확인" 2(개발용 로그인 안전장치)·3(세션 만료·로그아웃)이 이 결정으로 풀린다.
 
-## 공급자 값 (S4 가 공식 문서로 확인해 채운다)
+## 공급자 값 (2026-11-18 각 공급자의 `/.well-known/openid-configuration` 으로 확인 — 셋 다 서명 RS256)
 | 공급자 | iss | JWKS | aud(환경 변수) |
 |---|---|---|---|
-| 구글 | [확인 필요] | [확인 필요] | `GOOGLE_CLIENT_IDS` |
-| 애플 | [확인 필요] | [확인 필요] | `APPLE_CLIENT_IDS` |
-| 카카오 | [확인 필요] | [확인 필요] | `KAKAO_REST_API_KEY` · `KAKAO_NATIVE_APP_KEY` |
+| 구글 | `https://accounts.google.com` (구글 문서상 `accounts.google.com` 도 온다) | `https://www.googleapis.com/oauth2/v3/certs` | `GOOGLE_CLIENT_IDS` |
+| 애플 | `https://appleid.apple.com` | `https://appleid.apple.com/auth/keys` | `APPLE_CLIENT_IDS` |
+| 카카오 | `https://kauth.kakao.com` | `https://kauth.kakao.com/.well-known/jwks.json` | `KAKAO_REST_API_KEY` · `KAKAO_NATIVE_APP_KEY` |
+- 라이브러리: `com.nimbusds:nimbus-jose-jwt` 10.10(2026-09-17 판). Spring Boot 가 버전을 관리하지 않아 `build.gradle.kts` 에 정했다.
