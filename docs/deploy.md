@@ -23,7 +23,7 @@ last_reviewed: 2026-11-18
 
 흐름: 작업 브랜치 → PR → `develop`(스테이징에서 확인) → `develop` → `main` PR → `main`(운영). 두 브랜치 모두 직접 push 하지 않는다(`.claude/hooks/guard.sh` 가 막는다). GitHub 무료 요금제라 보호 규칙이 없으니 **CI 가 통과했는지 보고 합친다**.
 
-VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`backup.sh`·`restore.sh`·`.env`·`backup.env`(운영)·`app.jar`·`app.jar.good`(마지막으로 /health 200 을 받은 jar)·`backups/`. 컨테이너는 `api`(서버)·`postgres`·`caddy`(HTTPS).
+VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`backup.sh`·`restore.sh`·`.env`(서버 컨테이너가 봄)·`db.env`(Postgres 만)·`backup.env`(운영, 백업 스크립트만)·`app.jar`·`app.jar.good`(마지막으로 /health 200 을 받은 jar)·`backups/`. 컨테이너는 `api`(서버)·`postgres`·`caddy`(HTTPS).
 
 ## (가) 처음 한 번 — 순서대로
 
@@ -77,7 +77,7 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 
 ### 8. VM 초기 설정 (Claude 가 SSH 로)
 두 VM 의 IP 와 `~/.ssh/byeolmyeong-oci` 를 알려 주면 Claude 가 한다. 손으로 하려면 저장소 루트에서:
-- `scp -i ~/.ssh/byeolmyeong-oci deploy/bootstrap-vm.sh deploy/.env.example deploy/backup.env.example ubuntu@<IP>:~/`
+- `scp -i ~/.ssh/byeolmyeong-oci deploy/bootstrap-vm.sh deploy/.env.example deploy/db.env.example deploy/backup.env.example ubuntu@<IP>:~/`
 - `ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<IP> "sudo ./bootstrap-vm.sh staging"` (운영 VM 은 `prod`)
 - 끝에 `event=bootstrap_done` 한 줄이 나오면 된다. 두 번 돌려도 같다. SSH 가 키로만 로그인되는 상태가 아니면 아무것도 바꾸지 않고 `bootstrap_failed step=ssh_check` 로 멈춘다.
 
@@ -85,7 +85,8 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - `ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<IP>`
 - `cp ~/.env.example /opt/byeolmyeong/.env && chmod 600 /opt/byeolmyeong/.env && nano /opt/byeolmyeong/.env`
 - 이름과 환경별 값의 모양은 `deploy/.env.example` 의 주석에 있다. **값이 빈 줄(`이름=`)을 남기지 않는다** — 빈 값이 서버의 기본값을 덮는다. 값에 따옴표·`$`·공백을 쓰지 않는다.
-- 비밀번호(`POSTGRES_ADMIN_PASSWORD`·`DATABASE_PASSWORD`)는 VM 마다 새로 만든다: `openssl rand -hex 24`.
+- 비밀번호는 VM 마다 새로 만든다: `openssl rand -hex 24`.
+- DB 최고 관리자 비밀번호는 `.env` 가 아니라 `db.env` 에 둔다(서버 컨테이너가 보지 않게): `cp ~/db.env.example /opt/byeolmyeong/db.env && chmod 600 /opt/byeolmyeong/db.env && nano /opt/byeolmyeong/db.env`
 - 운영 VM 만: 백업 업로드 URL 은 `.env` 가 아니라 `backup.env` 에 둔다(서버 컨테이너가 보지 않게). `cp ~/backup.env.example /opt/byeolmyeong/backup.env && chmod 600 /opt/byeolmyeong/backup.env && nano /opt/byeolmyeong/backup.env`
 
 ### 10. GitHub (저장소 Settings → Secrets and variables → Actions)

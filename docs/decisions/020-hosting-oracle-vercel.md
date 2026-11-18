@@ -19,7 +19,7 @@ superseded_by:
 1. **서버·DB**: 오라클 클라우드 Always Free 의 `VM.Standard.E2.1.Micro`(AMD x86_64, 1 OCPU 버스트, 메모리 1GB, Ubuntu 24.04 Minimal) 두 대 — 스테이징 한 대, 운영 한 대. 홈 리전 춘천(`ap-chuncheon-1`). 메모리가 작아 스왑 2GB 를 붙인다(`deploy/bootstrap-vm.sh`). 처음엔 ARM(A1) 을 골랐으나 이 테넌시(무료 계정)의 A1 한도가 0 이라 바꿨다(2026-11-18 조회).
    - 실측(로컬, 요청 300번 뒤): 서버 314MB · Postgres 43MB · Caddy 19MB. JVM 은 `-XX:MaxRAM=1g` 로 1GB VM 에서 스스로 고르는 기본값(최대 힙 256MB)과 같게 맞춰 쟀다. 그래서 compose 에는 JVM 옵션을 따로 두지 않는다. OS·Docker 를 더해도 1GB 안이다. CPU 가 약해 서버 시작이 수십 초 걸린다(배포의 상태 확인은 3분까지 기다린다).
 2. **VM 한 대의 구성**: Docker Compose 로 세 컨테이너 — 서버(`eclipse-temurin:21-jre` 이미지에서 `app.jar` 실행) · PostgreSQL 17(`postgres:17`, 호스트 포트를 열지 않음) · Caddy 2(80·443, Let's Encrypt 인증서 자동, HSTS). 파일은 저장소의 `deploy/`, VM 의 `/opt/byeolmyeong`.
-   - 비밀값은 VM 에만 둔다: 서버 설정은 `.env`(서버 컨테이너에 넘어감), 백업 업로드 URL 은 `backup.env`(백업 스크립트만 읽음).
+   - 비밀값은 VM 에만 둔다: 서버 설정은 `.env`(서버 컨테이너에 넘어감), DB 최고 관리자 비밀번호는 `db.env`(Postgres 컨테이너만), 백업 업로드 URL 은 `backup.env`(백업 스크립트만).
    - DB 최소 권한: 최고 관리자는 `postgres` 이고 서버는 쓰지 않는다. 서버는 DB `byeolmyeong` 의 소유자인 일반 계정으로 접속한다(처음 초기화 때 `deploy/initdb/` 가 만든다).
 3. **주소**: 서브도메인은 한 단계에 하이픈을 붙인다(와일드카드 인증서·Cloudflare 무료 인증서가 한 단계까지만 덮는다).
 
