@@ -42,7 +42,7 @@ src/main/kotlin/com/byeolmyeong/api/
   chart/       Positions · Houses · Aspects · Points · Timeline(마디·구간) · SynastryScore   ← 순수 계산
   birth/       Places · BirthTime · BirthProfile(Service·Repository · ChartInput) · PlacesController
   web/         ErrorResponse · BirthRequest(Parser: 검증, 요청의 출생 정보 → 차트 입력) · RateLimiter · CorsConfig · ChartController · AuditEvent(감사 기록 이벤트·행동 코드·행위자) · OwnerRef · AppVersion(버전 읽기·견주기)
-  auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor) · SessionCookie(웹 쿠키 bm_session, 결정 020)
+  auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor) · SessionCookie(웹 쿠키 bm_session, 결정 020) · ProviderToken(Provider · ProviderTokenVerifier · 공급자 셋의 검증기 설정)
   profile/     ProfileController
   generation/  TextGenerator(인터페이스) · ClaudeTextGenerator · ChartFacts · TimelineFacts(시기 한 줄의 글) · SynastryFacts(두 차트 사이 연결의 글) · Basis
   reading/     ReadingController · ReadingService · ReadingRepository · ReadingDraft(지시문·구조·검증)
@@ -512,7 +512,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|---|
 | PostgreSQL | 저장 | 로컬은 컨테이너. 운영 호스팅은 [확인 필요] |
 | Claude API | 글 생성 | 키는 환경 변수 `ANTHROPIC_API_KEY`. 모델은 설정 `byeolmyeong.claude.model`(결정 006) |
-| 구글·애플·카카오 로그인 | 토큰 검증 | [확인 필요] 클라이언트 등록, 만 14세 확인 방법(생년월일 / 카카오 연령대) |
+| 구글·애플·카카오 로그인 | ID 토큰 확인(공급자 JWKS, RS256 — `auth.ProviderTokenVerifier`) | 대상(aud)은 환경 변수 `GOOGLE_CLIENT_IDS`·`APPLE_CLIENT_IDS`·`KAKAO_REST_API_KEY`·`KAKAO_NATIVE_APP_KEY`. 발급자·키 주소는 결정 020 "공급자 값". 만 14세는 출생일로 서버가 판정(결정 020). [확인 필요] 클라이언트 등록(소유자) |
 | 푸시 발송 | 초대 수락·리포트 완성 알림 | [확인 필요] 발송 경로는 구현 시 Expo 공식 문서로 확정 |
 
 ## 관련

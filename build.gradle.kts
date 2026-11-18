@@ -34,6 +34,8 @@ dependencies {
 	implementation("com.anthropic:anthropic-java:3.3.0")
 	// 관리자 비밀번호의 bcrypt 해시만 쓴다(admin.AdminPasswords, 결정 014). Spring Security 의 웹 쪽(필터 체인)은 들이지 않는다.
 	implementation("org.springframework.security:spring-security-crypto")
+	// 소셜 로그인 ID 토큰 확인(JWKS · RS256)과 애플 client_secret(ES256) 만들기(결정 020). Spring Boot 가 버전을 관리하지 않아 정한다(2026-09-17 판).
+	implementation("com.nimbusds:nimbus-jose-jwt:10.10")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-flyway-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-jdbc-test")
