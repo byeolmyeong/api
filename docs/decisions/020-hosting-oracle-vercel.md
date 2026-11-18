@@ -16,7 +16,8 @@ superseded_by:
 - 도메인 `byeolmyeong.com` 을 소유자가 샀다.
 
 ## 결정
-1. **서버·DB**: 오라클 클라우드 Always Free 의 ARM VM(`VM.Standard.A1.Flex`, Ubuntu 24.04 aarch64) 두 대 — 스테이징 한 대, 운영 한 대. 무료 한도를 반으로 나눈다. 홈 리전은 서울 또는 춘천.
+1. **서버·DB**: 오라클 클라우드 Always Free 의 `VM.Standard.E2.1.Micro`(AMD x86_64, 1 OCPU 버스트, 메모리 1GB, Ubuntu 24.04 Minimal) 두 대 — 스테이징 한 대, 운영 한 대. 홈 리전 춘천(`ap-chuncheon-1`). 메모리가 작아 스왑 2GB 를 붙인다(`deploy/bootstrap-vm.sh`). 처음엔 ARM(A1) 을 골랐으나 이 테넌시(무료 계정)의 A1 한도가 0 이라 바꿨다(2026-11-18 조회).
+   - 실측(로컬, JVM 을 1GB 서버 기준으로 맞춤, 요청 300번 뒤): 서버 314MB · Postgres 43MB · Caddy 19MB. OS·Docker 를 더해도 1GB 안이다. CPU 가 약해 서버 시작이 수십 초 걸린다(배포의 상태 확인은 3분까지 기다린다).
 2. **VM 한 대의 구성**: Docker Compose 로 세 컨테이너 — 서버(`eclipse-temurin:21-jre` 이미지에서 `app.jar` 실행) · PostgreSQL 17(`postgres:17`, 호스트 포트를 열지 않음) · Caddy 2(80·443, Let's Encrypt 인증서 자동). 파일은 저장소의 `deploy/`, VM 의 `/opt/byeolmyeong`. 비밀값은 VM 의 `.env` 에만 둔다.
 3. **주소**: 서브도메인은 한 단계에 하이픈을 붙인다(와일드카드 인증서·Cloudflare 무료 인증서가 한 단계까지만 덮는다).
 
@@ -33,7 +34,7 @@ superseded_by:
 8. **프론트**: 앱 웹(Expo 웹 내보내기)과 관리 화면(Vite)은 버셀에 올린다. 버셀 운영 배포 ↔ 운영 서버, 스테이징 브랜치에 고정 도메인을 붙인 배포 ↔ 스테이징 서버. 서버는 출처를 정확히 일치로만 허용하므로(`web/CorsConfig.kt`) 미리보기의 바뀌는 주소가 아니라 위 표의 고정 주소를 `ALLOWED_ORIGINS`·`ADMIN_ALLOWED_ORIGINS` 에 넣는다.
 
 ## 무료 한도·요금 (2026-11-18 확인, 이 문서가 단일 출처)
-- 오라클 Always Free A1: 2026-06 에 4 OCPU·24GB 에서 2 OCPU·12GB 로 줄었다는 보도가 있다(공식 공지 없음). 실제 값은 콘솔의 한도 화면이 원본이다. 쉬는 인스턴스는 7일 기준으로 회수될 수 있다(무료 계정). Object Storage 는 무료 범위 안에서 쓴다.
+- 오라클 Always Free A1: 2026-06 에 4 OCPU·24GB 에서 2 OCPU·12GB 로 줄었다는 보도가 있다(공식 공지 없음). 실제 값은 콘솔의 한도 화면이 원본이다. **이 테넌시(Free Tier, 개인)는 2026-11-18 조회에서 `standard-a1-core-count`·`standard-a1-memory-count` 가 0, `vm-standard-e2-1-micro-count` 가 2 다.** 쉬는 인스턴스는 7일 기준으로 회수될 수 있다(무료 계정). Object Storage 는 무료 범위 안에서 쓴다.
 - 버셀 Hobby: 무료, **비상업적 개인 용도만**. 결제·광고 등 수익이 생기면 Pro 이상이 필요하다.
 - Claude API(입력/출력, 1M 토큰당): `claude-opus-5-5` $4/$20 · `claude-sonnet-5-5` $2/$10 · `claude-haiku-5-5` $0.10/$0.50.
 - 도메인: 소유자가 이미 샀다. 호스팅 쪽에서 드는 돈은 0 이다.
@@ -48,4 +49,4 @@ superseded_by:
 
 ## 결과·재검토 조건
 - 운영체제 업데이트·백업 확인·인증서는 소유자가 맡는다(Caddy 가 인증서를 갱신하고 Ubuntu 자동 보안 업데이트가 켜져 있다). 절차: docs/deploy.md.
-- 다시 본다: 오라클이 VM 을 회수하거나 한도를 또 바꿀 때(같은 compose 를 다른 VPS 로 옮긴다), 결제·수익이 시작될 때(버셀 Pro 또는 Cloudflare Pages), 동시 리포트가 늘어 한 대의 CPU·메모리가 모자랄 때, 복원 연습이 실패할 때.
+- 다시 본다: **출시가 가까워질 때 운영 서버를 더 큰 서버로 옮긴다**(종량제로 올려 A1 이 생기면 A1, 아니면 유료 VPS — 같은 compose 와 백업 복원으로 옮긴다), 오라클이 VM 을 회수하거나 한도를 또 바꿀 때, 결제·수익이 시작될 때(버셀 Pro 또는 Cloudflare Pages), 동시 리포트가 늘어 메모리·CPU 가 모자랄 때(스왑을 계속 쓰거나 응답이 느려짐), 복원 연습이 실패할 때.

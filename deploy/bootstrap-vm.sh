@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 새 오라클 VM(Ubuntu 24.04 aarch64)을 배포할 수 있는 상태로 만든다(결정 020). VM 에서 한 번: sudo ./bootstrap-vm.sh <staging|prod>
+# 새 오라클 VM(E2.1.Micro, Ubuntu 24.04 Minimal)을 배포할 수 있는 상태로 만든다(결정 020). VM 에서 한 번: sudo ./bootstrap-vm.sh <staging|prod>
 # 여러 번 돌려도 결과가 같다. SSH 설정은 건드리지 않는다(오라클 이미지가 이미 키 로그인만 허용한다).
 set -euo pipefail
 
@@ -13,7 +13,21 @@ log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) event=$*"; }
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q iptables-persistent unattended-upgrades curl
+# Minimal 이미지에는 cron·편집기가 없을 수 있다.
+apt-get install -y -q iptables-persistent unattended-upgrades curl cron nano
+
+# 0. 스왑 2GB: 메모리가 1GB 라 순간적으로 넘칠 때 서버가 죽지 않게 한다. 평소에는 거의 쓰지 않게 swappiness 를 낮춘다.
+if ! swapon --show=NAME --noheadings | grep -qx /swapfile; then
+	if [ ! -f /swapfile ]; then
+		fallocate -l 2G /swapfile
+		chmod 600 /swapfile
+		mkswap /swapfile > /dev/null
+	fi
+	swapon /swapfile
+fi
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+echo 'vm.swappiness=10' > /etc/sysctl.d/99-byeolmyeong.conf
+sysctl -q -p /etc/sysctl.d/99-byeolmyeong.conf
 
 # 1. 방화벽: 오라클 Ubuntu 이미지의 iptables 는 22 만 열고 나머지를 REJECT 한다. REJECT 규칙 앞에 80·443 을 넣는다.
 #    (콘솔의 보안 목록에서도 80·443 을 열어야 한다. docs/deploy.md)
@@ -59,4 +73,4 @@ if [ "$ENV_NAME" = prod ]; then
 	( crontab -u "$APP_USER" -l 2> /dev/null | grep -vF "$APP_DIR/backup.sh" || true; echo "$CRON_LINE" ) | crontab -u "$APP_USER" -
 fi
 
-log "bootstrap_done env=$ENV_NAME docker=$(docker --version | awk '{ print $3 }' | tr -d ,)"
+log "bootstrap_done env=$ENV_NAME swap=$(swapon --show=SIZE --noheadings | head -n 1 | tr -d " ") docker=$(docker --version | awk '{ print $3 }' | tr -d ,)"
