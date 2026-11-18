@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 새 오라클 VM(E2.1.Micro, Ubuntu 24.04 Minimal)을 배포할 수 있는 상태로 만든다(결정 020). VM 에서 한 번: sudo ./bootstrap-vm.sh <staging|prod>
-# 여러 번 돌려도 결과가 같다. SSH 설정은 건드리지 않는다(오라클 이미지가 이미 키 로그인만 허용한다).
-set -euo pipefail
+# 여러 번 돌려도 결과가 같다. 결과는 한 줄: event=bootstrap_done 또는 event=bootstrap_failed(단계·줄).
+# SSH 설정은 바꾸지 않고 확인만 한다. 키로만 로그인되는 상태가 아니면 아무것도 바꾸지 않고 멈춘다.
+set -Eeuo pipefail
 
 ENV_NAME="${1:-}"
 case "$ENV_NAME" in staging | prod) ;; *) echo "사용법: sudo $0 <staging|prod>" >&2; exit 2 ;; esac
@@ -10,6 +11,23 @@ case "$ENV_NAME" in staging | prod) ;; *) echo "사용법: sudo $0 <staging|prod
 APP_DIR=/opt/byeolmyeong
 APP_USER=ubuntu
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) event=$*"; }
+trap 'log "bootstrap_failed env=$ENV_NAME line=$LINENO"' ERR
+
+# 시작 전 확인(읽기만): 비밀번호·키보드 입력 로그인이 꺼져 있고 root 는 비밀번호로 못 들어와야 한다(오라클 Ubuntu 이미지의 기본값).
+# 직접 고치지 않는 이유: 잘못 고치면 VM 에 다시 못 들어간다. 콘솔에서 고친 뒤 다시 돌린다.
+ssh_conf="$(sshd -T 2> /dev/null || true)"
+if ! grep -qx 'passwordauthentication no' <<< "$ssh_conf"; then
+	log "bootstrap_failed env=$ENV_NAME step=ssh_check reason=password_login_on"
+	exit 1
+fi
+if ! grep -qx 'kbdinteractiveauthentication no' <<< "$ssh_conf"; then
+	log "bootstrap_failed env=$ENV_NAME step=ssh_check reason=keyboard_interactive_on"
+	exit 1
+fi
+if ! grep -qxE 'permitrootlogin (no|prohibit-password|without-password|forced-commands-only)' <<< "$ssh_conf"; then
+	log "bootstrap_failed env=$ENV_NAME step=ssh_check reason=root_password_login_on"
+	exit 1
+fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
@@ -61,7 +79,7 @@ usermod -aG docker "$APP_USER"
 install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_DIR" "$APP_DIR/backups"
 timedatectl set-timezone Asia/Seoul
 
-# 4. 자동 보안 업데이트(Ubuntu 기본값이 켜져 있는지 확인만 하고, 꺼져 있으면 켠다).
+# 4. 자동 보안 업데이트를 켠다(Ubuntu 기본값과 같은 설정을 확실히 적어 둔다). 커널 업데이트 뒤 재부팅은 자동으로 하지 않는다.
 cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
