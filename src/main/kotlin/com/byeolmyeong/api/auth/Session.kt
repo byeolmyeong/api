@@ -12,6 +12,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import java.util.UUID
 
 private const val OWNER_ATTRIBUTE = "byeolmyeong.ownerId"
+private const val TOKEN_ATTRIBUTE = "byeolmyeong.sessionToken"
 private const val BEARER = "Bearer "
 
 /** 로그인 전에 쓰는 곳. 여기 없는 경로는 모두 세션이 있어야 한다(새 엔드포인트는 기본이 "세션 필요"다). */
@@ -36,6 +37,11 @@ class CurrentOwner(private val request: HttpServletRequest) {
 	fun id(): UUID = checkNotNull(request.getAttribute(OWNER_ATTRIBUTE) as UUID?) {
 		"세션 검사를 거치지 않은 경로에서 소유자를 물었다"
 	}
+
+	/** 이 요청의 세션 토큰(로그아웃이 그 세션을 지울 때). 로그에 남기지 않는다. */
+	fun sessionToken(): String = checkNotNull(request.getAttribute(TOKEN_ATTRIBUTE) as String?) {
+		"세션 검사를 거치지 않은 경로에서 세션 토큰을 물었다"
+	}
 }
 
 /**
@@ -49,10 +55,11 @@ class SessionInterceptor(private val auth: AuthService) : HandlerInterceptor {
 		// 브라우저가 본 요청 전에 묻는 요청에는 세션 헤더가 없다. 허용 여부는 CORS 설정이 답한다.
 		if (CorsUtils.isPreFlightRequest(request)) return true
 		if (request.method == "GET" && request.requestURI in PUBLIC_GET_PATHS) return true
-		val header = request.getHeader("Authorization")
-		val owner = header?.takeIf { it.startsWith(BEARER) }?.removePrefix(BEARER)?.let(auth::ownerOf)
+		val token = request.getHeader("Authorization")?.takeIf { it.startsWith(BEARER) }?.removePrefix(BEARER)
+		val owner = token?.let(auth::ownerOf)
 		if (owner != null) {
 			request.setAttribute(OWNER_ATTRIBUTE, owner)
+			request.setAttribute(TOKEN_ATTRIBUTE, token)
 			return true
 		}
 		response.status = 401

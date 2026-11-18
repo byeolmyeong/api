@@ -28,6 +28,7 @@ class AuthService(
 	private val sessions: SessionRepository,
 	private val events: ApplicationEventPublisher,
 	@Value("\${byeolmyeong.auth.dev-enabled}") private val devEnabled: Boolean,
+	@Value("\${byeolmyeong.auth.session-days}") private val sessionDays: Int,
 ) {
 	private val random = SecureRandom()
 
@@ -40,8 +41,13 @@ class AuthService(
 		return token
 	}
 
-	/** 토큰의 주인. 토큰이 없는 것이거나 계정이 지워졌으면 null. */
-	fun ownerOf(token: String): UUID? = sessions.findAccountId(hash(token))
+	/** 토큰의 주인. 토큰이 없는 것이거나 계정이 지워졌거나 마지막 사용 후 [sessionDays]일이 지났으면 null(결정 020). */
+	fun ownerOf(token: String): UUID? = sessions.use(hash(token), sessionDays)
+
+	/** 로그아웃. 이 세션만 지운다(다른 기기의 세션은 그대로). */
+	fun logout(token: String) {
+		sessions.delete(hash(token))
+	}
 
 	/** 계정과 그 사람의 모든 행(세션·출생 정보·뒤에 생기는 글)을 지운다. 감사 기록만 남는다. */
 	fun deleteAccount(ownerId: UUID) {
@@ -88,6 +94,31 @@ class SessionRepository(private val jdbc: JdbcTemplate) {
 		jdbc.update("insert into sessions (token_hash, account_id) values (?, ?)", tokenHash, accountId)
 	}
 
-	fun findAccountId(tokenHash: String): UUID? =
-		jdbc.queryForList("select account_id from sessions where token_hash = ?", UUID::class.java, tokenHash).firstOrNull()
+	/**
+	 * 살아 있는 세션의 계정. 마지막 사용 후 [days]일이 지났으면 그 행을 지우고 null.
+	 * 마지막 사용이 하루 넘게 지났을 때만 지금으로 고쳐 쓴다(요청마다 쓰지 않게).
+	 */
+	fun use(tokenHash: String, days: Int): UUID? {
+		val row = jdbc.query(
+			"""
+			select account_id,
+			       last_used_at < now() - make_interval(days => ?) as expired,
+			       last_used_at < now() - interval '1 day' as stale
+			from sessions where token_hash = ?
+			""".trimIndent(),
+			{ rs, _ -> Triple(rs.getObject("account_id", UUID::class.java), rs.getBoolean("expired"), rs.getBoolean("stale")) },
+			days, tokenHash,
+		).firstOrNull() ?: return null
+		val (accountId, expired, stale) = row
+		if (expired) {
+			delete(tokenHash)
+			return null
+		}
+		if (stale) jdbc.update("update sessions set last_used_at = now() where token_hash = ?", tokenHash)
+		return accountId
+	}
+
+	fun delete(tokenHash: String) {
+		jdbc.update("delete from sessions where token_hash = ?", tokenHash)
+	}
 }
