@@ -13,7 +13,7 @@ usage() { echo "사용법: $0 <덤프 파일> [--into-live]" >&2; exit 2; }
 
 DUMP="${1:-}"
 TARGET="${2:-check}"
-[ -n "$DUMP" ] && [ -f "$DUMP" ] || usage
+if [ -z "$DUMP" ] || [ ! -f "$DUMP" ]; then usage; fi
 case "$TARGET" in check | --into-live) ;; *) usage ;; esac
 
 # public 스키마의 표마다 정확한 행 수를 "표|행 수" 로 출력한다.

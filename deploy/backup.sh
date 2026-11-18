@@ -28,7 +28,7 @@ mv "$PART" "backups/$NAME"
 BYTES="$(wc -c < "backups/$NAME" | tr -d ' ')"
 
 # 이름에 시각이 들어 있어 이름순이 곧 시간순이다. 새것부터 KEEP 개를 남긴다.
-ls -1 backups/byeolmyeong-*.dump | sort -r | tail -n +$((KEEP + 1)) | while read -r old; do rm -f "$old"; done
+find backups -maxdepth 1 -name 'byeolmyeong-*.dump' | sort -r | tail -n +$((KEEP + 1)) | while read -r old; do rm -f "$old"; done
 
 # 사전 인증 URL(끝이 /o/)에 객체 이름을 붙여 PUT 한다. curl 의 오류 문장은 버리고 종료 코드만 남긴다(URL 이 섞일 수 있다).
 code=0
