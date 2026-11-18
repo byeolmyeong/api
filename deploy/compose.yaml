@@ -1,0 +1,68 @@
+# 스테이징·운영 VM 의 구성(결정 020). VM 의 /opt/byeolmyeong 에서 `docker compose up -d` 로 띄운다.
+# 값은 같은 디렉터리의 .env 에서 읽는다(이름은 deploy/.env.example). .env 는 VM 에만 있고 저장소에 올리지 않는다.
+# 로컬 개발용 DB 는 저장소 루트의 compose.yaml 이다. 이 파일과 섞지 않는다.
+name: byeolmyeong
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: byeolmyeong
+      POSTGRES_USER: ${DATABASE_USERNAME:?DATABASE_USERNAME 이 .env 에 없다}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD 가 .env 에 없다}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d byeolmyeong"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # 호스트 포트를 열지 않는다. 서버만 compose 내부망으로 접속한다.
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    image: eclipse-temurin:21-jre
+    # 작업 디렉터리에는 app.jar 만 둔다. 서버는 작업 디렉터리의 .env 를 읽으므로(application.properties) 값은 env_file 로만 넘긴다.
+    working_dir: /app
+    command: ["java", "-jar", "/app/app.jar"]
+    # 파일 하나를 붙이면 컨테이너를 만들 때의 파일을 계속 본다. jar 를 바꾸면 이 서비스를 다시 만든다(배포 워크플로가 한다).
+    volumes:
+      - ./app.jar:/app/app.jar:ro
+    env_file: .env
+    environment:
+      # Caddy 뒤에서 연결 상대는 늘 Caddy 다. Caddy 가 넣는 X-Forwarded-For 의 주소를 요청 주소로 써야
+      # 주소별 요청 속도 제한·관리자 로그인 제한이 사용자마다 따로 센다(web/RateLimitConfig.kt).
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS 가 .env 에 없다}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

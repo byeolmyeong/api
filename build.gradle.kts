@@ -52,6 +52,11 @@ kotlin {
 	}
 }
 
+// 배포물 이름을 고정한다. 배포 VM 의 compose 가 app.jar 를 읽는다(deploy/compose.yaml, 결정 020).
+tasks.bootJar {
+	archiveFileName = "app.jar"
+}
+
 tasks.withType<Test> {
 	useJUnitPlatform()
 }
