@@ -5,12 +5,14 @@ import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.KeySourceException
 import com.nimbusds.jose.jwk.source.JWKSource
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder
+import com.nimbusds.jose.jwk.source.RateLimitReachedException
 import com.nimbusds.jose.proc.BadJOSEException
 import com.nimbusds.jose.proc.JWSVerificationKeySelector
 import com.nimbusds.jose.proc.SecurityContext
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier
 import com.nimbusds.jwt.proc.DefaultJWTProcessor
+import com.nimbusds.jose.util.DefaultResourceRetriever
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
@@ -74,6 +76,9 @@ private class JwksTokenVerifier(
 	override fun verify(idToken: String): ProviderIdentity {
 		val claims = try {
 			processor.process(idToken, null)
+		} catch (_: RateLimitReachedException) {
+			// 모르는 kid 로 키를 다시 받으려다 한도(30초에 한 번)에 걸렸다. 공급자가 아니라 토큰이 틀린 것으로 본다.
+			throw InvalidIdTokenException()
 		} catch (e: KeySourceException) {
 			throw ProviderUnavailableException(e)
 		} catch (_: ParseException) {
@@ -85,6 +90,8 @@ private class JwksTokenVerifier(
 		}
 		if (claims.issuer !in issuers) throw InvalidIdTokenException()
 		val audience = claims.audience.firstOrNull { it in audiences } ?: throw InvalidIdTokenException()
+		// 대상이 여럿이면 누구에게 발급했는지(azp)가 우리여야 한다(OpenID Connect Core 3.1.3.7).
+		if (claims.audience.size > 1 && claims.getStringClaim("azp") !in audiences) throw InvalidIdTokenException()
 		val subject = claims.subject?.takeIf { it.isNotBlank() } ?: throw InvalidIdTokenException()
 		return ProviderIdentity(provider, subject, audience)
 	}
@@ -124,5 +131,7 @@ class ProviderTokenConfig {
 		@Qualifier("kakaoKeys") keys: JWKSource<SecurityContext>,
 	): ProviderTokenVerifier = providerTokenVerifier(Provider.KAKAO, audiences, keys)
 
-	private fun remote(url: String): JWKSource<SecurityContext> = JWKSourceBuilder.create<SecurityContext>(URI(url).toURL()).build()
+	// 기본 타임아웃(0.5초)은 짧아 502 가 잦을 수 있다. 연결 2초 · 읽기 3초, 크기 한도는 기본(50KB).
+	private fun remote(url: String): JWKSource<SecurityContext> =
+		JWKSourceBuilder.create<SecurityContext>(URI(url).toURL(), DefaultResourceRetriever(2_000, 3_000, 50 * 1024)).build()
 }

@@ -40,7 +40,8 @@ private fun appleIdToken(sub: String): String = SignedJWT(
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-	properties = ["byeolmyeong.auth.apple.client-ids=$BUNDLE"],
+	// 한 주소(localhost)에서 로그인을 많이 부른다. 한도는 AuthRateLimitIntegrationTest 가 본다.
+	properties = ["byeolmyeong.auth.apple.client-ids=$BUNDLE", "byeolmyeong.rate-limit.auth-per-minute=10000"],
 )
 class AppleAccountIntegrationTest {
 
@@ -59,6 +60,7 @@ class AppleAccountIntegrationTest {
 	companion object {
 		val revoked = CopyOnWriteArrayList<Pair<String, String>>()
 		var revokeResult = true
+		var revokeThrows = false
 
 		@JvmStatic
 		fun testKeys(): JWKSource<SecurityContext> = ImmutableJWKSet(JWKSet(APPLE_TEST_KEY.toPublicJWK()))
@@ -71,13 +73,15 @@ class AppleAccountIntegrationTest {
 
 			override fun revoke(refreshToken: String, clientId: String): Boolean {
 				revoked += refreshToken to clientId
+				if (revokeThrows) throw IllegalStateException("서명 실패 같은 예상 밖 오류")
 				return revokeResult
 			}
 
+			/** "종류|사용자" 또는 "종류|사용자|일어난 때(초)" */
 			override fun notification(payload: String): AppleEvent {
 				val parts = payload.split("|")
-				if (parts.size != 2) throw InvalidNotificationException()
-				return AppleEvent(parts[0], parts[1])
+				if (parts.size !in 2..3) throw InvalidNotificationException()
+				return AppleEvent(parts[0], parts[1], parts.getOrNull(2)?.let { Instant.ofEpochSecond(it.toLong()) })
 			}
 		}
 	}
@@ -90,6 +94,7 @@ class AppleAccountIntegrationTest {
 		jdbc.update("delete from accounts")
 		revoked.clear()
 		revokeResult = true
+		revokeThrows = false
 	}
 
 	private fun count(table: String): Int = jdbc.queryForObject("select count(*) from $table", Int::class.java)!!
@@ -143,6 +148,14 @@ class AppleAccountIntegrationTest {
 	}
 
 	@Test
+	fun `철회가 예상 밖 오류로 터져도 계정은 지운다`() {
+		signUp("a9", "good1")
+		revokeThrows = true
+		assertEquals(204, http(port, "DELETE", "/account", token = sessionToken("a9")).statusCode())
+		assertEquals(0, count("accounts"))
+	}
+
+	@Test
 	fun `만 14세 미만으로 가입을 못 하면 받아 둔 애플 토큰도 철회한다`() {
 		assertEquals(403, signUp("kid", "good1", date = Instant.now().toString().take(10)))
 		assertEquals(listOf("refresh-good1" to BUNDLE), revoked.toList())
@@ -163,10 +176,29 @@ class AppleAccountIntegrationTest {
 	}
 
 	@Test
+	fun `사용 중단 알림이 늦게 다시 와도 그 뒤에 로그인한 세션은 남긴다`() {
+		signUp("a10", null)
+		val before = sessionToken("a10")
+		jdbc.update("update sessions set created_at = now() - interval '2 hours'")
+		val after = sessionToken("a10")
+		val oneHourAgo = Instant.now().minusSeconds(3600).epochSecond
+
+		assertEquals(200, notify("consent-revoked|a10|$oneHourAgo").statusCode())
+
+		assertEquals(401, http(port, "GET", "/auth/session", token = before).statusCode(), "알림보다 먼저 생긴 세션은 지운다")
+		assertEquals(204, http(port, "GET", "/auth/session", token = after).statusCode(), "알림 뒤에 생긴 세션은 남긴다")
+	}
+
+	@Test
 	fun `애플 계정 삭제 알림이면 계정을 지운다 — 같은 알림이 또 와도 200 이다`() {
 		signUp("a7", "good1")
 		assertEquals(200, notify("account-deleted|a7").statusCode())
 		assertEquals(0, count("accounts"))
+		assertEquals(
+			"SYSTEM",
+			jdbc.queryForObject("select actor_type from audit_logs where action = 'ACCOUNT_DELETED' order by occurred_at desc limit 1", String::class.java),
+			"사용자가 아니라 서버가 지운 것이다",
+		)
 		assertEquals(200, notify("account-deleted|a7").statusCode())
 		assertEquals(200, notify("account-delete|nobody").statusCode())
 	}

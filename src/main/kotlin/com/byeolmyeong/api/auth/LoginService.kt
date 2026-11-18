@@ -121,22 +121,26 @@ class LoginService(
 		if (!tickets.isValid(hash)) throw SignupExpiredException()
 		val parsed = birthParser.parse(birth)
 		if (!isAtLeast14(parsed.date, koreaToday())) {
-			// 계정을 만들지 않으므로 받아 둔 애플 토큰도 철회한다.
-			tickets.consume(hash)?.appleToken?.let { apple.revoke(it.refreshToken, it.clientId) }
+			// 계정을 만들지 않으므로 받아 둔 애플 토큰도 철회한다. 철회가 터져도 403 으로 답한다.
+			val appleToken = tickets.consume(hash)?.appleToken
+			if (appleToken != null) runCatching { apple.revoke(appleToken.refreshToken, appleToken.clientId) }
 			throw UnderAgeException()
 		}
 		val profile = BirthProfile(parsed.date, parsed.time, parsed.place?.id)
-		val (accountId, session) = checkNotNull(
+		val (accountId, session, created) = checkNotNull(
 			tx.execute {
 				val ticket = tickets.consume(hash) ?: throw SignupExpiredException()
-				val accountId = accounts.findOrCreate(ticket.identity.provider.name, ticket.identity.subject)
-				birthProfiles.save(accountId, profile)
+				val (provider, subject) = ticket.identity.provider.name to ticket.identity.subject
+				// 남은 가입권으로 다시 와도 이미 있는 계정의 출생 정보는 바꾸지 않는다(세션만 준다).
+				val existing = accounts.find(provider, subject)
+				val accountId = existing ?: accounts.findOrCreate(provider, subject)
+				if (existing == null) birthProfiles.save(accountId, profile)
 				ticket.appleToken?.let { appleTokens.save(accountId, it) }
-				accountId to auth.issueSession(accountId)
+				Triple(accountId, auth.issueSession(accountId), existing == null)
 			},
 		)
 		events.publishEvent(AuditEvent(AuditAction.USER_LOGIN, AuditActor.user(accountId)))
-		events.publishEvent(AuditEvent(AuditAction.PROFILE_SAVED, AuditActor.user(accountId), detail = mapOf("change" to "CREATED")))
+		if (created) events.publishEvent(AuditEvent(AuditAction.PROFILE_SAVED, AuditActor.user(accountId), detail = mapOf("change" to "CREATED")))
 		return session
 	}
 }

@@ -6,6 +6,7 @@ import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.KeySourceException
 import com.nimbusds.jose.crypto.ECDSASigner
 import com.nimbusds.jose.jwk.source.JWKSource
+import com.nimbusds.jose.jwk.source.RateLimitReachedException
 import com.nimbusds.jose.proc.BadJOSEException
 import com.nimbusds.jose.proc.JWSVerificationKeySelector
 import com.nimbusds.jose.proc.SecurityContext
@@ -38,8 +39,8 @@ private const val APPLE_ISSUER = "https://appleid.apple.com"
 /** client_secret 의 수명. 부를 때마다 새로 만든다(애플은 최대 6개월까지 받는다). */
 private val CLIENT_SECRET_TTL = Duration.ofMinutes(5)
 
-/** 애플 서버 알림 하나. [type] 은 `consent-revoked` · `account-deleted` · `email-enabled` · `email-disabled` 등이다. */
-data class AppleEvent(val type: String, val subject: String)
+/** 애플 서버 알림 하나. [type] 은 `consent-revoked` · `account-deleted` · `email-enabled` · `email-disabled` 등이고 [eventTime] 은 일어난 때(없으면 null)다. */
+data class AppleEvent(val type: String, val subject: String, val eventTime: Instant? = null)
 
 /** 애플 서버 알림이 아니다(서명 · 발급자 · 대상 · 모양). 400 `INVALID_NOTIFICATION`. */
 class InvalidNotificationException : RuntimeException("INVALID_NOTIFICATION")
@@ -115,7 +116,10 @@ class AppleSignInClient(
 	}
 
 	override fun revoke(refreshToken: String, clientId: String): Boolean {
-		val form = form(clientId) ?: return false
+		val form = form(clientId) ?: run {
+			log.warn("event=apple_revoke_failed reason=NotConfigured")
+			return false
+		}
 		form.add("token", refreshToken)
 		form.add("token_type_hint", "refresh_token")
 		return try {
@@ -130,6 +134,8 @@ class AppleSignInClient(
 	override fun notification(payload: String): AppleEvent {
 		val claims = try {
 			notifications.process(payload, null)
+		} catch (_: RateLimitReachedException) {
+			throw InvalidNotificationException()
 		} catch (e: KeySourceException) {
 			throw ProviderUnavailableException(e)
 		} catch (_: ParseException) {
@@ -152,7 +158,8 @@ class AppleSignInClient(
 		} ?: throw InvalidNotificationException()
 		val type = events.path("type").asString(null)?.takeIf { it.isNotBlank() } ?: throw InvalidNotificationException()
 		val subject = events.path("sub").asString(null)?.takeIf { it.isNotBlank() } ?: throw InvalidNotificationException()
-		return AppleEvent(type, subject)
+		val eventTime = events.path("event_time").takeIf { it.isNumber }?.let { Instant.ofEpochSecond(it.asLong()) }
+		return AppleEvent(type, subject, eventTime)
 	}
 
 	/** client_id · client_secret 이 든 폼. 키가 없으면 null(애플을 부르지 않는다). */
@@ -180,11 +187,16 @@ class AppleSignInClient(
 
 	/** .p8 파일의 내용(PEM, PKCS#8). 환경 변수에 한 줄로 넣느라 줄바꿈이 `\n` 글자로 왔어도 읽는다. 없거나 틀리면 null. */
 	private fun parsePrivateKey(pem: String): ECPrivateKey? {
+		if (pem.isBlank()) return null
 		val base64 = pem.replace("\\n", "\n")
 			.lineSequence()
 			.filterNot { it.startsWith("-----") }
 			.joinToString("") { it.trim() }
-		if (base64.isEmpty()) return null
+		if (base64.isEmpty()) {
+			// 값은 있는데 키 본문이 없다. .env 에 여러 줄로 넣으면 첫 줄만 값이 된다(.env.example 의 안내).
+			log.warn("event=apple_private_key_invalid reason=Empty")
+			return null
+		}
 		return try {
 			KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(Base64.getDecoder().decode(base64))) as ECPrivateKey
 		} catch (e: Exception) {

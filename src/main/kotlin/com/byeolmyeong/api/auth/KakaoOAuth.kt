@@ -64,7 +64,8 @@ class KakaoOAuthClient(
 				.contentType(MediaType.APPLICATION_FORM_URLENCODED)
 				.body(form)
 				.retrieve()
-				.onStatus({ it.is4xxClientError }) { _, _ -> throw InvalidCodeException() }
+				// 코드가 틀리거나 썼으면 카카오는 400 이다. 401 · 403 은 우리 키 · 시크릿 설정 문제라 아래에서 502 가 된다.
+				.onStatus({ it.value() == 400 }) { _, _ -> throw InvalidCodeException() }
 				.body(String::class.java)
 		} catch (e: RestClientException) {
 			log.warn("event=kakao_token_failed reason={}", e.javaClass.simpleName)

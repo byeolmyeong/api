@@ -60,8 +60,10 @@ class AuthService(
 	 * 실패해도 계정은 지운다 — 사용자는 지웠다고 믿는다(클라이언트가 로그를 남긴다).
 	 */
 	fun deleteAccount(ownerId: UUID) {
-		appleTokens.find(ownerId)?.let { apple.revoke(it.refreshToken, it.clientId) }
-		accounts.identity(ownerId)?.takeIf { it.provider == Provider.KAKAO }?.let { kakao.unlink(it.subject) }
+		cleanUpProvider("apple_revoke_failed") { appleTokens.find(ownerId)?.let { apple.revoke(it.refreshToken, it.clientId) } }
+		cleanUpProvider("kakao_unlink_failed") {
+			accounts.identity(ownerId)?.takeIf { it.provider == Provider.KAKAO }?.let { kakao.unlink(it.subject) }
+		}
 		accounts.delete(ownerId)
 		// 감사 기록은 계정과 함께 지워지지 않는다(결정 015). 지운 뒤에도 "이 계정이 지워졌다" 가 남는다.
 		events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
@@ -77,12 +79,24 @@ class AuthService(
 		log.info("event=apple_notification type={}", event.type)
 		val accountId = accounts.find(Provider.APPLE.name, event.subject) ?: return
 		when (event.type) {
-			"consent-revoked" -> sessions.deleteAll(accountId)
+			// 알림보다 먼저 생긴 세션만 지운다 — 같은 알림이 늦게 다시 와도 그 뒤에 로그인한 세션은 남는다.
+			"consent-revoked" -> sessions.deleteAll(accountId, createdBefore = event.eventTime)
 			"account-deleted", "account-delete" -> {
-				// 애플 계정이 없어졌으니 철회는 부르지 않는다.
+				// 애플 계정이 없어졌으니 철회는 부르지 않는다. 사용자가 아니라 서버가 지운 것이다.
 				accounts.delete(accountId)
-				events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(accountId)))
+				events.publishEvent(
+					AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.SYSTEM, "ACCOUNT", accountId.toString(), detail = mapOf("reason" to "apple-account-deleted")),
+				)
 			}
+		}
+	}
+
+	/** 탈퇴 때 공급자 쪽 정리. 예상 밖 예외가 나도 계정 삭제는 계속한다(사용자는 지웠다고 믿는다). */
+	private inline fun cleanUpProvider(event: String, block: () -> Unit) {
+		try {
+			block()
+		} catch (e: Exception) {
+			log.warn("event={} reason={}", event, e.javaClass.simpleName)
 		}
 	}
 
@@ -169,7 +183,9 @@ class SessionRepository(private val jdbc: JdbcTemplate) {
 		jdbc.update("delete from sessions where token_hash = ?", tokenHash)
 	}
 
-	fun deleteAll(accountId: UUID) {
-		jdbc.update("delete from sessions where account_id = ?", accountId)
+	/** 그 계정의 세션을 지운다. [createdBefore] 가 있으면 그보다 먼저 생긴 것만. */
+	fun deleteAll(accountId: UUID, createdBefore: java.time.Instant? = null) {
+		if (createdBefore == null) jdbc.update("delete from sessions where account_id = ?", accountId)
+		else jdbc.update("delete from sessions where account_id = ? and created_at < ?", accountId, java.sql.Timestamp.from(createdBefore))
 	}
 }

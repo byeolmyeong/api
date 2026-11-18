@@ -108,6 +108,14 @@ class CookieSessionIntegrationTest {
 	}
 
 	@Test
+	fun `계정을 지우면 쿠키도 지운다`() {
+		val cookie = cookieLogin(port)
+		val response = http(port, "DELETE", "/account", null, null, "Cookie", "bm_session=$cookie", "Origin", APP)
+		assertEquals(204, response.statusCode())
+		assertTrue(assertNotNull(response.sessionSetCookie()).contains("Max-Age=0"))
+	}
+
+	@Test
 	fun `앱 경로는 자격 증명을 허용하고 관리자 경로는 허용하지 않는다`() {
 		val app = http(port, "OPTIONS", "/profile", null, null, "Origin", APP, "Access-Control-Request-Method", "PUT")
 		assertEquals("true", app.headers().firstValue("Access-Control-Allow-Credentials").orElse(null))

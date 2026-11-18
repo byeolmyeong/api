@@ -59,6 +59,8 @@ private fun google(sub: String) = idToken("https://accounts.google.com", GOOGLE_
 	properties = [
 		"byeolmyeong.auth.google.client-ids=$GOOGLE_AUD",
 		"byeolmyeong.auth.kakao.client-ids=$KAKAO_AUD",
+		// 한 주소(localhost)에서 로그인을 많이 부른다. 한도는 AuthRateLimitIntegrationTest 가 본다.
+		"byeolmyeong.rate-limit.auth-per-minute=10000",
 	],
 )
 class SocialLoginIntegrationTest {
@@ -218,6 +220,18 @@ class SocialLoginIntegrationTest {
 		assertEquals(listOf(201, 201), codes)
 		assertEquals(1, count("accounts"))
 		assertEquals(1, count("profiles"))
+	}
+
+	@Test
+	fun `남은 가입권으로 다시 가입해도 이미 있는 계정의 출생 정보를 바꾸지 않는다`() {
+		val first = signupToken("again")
+		val leftover = signupToken("again")
+		assertEquals(201, signup(first, adult()).statusCode())
+
+		val second = signup(leftover, adult().minusYears(5))
+		assertEquals(201, second.statusCode(), "세션은 준다")
+		assertEquals(adult(), jdbc.queryForObject("select birth_date from profiles", java.sql.Date::class.java)!!.toLocalDate())
+		assertEquals(1, jdbc.queryForObject("select count(*) from audit_logs where action = 'PROFILE_SAVED'", Int::class.java))
 	}
 
 	@Test

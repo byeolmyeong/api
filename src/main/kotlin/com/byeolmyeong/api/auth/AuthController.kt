@@ -91,10 +91,11 @@ class AuthController(
 		return ResponseEntity.noContent().build()
 	}
 
-	/** 계정 삭제. 세션의 주인만 지운다. */
+	/** 계정 삭제. 세션의 주인만 지운다. 웹의 쿠키도 지운다. */
 	@DeleteMapping("/account")
-	fun delete(): ResponseEntity<Void> {
+	fun delete(response: HttpServletResponse): ResponseEntity<Void> {
 		auth.deleteAccount(owner.id())
+		sessionCookie.clear(response)
 		return ResponseEntity.noContent().build()
 	}
 

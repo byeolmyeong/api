@@ -9,6 +9,7 @@ import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet
 import com.nimbusds.jose.jwk.source.JWKSource
+import com.nimbusds.jose.jwk.source.RateLimitReachedException
 import com.nimbusds.jose.proc.SecurityContext
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
@@ -29,7 +30,8 @@ class ProviderTokenVerifierTest {
 
 	private fun token(
 		iss: String,
-		aud: String = AUD,
+		aud: List<String> = listOf(AUD),
+		azp: String? = null,
 		sub: String? = "provider-user-1",
 		expiresAt: Instant = Instant.now().plusSeconds(600),
 		signingKey: RSAKey = key,
@@ -37,6 +39,7 @@ class ProviderTokenVerifierTest {
 		val claims = JWTClaimsSet.Builder()
 			.issuer(iss)
 			.audience(aud)
+			.apply { if (azp != null) claim("azp", azp) }
 			.apply { if (sub != null) subject(sub) }
 			.issueTime(Date.from(Instant.now().minusSeconds(10)))
 			.expirationTime(Date.from(expiresAt))
@@ -85,7 +88,7 @@ class ProviderTokenVerifierTest {
 	@Test
 	fun `대상이 우리 클라이언트 ID 가 아니면 401 이다`() {
 		assertFailsWith<InvalidIdTokenException> {
-			verifier(Provider.KAKAO).verify(token("https://kauth.kakao.com", aud = "someone-else"))
+			verifier(Provider.KAKAO).verify(token("https://kauth.kakao.com", aud = listOf("someone-else")))
 		}
 	}
 
@@ -99,6 +102,25 @@ class ProviderTokenVerifierTest {
 	fun `식별자가 없거나 모양이 JWT 가 아니면 401 이다`() {
 		assertFailsWith<InvalidIdTokenException> { verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", sub = null)) }
 		assertFailsWith<InvalidIdTokenException> { verifier(Provider.GOOGLE).verify("not-a-jwt") }
+	}
+
+	@Test
+	fun `대상이 여럿이면 azp 가 우리 클라이언트여야 한다`() {
+		assertFailsWith<InvalidIdTokenException> {
+			verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", aud = listOf("someone-else", AUD)))
+		}
+		assertFailsWith<InvalidIdTokenException> {
+			verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", aud = listOf("someone-else", AUD), azp = "someone-else"))
+		}
+		val ok = verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", aud = listOf("someone-else", AUD), azp = AUD))
+		assertEquals(AUD, ok.audience)
+	}
+
+	@Test
+	fun `처음 보는 키로 서명해 키 다시 받기 한도에 걸려도 502 가 아니라 401 이다`() {
+		// 실제 키 출처(JWKSourceBuilder)는 30초에 한 번만 다시 받고, 그 사이 모르는 kid 에는 RateLimitReachedException 을 던진다.
+		val limited = JWKSource<SecurityContext> { _, _ -> throw RateLimitReachedException() }
+		assertFailsWith<InvalidIdTokenException> { verifier(Provider.GOOGLE, limited).verify(token("https://accounts.google.com")) }
 	}
 
 	@Test

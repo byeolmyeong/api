@@ -11,12 +11,18 @@ import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet
+import com.nimbusds.jose.jwk.source.JWKSource
+import com.nimbusds.jose.jwk.source.RateLimitReachedException
+import com.nimbusds.jose.proc.SecurityContext
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import com.sun.net.httpserver.HttpServer
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.ExtendWith
+import org.springframework.boot.test.system.CapturedOutput
+import org.springframework.boot.test.system.OutputCaptureExtension
 import java.net.InetSocketAddress
 import java.net.URLDecoder
 import java.time.Instant
@@ -69,11 +75,8 @@ class AppleSignInClientTest {
 	@AfterEach
 	fun stop() = server.stop(0)
 
-	private fun client(privateKey: String = pem) = AppleSignInClient(
-		TEAM, KEY_ID, privateKey, listOf(BUNDLE, "com.byeolmyeong.web"),
-		"http://localhost:${server.address.port}",
-		ImmutableJWKSet(JWKSet(appleKey.toPublicJWK())),
-	)
+	private fun client(privateKey: String = pem, keys: JWKSource<SecurityContext> = ImmutableJWKSet(JWKSet(appleKey.toPublicJWK()))) =
+		AppleSignInClient(TEAM, KEY_ID, privateKey, listOf(BUNDLE, "com.byeolmyeong.web"), "http://localhost:${server.address.port}", keys)
 
 	private fun assertClientSecret(secret: String, clientId: String) {
 		val jwt = SignedJWT.parse(secret)
@@ -145,12 +148,33 @@ class AppleSignInClientTest {
 		).apply { sign(RSASSASigner(key)) }.serialize()
 
 	@Test
-	fun `서버 알림을 확인하고 종류와 사용자를 꺼낸다`() {
-		val asObject = mapOf("type" to "consent-revoked", "sub" to "apple-user", "event_time" to 1)
-		assertEquals(AppleEvent("consent-revoked", "apple-user"), client().notification(notification(asObject)))
-		// 실제 알림에는 events 가 JSON 글자로 오는 경우가 있다.
-		val asString = """{"type":"account-deleted","sub":"apple-user","event_time":1}"""
-		assertEquals(AppleEvent("account-deleted", "apple-user"), client().notification(notification(asString)))
+	fun `서버 알림을 확인하고 종류 · 사용자 · 일어난 때를 꺼낸다`() {
+		val asObject = mapOf("type" to "consent-revoked", "sub" to "apple-user", "event_time" to 1508184845)
+		assertEquals(
+			AppleEvent("consent-revoked", "apple-user", Instant.ofEpochSecond(1508184845)),
+			client().notification(notification(asObject)),
+		)
+		// 실제 알림에는 events 가 JSON 글자로 오는 경우가 있다. event_time 이 없으면 null 이다.
+		val asString = """{"type":"account-deleted","sub":"apple-user"}"""
+		assertEquals(AppleEvent("account-deleted", "apple-user", null), client().notification(notification(asString)))
+	}
+
+	@Test
+	fun `키 다시 받기 한도에 걸린 알림은 502 가 아니라 400 이다`() {
+		val limited = JWKSource<SecurityContext> { _, _ -> throw RateLimitReachedException() }
+		assertFailsWith<InvalidNotificationException> {
+			client(keys = limited).notification(notification(mapOf("type" to "consent-revoked", "sub" to "apple-user")))
+		}
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension::class)
+	fun `키 값이 있는데 읽지 못하면 로그로 알리고, 철회를 못 하면 이유를 남긴다`(output: CapturedOutput) {
+		// .env 에 여러 줄로 넣으면 첫 줄만 값이 된다.
+		val firstLineOnly = client(privateKey = "-----BEGIN PRIVATE KEY-----")
+		assertTrue(output.all.contains("event=apple_private_key_invalid"), "읽지 못한 키를 알리지 않았다")
+		assertFalse(firstLineOnly.revoke("r", BUNDLE))
+		assertTrue(output.all.contains("event=apple_revoke_failed reason=NotConfigured"))
 	}
 
 	@Test

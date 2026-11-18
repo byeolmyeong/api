@@ -79,6 +79,13 @@ class KakaoOAuthClientTest {
 	}
 
 	@Test
+	fun `카카오가 400 이 아닌 4xx 면 우리 설정 문제라 502 로 알린다`() {
+		status = 401
+		responseBody = """{"error":"invalid_client","error_code":"KOE010"}"""
+		assertFailsWith<ProviderUnavailableException> { client().exchange("the-code", REDIRECT) }
+	}
+
+	@Test
 	fun `카카오가 500 이면 502 로 알린다`() {
 		status = 500
 		responseBody = "{}"
