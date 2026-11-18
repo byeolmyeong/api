@@ -4,7 +4,8 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    # develop 은 스테이징, main 은 운영으로 배포된다(결정 020). 배포는 이 워크플로가 통과한 커밋만 한다(deploy.yml).
+    branches: [main, develop]
 
 concurrency:
   group: ci-${{ github.ref }}

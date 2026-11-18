@@ -1,7 +1,7 @@
 # 배포(결정 020). 절차·되돌리기는 docs/deploy.md.
-# - main 에 합쳐지고 ci 가 통과하면 → 스테이징(그 커밋, bootJar 만)
-# - v* 태그를 달면 → 운영(그 커밋으로 빌드·테스트를 다시 돌린 뒤, 바꾸기 전에 DB 백업)
-# - 수동 실행(대상·ref) → 되돌리기나 다시 올리기
+# - develop 에 합쳐지고 ci 가 통과하면 → 스테이징(그 커밋)
+# - main 에 합쳐지고 ci 가 통과하면 → 운영(그 커밋, 바꾸기 전에 DB 백업). main 에 합치는 것이 "사람의 확인"이다
+# - 수동 실행(대상·ref) → 되돌리기나 다시 올리기(ci 를 거치지 않은 ref 일 수 있어 빌드·테스트를 다시 돌린다)
 # 저장소 변수 DEPLOY_ENABLED 가 true 일 때만 돈다. "배포 전 확인" 계획(docs/plans/2026-11-18-pre-deploy-hardening.md)이 끝나면 켠다.
 # 저장소 비밀값: STAGING_SSH_HOST·STAGING_SSH_KEY·STAGING_SSH_KNOWN_HOSTS·PROD_SSH_HOST·PROD_SSH_KEY·PROD_SSH_KNOWN_HOSTS
 # 저장소 변수: DEPLOY_ENABLED·STAGING_BASE_URL·PROD_BASE_URL (예: https://api-staging.byeolmyeong.com)
@@ -13,9 +13,7 @@ on:
   workflow_run:
     workflows: [ci]
     types: [completed]
-    branches: [main]
-  push:
-    tags: ["v*"]
+    branches: [develop, main]
   workflow_dispatch:
     inputs:
       target:
@@ -47,14 +45,15 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
           INPUT_TARGET: ${{ inputs.target }}
           INPUT_REF: ${{ inputs.ref }}
         run: |
-          case "$EVENT" in
-            workflow_run) target=staging; ref="$RUN_SHA" ;;
-            push) target=prod; ref="$GITHUB_SHA" ;;
-            workflow_dispatch) target="$INPUT_TARGET"; ref="$INPUT_REF" ;;
-            *) echo "모르는 이벤트: $EVENT" >&2; exit 1 ;;
+          case "$EVENT:$RUN_BRANCH" in
+            workflow_run:develop) target=staging; ref="$RUN_SHA" ;;
+            workflow_run:main) target=prod; ref="$RUN_SHA" ;;
+            workflow_dispatch:*) target="$INPUT_TARGET"; ref="$INPUT_REF" ;;
+            *) echo "배포하지 않는 이벤트·브랜치: $EVENT $RUN_BRANCH" >&2; exit 1 ;;
           esac
           echo "target=$target" >> "$GITHUB_OUTPUT"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
@@ -80,9 +79,12 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: 빌드 (운영은 테스트까지)
+      - name: 빌드 (수동 실행은 테스트까지)
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
-          if [ "$TARGET" = prod ]; then ./gradlew build; else ./gradlew bootJar; fi
+          # ci 를 통과한 커밋이면 jar 만 만든다. 수동 실행은 ci 를 거치지 않은 ref 일 수 있어 테스트까지 돌린다.
+          if [ "$EVENT" = workflow_dispatch ]; then ./gradlew build; else ./gradlew bootJar; fi
           test -f build/libs/app.jar
 
       - name: 접속 준비
