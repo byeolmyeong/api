@@ -24,10 +24,11 @@ import java.text.ParseException
 enum class Provider { DEV, GOOGLE, APPLE, KAKAO }
 
 /**
- * 공급자가 확인해 준 사용자. 계정에는 공급자와 식별자만 둔다(V2 — 이메일·이름은 받지 않는다).
+ * 공급자가 확인해 준 사용자. 계정에는 공급자 · 식별자 · 이메일을 둔다(결정 023 — 이름은 받지 않는다).
  * [audience] 는 토큰이 발급된 우리 클라이언트 ID(애플은 iOS 번들 ID 와 웹 Services ID 가 다르고, 토큰 교환·철회 때 같은 값을 써야 한다).
+ * [email] 은 토큰의 `email`(구글은 `email_verified` 가 참일 때만)을 다듬은 값이고, 없거나 모양이 틀리면 null 이다. 로그에 남기지 않는다.
  */
-data class ProviderIdentity(val provider: Provider, val subject: String, val audience: String? = null)
+data class ProviderIdentity(val provider: Provider, val subject: String, val audience: String? = null, val email: String? = null)
 
 /** 공급자 ID 토큰이 틀렸다(서명·발급자·대상·만료·모양). 401 `INVALID_ID_TOKEN`. 토큰은 메시지에 넣지 않는다. */
 class InvalidIdTokenException : RuntimeException("INVALID_ID_TOKEN")
@@ -55,6 +56,14 @@ private val ISSUERS = mapOf(
 private const val GOOGLE_KEYS = "https://www.googleapis.com/oauth2/v3/certs"
 private const val APPLE_KEYS = "https://appleid.apple.com/auth/keys"
 private const val KAKAO_KEYS = "https://kauth.kakao.com/.well-known/jwks.json"
+
+/** 이메일을 저장할 모양으로: 앞뒤 공백을 떼고 소문자, 320자 이하, `@` 가 하나이고 앞뒤가 비지 않아야 한다. 아니면 null. */
+fun normalizeEmail(raw: String?): String? {
+	val email = raw?.trim()?.lowercase() ?: return null
+	val parts = email.split('@')
+	if (email.length > 320 || parts.size != 2 || parts[0].isEmpty() || parts[1].isEmpty()) return null
+	return email
+}
 
 /** [provider] 의 발급자로 확인하는 검증기. [audiences] 는 우리 앱의 클라이언트 ID 목록이고 빈 값은 버린다(비면 아무것도 통과하지 않는다). */
 fun providerTokenVerifier(provider: Provider, audiences: List<String>, keys: JWKSource<SecurityContext>): ProviderTokenVerifier =
@@ -93,7 +102,13 @@ private class JwksTokenVerifier(
 		// 대상이 여럿이면 누구에게 발급했는지(azp)가 우리여야 한다(OpenID Connect Core 3.1.3.7).
 		if (claims.audience.size > 1 && claims.getStringClaim("azp") !in audiences) throw InvalidIdTokenException()
 		val subject = claims.subject?.takeIf { it.isNotBlank() } ?: throw InvalidIdTokenException()
-		return ProviderIdentity(provider, subject, audience)
+		return ProviderIdentity(provider, subject, audience, emailOf(claims))
+	}
+
+	/** 구글은 확인된 이메일만 받는다(`email_verified`). 애플 · 카카오는 공급자가 확인한 값으로 본다(결정 023). */
+	private fun emailOf(claims: JWTClaimsSet): String? {
+		if (provider == Provider.GOOGLE && claims.getClaim("email_verified") != true) return null
+		return normalizeEmail(claims.getClaim("email") as? String)
 	}
 }
 
