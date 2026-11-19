@@ -3,7 +3,7 @@ type: decision
 tags: [배포 환경, 개발용 로그인, 안전장치, 요청 속도 제한, 생성, 동시 요청]
 status: active
 last_reviewed: 2026-11-19
-superseded_by:
+superseded_by: 023-generation-limit-counts-model-calls (3번의 '저장본을 돌려준 요청도 센다'만)
 ---
 # 022. 배포 환경 이름으로 운영의 개발용 로그인을 막고, 생성 기능은 계정별로 속도를 제한한다
 
