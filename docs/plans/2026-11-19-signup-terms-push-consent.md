@@ -1,0 +1,90 @@
+---
+type: plan
+status: proposed
+tags: [약관 동의, 푸시 수신 동의, 가입, 계정]
+last_reviewed: 2026-11-19
+---
+# 가입 때 약관 동의 기록 · 푸시 수신 동의 — 서버
+
+> 상태: 제안 · 기준 2026-11-19 · 앱 계획 `../byeolmyeong-app/docs/plans/2026-11-19-onboarding-design.md`(앱 저장소 `docs/onboarding-design` 브랜치)의 서버 쪽 · 시안: 피그마 https://www.figma.com/design/PNrWFsXHhF8crQkLA3SYBn 보드 "6 약관 동의"
+
+## 목표
+- 무엇을: 가입할 때 필수 약관 두 개(이용약관 · 개인정보 수집 · 이용)에 동의한 **버전과 시각**을 계정에 남기고, 선택 항목 "푸시 알림 받기" 의 동의 여부와 시각을 남긴다. 푸시 동의는 마이에서 바꿀 수 있다.
+- 누구를 위해: 약관 동의를 증명해야 하는 소유자, 알림을 끄고 켜는 사용자.
+- 끝나면: 새 계정마다 `terms_version` · `terms_agreed_at` · `privacy_version` · `privacy_agreed_at` 이 있고, 푸시 동의는 일시로 남는다. 약관에 동의하지 않은 가입은 서버가 막는다.
+
+## 결정된 전제
+- 결정 021(가입권 2단계 · 쿠키), 024(이메일 필수 — PR #19), **025(닉네임 · 마케팅 동의 — 서버 세션 `feat/account-nickname-consent`, V20)**. 이 계획은 025 위에 얹는다.
+- 마케팅 수신 동의(`marketingConsent` · `marketing_consented_at`)는 025 가 이미 맡는다. 여기서 다시 만들지 않는다.
+- 소유자(2026-11-19): 약관 단계는 닉네임보다 먼저, 필수 2 · 선택 2(푸시 알림 받기 · 마케팅 정보 수신). 야간(21~08시) 광고는 보내지 않으므로 야간 동의는 받지 않는다.
+
+## 이 계획을 누가 하나 (추천)
+- 서버 세션의 `feat/account-nickname-consent` 가 아직 develop 에 들어가지 않았으면 **그 브랜치의 V20 · 결정 025 에 함께 넣는 것**을 추천한다(마이그레이션 하나, `POST /auth/signup` 계약을 한 번만 바꾼다). 이미 들어갔으면 결정 026 · `V21` 로 따로 한다.
+
+## 내 결정 (묻지 않고 고른 기본값)
+- 약관 버전은 서버 설정 한 곳: `byeolmyeong.legal.terms-version` · `byeolmyeong.legal.privacy-version`(문자열, 예: `2026-11-19`). 앱은 보여 준 버전을 보낸다. 서버의 지금 버전과 **같아야** 받는다. 다르거나 없으면 400 `TERMS_REQUIRED`(가입권은 쓰지 않는다 — 앱이 약관 단계로 돌아가 다시 보낸다).
+- 동의 시각은 서버 시각(`now`)이다. 앱이 보낸 시각은 받지 않는다.
+- 푸시 동의는 `accounts.push_consented_at timestamptz`(null = 동의 안 함). 운영체제 알림 권한 · 기기 토큰은 이 계획에 없다(푸시 기능 계획에서). 마케팅 푸시는 025 의 마케팅 동의가 함께 있어야 보낸다(발송 계획에서 지킨다).
+- 감사 기록: 가입 때 `TERMS_AGREED`(약관 · 처리방침 버전만), 푸시 동의가 바뀔 때 `PUSH_CONSENT_CHANGED`(켬/끔만). 이메일 · 닉네임은 넣지 않는다.
+- 옛 계정(약관 칸이 빈 계정)은 로그인을 막지 않는다. 다시 동의받기는 약관 개정 계획에서.
+
+## 범위 밖
+- 약관 개정 때 다시 동의받기 · 재동의 화면. 푸시 발송 · 기기 토큰 · 운영체제 권한. 마케팅 동의(025). 관리 화면에 동의 기록 보이기.
+
+## 전역 제약
+- Spring Boot 4.1 · Kotlin · JVM 21 · Flyway. 마이그레이션은 더하기만, 모두 null 허용(옛 계정 때문에).
+- 계약을 바꾸면 `docs/architecture.md` 의 계약 표를 같은 커밋에서 고친다(CLAUDE.md 규칙).
+- 오류 이름: `TERMS_REQUIRED`(400). 기존 `INVALID_NICKNAME`(025) · `UNDER_AGE`(403) · `SIGNUP_EXPIRED`(401)와 판정 순서: 가입권 → 약관 → 닉네임 → 출생 정보 → 만 14세.
+
+## 태스크
+
+### 1. adr-terms-push · 상태: 대기
+- 읽을 것: 결정 021 · 024 · 025(서버 세션 브랜치), 이 계획 "내 결정"
+- 할 것: 025 가 아직 안 합쳐졌으면 025 에 "약관 버전 · 푸시 동의" 절을 더한다. 합쳐졌으면 `docs/decisions/026-terms-push-consent.md`(번호는 develop 과 원격 브랜치를 모두 훑어 빈 것)
+- 주는 것: 결정 번호
+- 하지 말 것: 합쳐진 결정의 본문을 고쳐 쓰지 않는다. 이유: 대체 표시만 한다(골든 룰).
+- 검증: `ls docs/decisions | cut -c1-3 | sort | uniq -d` → 비어 있음
+
+### 2. migration · 상태: 대기
+- 할 것: `accounts.terms_version text` · `accounts.terms_agreed_at timestamptz` · `accounts.privacy_version text` · `accounts.privacy_agreed_at timestamptz` · `accounts.push_consented_at timestamptz`. 025 와 함께면 V20 에, 아니면 `V21__terms_push_consent.sql`.
+- 하지 말 것: 기존 행을 채우지 않는다(backfill 없음). 이유: 옛 계정은 동의한 버전을 모른다.
+- 검증: 마이그레이션이 깨끗한 DB 와 V19/V20 DB 양쪽에서 돈다(Testcontainers 통합 테스트가 Flyway 를 탄다)
+
+### 3. signup-terms · 상태: 대기
+- 읽을 것: `auth/AuthController.kt`(`SignupRequest`), `auth/LoginService.kt`(`signup`), 계약 표 `POST /auth/signup`
+- 할 것: `SignupRequest` 에 `termsVersion: String?` · `privacyVersion: String?` · `pushConsent: Boolean?`(기본 false). 지금 버전과 다르거나 없으면 400 `TERMS_REQUIRED`, 가입권은 그대로. 맞으면 계정 · 출생 정보 · 닉네임(025)과 같은 트랜잭션에 버전 · 시각 · 푸시 동의 시각을 저장하고 `TERMS_AGREED` 감사 기록. 계약 표 같은 커밋.
+- 주는 것: 계약 `POST /auth/signup { …, termsVersion, privacyVersion, pushConsent? }`
+- 하지 말 것: 앱이 보낸 시각을 저장하지 않는다. 이유: 동의 시각은 서버가 증명한다.
+- 검증: 빨강 → 초록. 버전 없음 · 옛 버전 → 400 `TERMS_REQUIRED` 이고 가입권 남음(같은 가입권으로 다시 보내 201), 맞으면 네 칸이 채워짐, `pushConsent` true 면 일시 · false/없음이면 null, 감사 기록에 버전만
+
+### 4. account-push · 상태: 대기
+- 읽을 것: 025 의 `GET/PATCH /account`
+- 할 것: 응답에 `pushConsent: boolean` · `pushConsentAt: string | null`, `PATCH /account { pushConsent? }`. 같은 값이면 일시 그대로, 바뀔 때만 `PUSH_CONSENT_CHANGED`. 계약 표 같은 커밋.
+- 검증: 빨강 → 초록. 켜고 끄면 일시가 생기고 사라짐, 같은 값이면 그대로, 세션 없으면 401
+
+### 5. delete-account · 상태: 대기
+- 할 것: `DELETE /account` 뒤 그 계정의 약관 · 푸시 칸이 남지 않는지 테스트(계정 행과 함께 지워진다). 감사 기록은 결정 015 대로 남는다.
+- 검증: 탈퇴 뒤 해당 칸 0건
+
+### 6. notify-app · 상태: 대기
+- 할 것: 확정된 계약(`termsVersion` · `privacyVersion` · `pushConsent` · `TERMS_REQUIRED` · 계정 응답의 `pushConsent*`)과 지금 약관 버전 값을 앱 쪽에 한 줄로 알린다. 스테이징 배포는 앱 온보딩과 같은 날(서버가 약관 버전을 필수로 받으면 옛 가입 화면은 400).
+
+## 검증
+- `./gradlew build` 통과(서버 `/verify`). 새 테스트가 위 태스크 검증을 모두 덮는다.
+
+## 리뷰 초점
+1. 약관이 틀린 가입 요청이 가입권을 써 버리지 않는가 — 태스크 3 테스트.
+2. 남은 가입권으로 다시 와서 계정이 이미 있을 때 약관 시각을 덮어쓰지 않는가 — 태스크 3 에 테스트 추가.
+3. 설정의 약관 버전이 비었을 때 모든 가입이 막히는지(서버가 시작할 때 빈 값이면 실패하게) — 태스크 3.
+4. 감사 기록 · 로그에 이메일 · 닉네임이 들어가지 않는가 — 태스크 3 · 4.
+5. 푸시 동의를 켠 채 마케팅 동의 없이 마케팅 푸시가 나갈 길이 있는가(지금은 발송이 없으니 결정 문서에 규칙만) — 태스크 1.
+
+## 자동 반복
+- 없음(태스크마다 사람 확인 없이 테스트로 끝난다. 상한 3회 미달이면 멈춘다).
+
+## 위험 · 되돌리기
+- 약관 버전을 바꾸는 날 옛 앱의 가입이 400 이 된다. 약관 개정 계획에서 앱 업데이트 안내(`GET /app-config`)와 함께 바꾼다.
+- 되돌리기: 칸은 더하기만이라 코드만 되돌리면 된다.
+
+## 실행 기록
+(아직 없음)
