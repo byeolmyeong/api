@@ -1,12 +1,12 @@
 ---
 type: plan
-status: proposed
+status: approved
 tags: [약관 동의, 푸시 수신 동의, 가입, 계정]
 last_reviewed: 2026-11-19
 ---
 # 가입 때 약관 동의 기록 · 푸시 수신 동의 — 서버
 
-> 상태: 제안 · 기준 2026-11-19 · 앱 계획 `../byeolmyeong-app/docs/plans/2026-11-19-onboarding-design.md`(앱 저장소 `docs/onboarding-design` 브랜치)의 서버 쪽 · 시안: 피그마 https://www.figma.com/design/PNrWFsXHhF8crQkLA3SYBn 보드 "6 약관 동의"
+> 상태: 승인(소유자 2026-11-19 "바로 시작해") · 기준 2026-11-19 develop `872745a` · 앱 계획 `../byeolmyeong-app/docs/plans/2026-11-19-onboarding-design.md`(앱 저장소 `docs/onboarding-design` 브랜치)의 서버 쪽 · 시안: 피그마 https://www.figma.com/design/PNrWFsXHhF8crQkLA3SYBn 보드 "6 약관 동의"
 
 ## 목표
 - 무엇을: 가입할 때 필수 약관 두 개(이용약관 · 개인정보 수집 · 이용)에 동의한 **버전과 시각**을 계정에 남기고, 선택 항목 "푸시 알림 받기" 의 동의 여부와 시각을 남긴다. 푸시 동의는 마이에서 바꿀 수 있다.
