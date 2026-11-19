@@ -85,7 +85,8 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 ### 9. VM 의 `.env` 채우기 (소유자가 직접)
 - `ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<IP>`
 - `cp ~/.env.example /opt/byeolmyeong/.env && chmod 600 /opt/byeolmyeong/.env && nano /opt/byeolmyeong/.env`
-- 이름과 환경별 값의 모양은 `deploy/.env.example` 의 주석에 있다. **값이 빈 줄(`이름=`)을 남기지 않는다** — 빈 값이 서버의 기본값을 덮는다. 값에 따옴표·`$`·공백을 쓰지 않는다.
+- 이름과 환경별 값의 모양은 `deploy/.env.example` 의 주석에 있다. 기본값이 있는 이름(`CLAUDE_MODEL`·`AUTH_DEV_ENABLED`·`SESSION_COOKIE_SECURE` 등)은 **값이 빈 줄(`이름=`)로 남기지 않는다** — 빈 값이 서버의 기본값을 덮는다. 값에 따옴표·`$` 를 쓰지 않는다(공백·`\n` 은 그대로 넘어간다).
+- 소셜 로그인(결정 021) 값은 공급자 콘솔에서 받아 넣는다. 없으면 서버는 뜨고 그 공급자 로그인만 안 된다(스테이징은 개발용 로그인으로 쓸 수 있다). 공급자 콘솔에는 운영·스테이징 웹 주소를 둘 다 등록한다.
 - 비밀번호는 VM 마다 새로 만든다: `openssl rand -hex 24`. `DATABASE_USERNAME` 은 `postgres` 가 아닌 이름(예: `byeolmyeong_app`).
 - DB 최고 관리자 비밀번호는 `.env` 가 아니라 `db.env` 에 둔다(서버 컨테이너가 보지 않게): `cp ~/db.env.example /opt/byeolmyeong/db.env && chmod 600 /opt/byeolmyeong/db.env && nano /opt/byeolmyeong/db.env`
 - 운영 VM 만: 백업 업로드 URL 은 `.env` 가 아니라 `backup.env` 에 둔다(서버 컨테이너가 보지 않게). `cp ~/backup.env.example /opt/byeolmyeong/backup.env && chmod 600 /opt/byeolmyeong/backup.env && nano /opt/byeolmyeong/backup.env`
