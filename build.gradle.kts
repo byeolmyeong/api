@@ -61,4 +61,6 @@ tasks.bootJar {
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+	// 통합 테스트가 작업 폴더의 .env(개발자의 로컬 값)를 읽지 않게 한다. 테스트 값은 src/test/resources/config 에만 둔다.
+	systemProperty("BYEOLMYEONG_ENV_FILE", "build/no-env-for-tests")
 }
