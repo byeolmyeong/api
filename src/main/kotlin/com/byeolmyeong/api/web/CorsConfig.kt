@@ -33,7 +33,8 @@ class CorsConfig(
 		if (origins.isEmpty()) return
 		registry.addMapping("/**")
 			.allowedOrigins(*origins.toTypedArray())
-			.allowedMethods("GET", "POST", "PUT", "DELETE")
+			// PATCH 는 계정 바꾸기(PATCH /account, 결정 025)
+			.allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE")
 			.allowedHeaders("Authorization", "Content-Type")
 			.allowCredentials(true)
 	}

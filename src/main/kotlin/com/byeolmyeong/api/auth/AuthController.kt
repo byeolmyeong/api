@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
@@ -34,6 +35,18 @@ data class LoginResponse(val status: String, val token: String? = null, val sign
 
 /** 애플 서버 알림의 본문. */
 data class AppleNotificationRequest(val payload: String?)
+
+/** `GET/PATCH /account` 의 응답(결정 025). 없는 값은 null. */
+data class AccountResponse(
+	val nickname: String?,
+	val email: String?,
+	val provider: String,
+	val marketingConsent: Boolean,
+	val marketingConsentAt: java.time.Instant?,
+)
+
+/** `PATCH /account`. 보낸 칸만 바꾼다. */
+data class AccountPatchRequest(val nickname: String? = null, val marketingConsent: Boolean? = null)
 
 /** `POST /auth/signup`. 출생 정보는 `PUT /profile` 과 같은 칸이다. 닉네임은 필수, 마케팅 수신 동의는 선택(결정 025). */
 data class SignupRequest(
@@ -98,6 +111,15 @@ class AuthController(
 		sessionCookie.clear(response)
 		return ResponseEntity.noContent().build()
 	}
+
+	/** 계정 화면의 값(결정 025). 세션의 주인 것만. */
+	@GetMapping("/account")
+	fun account(): AccountResponse = auth.account(owner.id())
+
+	/** 닉네임·마케팅 수신 동의를 바꾼다(결정 025). 보낸 칸만. */
+	@PatchMapping("/account")
+	fun updateAccount(@RequestBody request: AccountPatchRequest): AccountResponse =
+		auth.updateAccount(owner.id(), request.nickname, request.marketingConsent)
 
 	/** 계정 삭제. 세션의 주인만 지운다. 웹의 쿠키도 지운다. */
 	@DeleteMapping("/account")

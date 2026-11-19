@@ -58,6 +58,14 @@ class CorsIntegrationTest {
 	}
 
 	@Test
+	fun `웹이 PATCH 를 보내기 전에 묻는 요청도 허용한다 — 계정 바꾸기(결정 025)`() {
+		val response = send(port, "OPTIONS", "/account", "Origin", APP, "Access-Control-Request-Method", "PATCH")
+		assertEquals(200, response.statusCode())
+		val methods = response.headers().firstValue("Access-Control-Allow-Methods").orElse("").uppercase()
+		assertEquals(true, methods.split(",").map { it.trim() }.contains("PATCH"), methods)
+	}
+
+	@Test
 	fun `허용하지 않은 주소에는 허용 헤더를 붙이지 않는다`() {
 		val response = send(port, "GET", "/health", "Origin", "https://evil.example")
 		assertEquals(null, response.allowOrigin())

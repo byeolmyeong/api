@@ -3,6 +3,7 @@ package com.byeolmyeong.api.auth
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
+import com.byeolmyeong.api.web.BadRequestException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
@@ -14,6 +15,7 @@ import java.security.SecureRandom
 import java.util.Base64
 import java.util.HexFormat
 import java.util.UUID
+import org.springframework.transaction.support.TransactionTemplate
 
 private const val DEV_PROVIDER = "DEV"
 private const val DEV_USER = "dev"
@@ -31,6 +33,7 @@ class AuthService(
 	private val apple: AppleSignIn,
 	private val kakao: KakaoOAuth,
 	private val events: ApplicationEventPublisher,
+	private val tx: TransactionTemplate,
 	@Value("\${byeolmyeong.auth.dev-enabled}") private val devEnabled: Boolean,
 	@Value("\${byeolmyeong.auth.session-days}") private val sessionDays: Int,
 ) {
@@ -59,6 +62,24 @@ class AuthService(
 	 * 지우기 전에 공급자 연결을 정리한다(결정 021): 애플은 refresh token 철회, 카카오는 연결 끊기.
 	 * 실패해도 계정은 지운다 — 사용자는 지웠다고 믿는다(클라이언트가 로그를 남긴다).
 	 */
+	/** 계정 화면의 값(결정 025). 세션의 주인만 부른다. */
+	fun account(ownerId: UUID): AccountResponse = checkNotNull(accounts.account(ownerId)) { "세션의 계정이 없다" }
+
+	/**
+	 * 보낸 칸만 바꾼다(결정 025). 닉네임이 틀리면 아무것도 바꾸지 않고 400 `INVALID_NICKNAME`.
+	 * 동의가 바뀔 때만 감사 기록(동의/철회만, 닉네임·이메일 없이).
+	 */
+	fun updateAccount(ownerId: UUID, nickname: String?, marketingConsent: Boolean?): AccountResponse {
+		val name = nickname?.let { normalizeNickname(it) ?: throw BadRequestException("INVALID_NICKNAME") }
+		tx.execute {
+			name?.let { accounts.updateNickname(ownerId, it) }
+			if (marketingConsent != null && accounts.setMarketingConsent(ownerId, marketingConsent)) {
+				events.publishEvent(AuditEvent(AuditAction.MARKETING_CONSENT_CHANGED, AuditActor.user(ownerId), detail = mapOf("consent" to marketingConsent.toString())))
+			}
+		}
+		return account(ownerId)
+	}
+
 	fun deleteAccount(ownerId: UUID) {
 		cleanUpProvider("apple_revoke_failed") { appleTokens.find(ownerId)?.let { apple.revoke(it.refreshToken, it.clientId) } }
 		cleanUpProvider("kakao_unlink_failed") {
@@ -117,6 +138,28 @@ class AuthService(
 
 @Repository
 class AccountRepository(private val jdbc: JdbcTemplate) {
+
+	/** 계정 화면의 값(결정 025). 없으면 null. 닉네임·이메일은 로그에 남기지 않는다. */
+	fun account(id: UUID): AccountResponse? = jdbc.query(
+		"select nickname, email, provider, marketing_consented_at from accounts where id = ?",
+		{ rs, _ ->
+			val consentedAt = rs.getTimestamp("marketing_consented_at")?.toInstant()
+			AccountResponse(rs.getString("nickname"), rs.getString("email"), rs.getString("provider"), consentedAt != null, consentedAt)
+		},
+		id,
+	).firstOrNull()
+
+	fun updateNickname(id: UUID, nickname: String) {
+		jdbc.update("update accounts set nickname = ? where id = ?", nickname, id)
+	}
+
+	/** 동의를 켜면 지금, 끄면 null. 이미 그 값이면 바꾸지 않고 false(일시가 그대로 남는다). */
+	fun setMarketingConsent(id: UUID, consent: Boolean): Boolean =
+		if (consent) {
+			jdbc.update("update accounts set marketing_consented_at = now() where id = ? and marketing_consented_at is null", id) > 0
+		} else {
+			jdbc.update("update accounts set marketing_consented_at = null where id = ? and marketing_consented_at is not null", id) > 0
+		}
 
 	/** 계정의 공급자와 공급자의 사용자 식별자. 없으면 null. */
 	fun identity(id: UUID): ProviderIdentity? = jdbc.query(
