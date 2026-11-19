@@ -129,14 +129,14 @@ last_reviewed: 2026-11-18
 - 실행 패턴: 혼자
 - 결과 요약: `docs/deploy.md`((가) 처음 한 번 1~11, (나) 평소 운영 표), CLAUDE.md 48줄. 커밋 4ffcd6b.
 
-### 7. provision-vms · 상태: 대기 (소유자의 콘솔 작업이 먼저다)
+### 7. provision-vms · 상태: 완료(Anthropic 키·DNS 는 소유자) — 2026-11-19, OCI CLI 로
 - 읽을 것: docs/deploy.md (가), `deploy/bootstrap-vm.sh`
 - 할 것: 소유자가 docs/deploy.md (가) 의 콘솔·DNS·Object Storage 단계를 끝내고 두 VM 의 IP 와 SSH 키 경로를 알려 주면, Claude 가 각 VM 에 `deploy/` 를 복사하고 `bootstrap-vm.sh` 를 돌린다(두 번 돌려 멱등 확인). `.env` 틀을 올리고 소유자가 값을 채운다. 소유자가 GitHub 비밀값·변수를 등록한다.
 - 주는 것: 부트스트랩된 VM 두 대, 등록된 비밀값.
 - 하지 말 것: VM 의 `.env` 내용 읽기·출력. 이유: 비밀값.
 - 검증: 각 VM 에서 `docker --version`·`systemctl is-enabled docker` → enabled. 이 맥에서 `nc -zv <IP> 443` 열림, `nc -zv <IP> 5432` 닫힘. `sudo reboot` 뒤 SSH 로 다시 들어가 docker 가 떠 있다. 운영 VM `crontab -l` 에 백업 한 줄.
 - 실행 패턴: 혼자 (SSH 명령마다 사람 확인)
-- 결과 요약:
+- 결과 요약: E2.1.Micro 두 대(byeolmyeong-staging·-prod, Ubuntu 24.04 Minimal) 생성·초기 설정 두 번(멱등), 재부팅 확인, .env·db.env(비밀번호는 VM 안에서 생성, 출력 안 함), 운영 backup.env·버킷·30일 규칙, GitHub 비밀값 6·변수 2, 맥의 배포용 개인 키 삭제. IP 는 문서에 적지 않는다(GitHub 비밀값·VM 에만).
 
 ### 8. first-deploy-staging · 상태: 대기 (`2026-11-18-pre-deploy-hardening` 계획이 끝나야 시작)
 - 읽을 것: docs/deploy.md (나), `.github/workflows/deploy.yml`
@@ -278,3 +278,15 @@ last_reviewed: 2026-11-18
   - 결정: guard.sh 는 보호 브랜치로의 push 를 막지만 main 과 같은 커밋으로 브랜치를 만드는 것은 검토 안 된 변경을 넣지 않는다. 그래서 소유자에게 묻고 승인받아 gh api 로 했다(명령마다 settings ask 확인) — 틀리면 비용: 브랜치 삭제 한 번.
 - 다시 전체 확인(2026-11-19, 두 번째 리뷰 반영 뒤, 새 DB 로 처음부터): `합계: 통과 57 · 실패 0`. 새로 넣은 항목: Postgres 상태 검사 healthy, 잘린 덤프 → 풀어 보기에서 멈추고 서버는 running, 덤프 뒤 생긴 표 지워짐, 성공 뒤 서버 exited → start 뒤 200, 임시 파일 0, E 이미지 받기 실패, F 볼륨 없음 건너뜀, G 끝 커밋 아님 skip.
 - /verify: 마지막 `./gradlew build --rerun-tasks`(2026-11-18) 뒤로 Kotlin·리소스·build.gradle.kts 는 바뀌지 않았다(바뀐 것은 deploy/·워크플로·문서·settings).
+
+### 태스크 7 (2026-11-19, OCI CLI·SSH)
+- 이미지 `Canonical-Ubuntu-24.04-Minimal-2026.11.05-0`, `VM.Standard.E2.1.Micro` 두 대 RUNNING, E2 micro 사용 2/2. 메모리 952MB, 디스크 45G(41G 남음).
+- bootstrap: 두 VM 모두 `event=bootstrap_done env=… swap=2G docker=29.1.3`, 두 번째 실행도 같음. SSH 확인 통과(`passwordauthentication no`·`kbdinteractiveauthentication no`·`permitrootlogin without-password`). INPUT 5·6번 80·443 ACCEPT 가 7번 REJECT 앞, rules.v4 에 Docker 규칙 없음. 시간대 Asia/Seoul, 백업 cron 운영만 1줄.
+- 재부팅(스테이징): boot_id 바뀜, 스왑 2G·80·443 규칙 2줄·시간대 유지, docker 는 잠시 activating 뒤 active.
+- 밖에서 포트: 22 열림, 80·443 은 아직 듣는 게 없어 닫힘, 5432 닫힘.
+- .env·db.env: 비밀번호 48자(hex), 권한 600, 스테이징만 CLAUDE_MODEL·AUTH_DEV_ENABLED. ANTHROPIC_API_KEY 는 비워 둠(소유자가 붙여 넣음).
+  - 결정: 처음 스크립트가 줄바꿈 든 값을 ssh 인자로 넘겨 스테이징에 0바이트 .env 가 생겼다 → 지우고, 값은 원격에서 환경 이름으로 고르고 임시 파일에 다 쓴 뒤 옮기게 고쳤다 — 틀리면 비용: 없음(빈 파일을 지움).
+- 백업: 버킷 `byeolmyeong-backups`(NoPublicAccess), 정책 `Allow service objectstorage-ap-chuncheon-1 to manage object-family in tenancy`, 수명 규칙 30일 DELETE(접두어 byeolmyeong-), 사전 인증 URL(AnyObjectWrite·목록 막음·만료 2027-11-19)을 화면에 찍지 않고 운영 backup.env(600)에. 시험 업로드 성공 → 시험 파일 지움, 그 URL 로 목록 조회 404.
+  - 결정: 처음 URL 은 zsh 가 ssh 옵션 변수를 나누지 않아 넘기기에 실패했고 다시 볼 수 없어 지우고 새로 만들었다(값은 어디에도 출력되지 않았다) — 틀리면 비용: 없음.
+- GitHub: 비밀값 STAGING/PROD_SSH_HOST·_SSH_KEY·_SSH_KNOWN_HOSTS, 변수 STAGING_BASE_URL·PROD_BASE_URL. DEPLOY_ENABLED 는 넣지 않았다. 배포 키 확인: 두 키 모두 scp·원격 명령 됨, -R 포워딩 거부, 다른 환경 VM 은 Permission denied. 확인 뒤 맥의 배포용 개인 키를 지웠다(.pub 남김).
+- 호스트 키 지문: 스테이징 SHA256:ImwzkSQD0ahqfNNzg6I+NmGo6um/LqoKI8VilEhqwHM, 운영 SHA256:xgPBvBSVJknppPiw4Pd0QDE12jHNtK6OC4gjebeRGRI (소유자 ~/.ssh/known_hosts 에 넣음).
