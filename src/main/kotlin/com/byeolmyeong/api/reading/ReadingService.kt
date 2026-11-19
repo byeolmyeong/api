@@ -8,6 +8,7 @@ import com.byeolmyeong.api.share.ReadingCardRequested
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
+import com.byeolmyeong.api.web.GenerationQuota
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
@@ -44,6 +45,7 @@ class ReadingService(
 	private val repository: ReadingRepository,
 	private val generator: TextGenerator,
 	private val events: ApplicationEventPublisher,
+	private val quota: GenerationQuota,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val random = SecureRandom()
@@ -62,7 +64,11 @@ class ReadingService(
 		inFlight.putIfAbsent(key, mine)?.let { return await(it) }
 		try {
 			// 앞 요청이 방금 끝나고 진행 표시를 지운 틈이면 저장본이 있다.
-			val reading = repository.find(ownerId, SUMMARY, chartHash) ?: createSummary(ownerId, birth.chart(), chartHash)
+			val reading = repository.find(ownerId, SUMMARY, chartHash) ?: run {
+				// 모델을 부르기 직전에 센다(결정 023). 한도를 넘으면 기다리던 요청도 같은 429 를 받는다.
+				quota.acquire(ownerId)
+				createSummary(ownerId, birth.chart(), chartHash)
+			}
 			mine.complete(reading)
 			return reading
 		} catch (e: Throwable) {

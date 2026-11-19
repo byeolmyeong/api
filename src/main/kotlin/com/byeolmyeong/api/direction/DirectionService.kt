@@ -19,6 +19,7 @@ import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.BadRequestException
+import com.byeolmyeong.api.web.GenerationQuota
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
@@ -40,6 +41,7 @@ class DirectionService(
 	private val repository: DirectionRepository,
 	private val generator: TextGenerator,
 	private val events: ApplicationEventPublisher,
+	private val quota: GenerationQuota,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -109,13 +111,16 @@ class DirectionService(
 	}
 
 	// 끝내 만들지 못하면(502) 감사 기록에 실패로 남기고 그대로 던진다.
-	private fun generate(ownerId: UUID, topic: String, request: GenerationRequest, problemOf: (DirectionDraft) -> String?): DirectionDraft =
-		try {
+	private fun generate(ownerId: UUID, topic: String, request: GenerationRequest, problemOf: (DirectionDraft) -> String?): DirectionDraft {
+		// 저장본이 없을 때만 여기 온다. 모델을 부르기 직전에 센다(결정 023).
+		quota.acquire(ownerId)
+		return try {
 			generate(topic, request, problemOf)
 		} catch (e: GenerationException) {
 			events.publishEvent(AuditEvent(AuditAction.DIRECTION_GENERATED, AuditActor.user(ownerId), success = false, detail = mapOf("topic" to topic)))
 			throw e
 		}
+	}
 
 	private fun generate(topic: String, request: GenerationRequest, problemOf: (DirectionDraft) -> String?): DirectionDraft {
 		repeat(MAX_ATTEMPTS) { attempt ->
