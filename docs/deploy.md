@@ -16,7 +16,8 @@ last_reviewed: 2026-11-18
 | 브랜치 | `main` | `develop` |
 | 올라가는 때 | `main` 에 합쳐지고 CI 가 통과할 때(jar 를 바꾸기 직전에 DB 백업). 그 커밋이 아직 `main` 의 끝일 때만 | `develop` 에 합쳐지고 CI 가 통과할 때. 그 커밋이 아직 `develop` 의 끝일 때만 |
 | 서버 주소 | `https://api.byeolmyeong.com` | `https://api-staging.byeolmyeong.com` |
-| 앱 웹·관리 화면(버셀) | `byeolmyeong.com` · `admin.byeolmyeong.com` | `staging.byeolmyeong.com` · `admin-staging.byeolmyeong.com` |
+| 앱 웹(버셀, 앱 결정 037) | `app.byeolmyeong.com` | `app.staging.byeolmyeong.com` |
+| 관리 화면(버셀) | `admin.byeolmyeong.com` | `admin-staging.byeolmyeong.com` |
 | 오라클 VM 이름 | `byeolmyeong-prod` | `byeolmyeong-staging` |
 | DB 백업 | 매일 04:00 + 배포 직전 → VM 7개 + Object Storage 30일 | 없음(버려도 되는 데이터) |
 | 개발용 로그인 | 끔 | 켬(실제 출생 정보는 넣지 않는다) |
@@ -63,7 +64,7 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 ### 5. DNS (`byeolmyeong.com` 을 관리하는 곳)
 - A 레코드 `api` → 운영 VM 의 공인 IP
 - A 레코드 `api-staging` → 스테이징 VM 의 공인 IP
-- 버셀 쪽 레코드(`@`·`admin`·`staging`·`admin-staging`)는 버셀이 알려 주는 값으로 넣는다(11번).
+- 버셀 쪽 레코드(`app`·`app.staging`·`admin`·`admin-staging`)는 버셀이 알려 주는 값으로 넣는다(11번).
 - Cloudflare 를 쓰면 `api`·`api-staging` 은 프록시를 끈다(회색 구름). Caddy 가 인증서를 직접 받아야 하고, 켜려면 먼저 Caddyfile 에 `trusted_proxies` 를 정한다(안 하면 주소별 요청 제한이 Cloudflare 주소로 뭉친다).
 
 ### 6. 오라클 Object Storage (운영 백업)
@@ -100,11 +101,12 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-19-pre-deploy-hardening.md`)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
 
 ### 11. 버셀 (앱·관리 화면 저장소의 일)
-- 브랜치: 버셀의 운영 브랜치(Production Branch)는 `main`. `develop` 브랜치에 스테이징 도메인(`staging.byeolmyeong.com`·`admin-staging.byeolmyeong.com`)을 붙인다(Settings → Domains → 도메인의 Git Branch 를 `develop` 으로). 앱·관리 화면 저장소에도 `develop` 브랜치가 있어야 한다.
+- 브랜치: 버셀의 운영 브랜치(Production Branch)는 `main`. `develop` 브랜치에 스테이징 도메인(앱 `app.staging.byeolmyeong.com`, 관리 화면 `admin-staging.byeolmyeong.com`)을 붙인다(Settings → Domains → 도메인의 Git Branch 를 `develop` 으로). 앱·관리 화면 저장소에도 `develop` 브랜치가 있다(2026-11-19 만듦).
 - 서버 주소: 앱 `EXPO_PUBLIC_API_URL`, 관리 화면 `VITE_API_URL` 을 운영(Production)에는 `https://api.byeolmyeong.com`, `develop` 브랜치(Preview, 브랜치 지정)에는 `https://api-staging.byeolmyeong.com` 으로.
 - 서버는 출처를 정확히 일치로만 허용한다. 미리보기마다 바뀌는 주소가 아니라 위 "한눈에" 표의 고정 도메인을 서버 `.env` 에 넣는다:
-  - 운영: `ALLOWED_ORIGINS=https://byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin.byeolmyeong.com`
-  - 스테이징: `ALLOWED_ORIGINS=https://staging.byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin-staging.byeolmyeong.com`
+  - 운영: `ALLOWED_ORIGINS=https://app.byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin.byeolmyeong.com`
+  - 스테이징: `ALLOWED_ORIGINS=https://app.staging.byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin-staging.byeolmyeong.com`
+  - 웹은 `bm_session` 쿠키로 자격 증명을 보내므로 정확한 출처가 필요하다(버셀 임시 주소 `*.vercel.app` 는 넣지 않는다). `app.*` ↔ `api.*` 는 같은 사이트(`byeolmyeong.com`)라 쿠키가 오간다(결정 021).
 - 버셀 Hobby 는 비상업용만이다(결정 020). 결제·수익이 생기기 전에 다시 본다.
 
 ## (나) 평소 운영
