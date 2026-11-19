@@ -42,7 +42,7 @@ private const val PLACE = 1841277 // 서울(출생지 목록의 id)
 private val TEST_KEY: RSAKey = RSAKeyGenerator(2048).keyID("test").generate()
 private val mapper = JsonMapper()
 
-/** 공급자 대신 테스트 키로 서명한 ID 토큰. 이메일은 기본으로 `<sub>@example.com`(확인됨)이다(결정 023). */
+/** 공급자 대신 테스트 키로 서명한 ID 토큰. 이메일은 기본으로 `<sub>@example.com`(확인됨)이다(결정 024). */
 private fun idToken(iss: String, aud: String, sub: String, key: RSAKey = TEST_KEY, email: String? = "$sub@example.com"): String =
 	SignedJWT(
 		JWSHeader.Builder(JWSAlgorithm.RS256).keyID("test").build(),

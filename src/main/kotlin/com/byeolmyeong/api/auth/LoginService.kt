@@ -23,7 +23,7 @@ private val SIGNUP_TTL = Duration.ofMinutes(30)
 /** 가입권이 없거나 썼거나 만료됐다. 401 `SIGNUP_EXPIRED`. */
 class SignupExpiredException : RuntimeException("SIGNUP_EXPIRED")
 
-/** 처음 온 사람의 토큰에 이메일이 없다. 403 `EMAIL_REQUIRED`(결정 023). 가입권을 만들지 않았다. */
+/** 처음 온 사람의 토큰에 이메일이 없다. 403 `EMAIL_REQUIRED`(결정 024). 가입권을 만들지 않았다. */
 class EmailRequiredException : RuntimeException("EMAIL_REQUIRED")
 
 /** 만 14세 미만이다. 403 `UNDER_AGE`. 계정·출생 정보는 만들지 않았다. */
@@ -97,7 +97,7 @@ class LoginService(
 		val appleToken = appleToken(identity, appleAuthorizationCode, appleRedirectUri)
 		val accountId = accounts.find(identity.provider.name, identity.subject)
 		if (accountId != null) {
-			// 이미 있는 계정은 이메일이 없어도 로그인된다(잠그지 않는다). 있으면 공급자의 지금 값으로 고쳐 둔다(결정 023).
+			// 이미 있는 계정은 이메일이 없어도 로그인된다(잠그지 않는다). 있으면 공급자의 지금 값으로 고쳐 둔다(결정 024).
 			identity.email?.let { accounts.updateEmail(accountId, it) }
 			if (appleToken != null) appleTokens.save(accountId, appleToken)
 			val session = auth.issueSession(accountId)

@@ -24,7 +24,7 @@ import java.text.ParseException
 enum class Provider { DEV, GOOGLE, APPLE, KAKAO }
 
 /**
- * 공급자가 확인해 준 사용자. 계정에는 공급자 · 식별자 · 이메일을 둔다(결정 023 — 이름은 받지 않는다).
+ * 공급자가 확인해 준 사용자. 계정에는 공급자 · 식별자 · 이메일을 둔다(결정 024 — 이름은 받지 않는다).
  * [audience] 는 토큰이 발급된 우리 클라이언트 ID(애플은 iOS 번들 ID 와 웹 Services ID 가 다르고, 토큰 교환·철회 때 같은 값을 써야 한다).
  * [email] 은 토큰의 `email`(구글은 `email_verified` 가 참일 때만)을 다듬은 값이고, 없거나 모양이 틀리면 null 이다. 로그에 남기지 않는다.
  */
@@ -105,7 +105,7 @@ private class JwksTokenVerifier(
 		return ProviderIdentity(provider, subject, audience, emailOf(claims))
 	}
 
-	/** 구글은 확인된 이메일만 받는다(`email_verified`). 애플 · 카카오는 공급자가 확인한 값으로 본다(결정 023). */
+	/** 구글은 확인된 이메일만 받는다(`email_verified`). 애플 · 카카오는 공급자가 확인한 값으로 본다(결정 024). */
 	private fun emailOf(claims: JWTClaimsSet): String? {
 		if (provider == Provider.GOOGLE && claims.getClaim("email_verified") != true) return null
 		return normalizeEmail(claims.getClaim("email") as? String)

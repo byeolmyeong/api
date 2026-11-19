@@ -125,7 +125,7 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 		id,
 	).firstOrNull()
 
-	/** 계정의 이메일을 고친다(결정 023). 값은 로그에 남기지 않는다. */
+	/** 계정의 이메일을 고친다(결정 024). 값은 로그에 남기지 않는다. */
 	fun updateEmail(id: UUID, email: String) {
 		jdbc.update("update accounts set email = ? where id = ? and email is distinct from ?", email, id, email)
 	}
