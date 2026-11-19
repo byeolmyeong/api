@@ -51,7 +51,7 @@ last_reviewed: 2026-11-19
 - 하지 말 것: 합쳐진 결정의 본문을 고쳐 쓰지 않는다. 이유: 대체 표시만 한다(골든 룰).
 - 검증: `ls docs/decisions | cut -c1-3 | sort | uniq -d` → 비어 있음
 
-### 2. migration · 상태: 대기
+### 2. migration · 상태: 완료
 - 할 것: `accounts.terms_version text` · `accounts.terms_agreed_at timestamptz` · `accounts.privacy_version text` · `accounts.privacy_agreed_at timestamptz` · `accounts.push_consented_at timestamptz` · `accounts.avatar smallint`(1~8 check). `V21__terms_push_avatar.sql`.
 - 하지 말 것: 기존 행을 채우지 않는다(backfill 없음). 이유: 옛 계정은 동의한 버전을 모른다.
 - 검증: 마이그레이션이 깨끗한 DB 와 V19/V20 DB 양쪽에서 돈다(Testcontainers 통합 테스트가 Flyway 를 탄다)
@@ -94,3 +94,4 @@ last_reviewed: 2026-11-19
 
 ## 실행 기록
 - 1: 결정 026 `docs/decisions/026-terms-push-avatar.md`(약관 버전 · 푸시 동의 · 프로필 · 광고성 푸시는 푸시 + 마케팅 동의 둘 다 · 야간 없음). develop · 원격 브랜치 모두 026 · V21 없음 확인. `ls docs/decisions | cut -c1-3 | sort | uniq -d` → 빈 출력(26개 번호 중복 0).
+- 2: `V21__terms_push_avatar.sql`(여섯 칸, null 허용, `avatar` 1~8 check, backfill 없음) · 테스트 `TermsPushAvatarMigrationIntegrationTest`(깨끗한 DB + 같은 DB 의 다른 스키마에서 V19 · V20 까지 돌린 뒤 올리기). 빨강 `tests 2 fail 2`(칸 없음) → 초록 `tests 2 fail 0`. 아키텍처 "데이터" 의 `accounts` 칸 갱신.
