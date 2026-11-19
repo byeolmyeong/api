@@ -135,7 +135,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - 시각이 `null`(모름)이면 `timeKnown: false` 이고 `house`·`houses`·`angles` 키와 `FORTUNE`·`VERTEX` 점이 없다(값이 `null` 인 키를 보내지 않는다).
 - `POST /charts`·`PUT /profile` 요청: `date` 는 `YYYY-MM-DD`, `time` 은 `HH:mm` 또는 `null`, `placeId` 는 `GET /places` 의 `id`(정수).
 - 태어난 시각을 모르면 태어난 곳을 받지 않는다(결정 007): `time` 이 `null`(또는 키 없음)이면 `placeId` 는 없어도 되고, 보내도 읽지 않으며(목록에 없는 id 여도 400 이 아니다) 저장하지 않는다. 그때 `GET`·`PUT /profile` 의 응답은 `placeId: null` 이다. `time` 이 있으면 `placeId` 는 필수이고 없거나 `null` 이거나 목록에 없으면 400 `UNKNOWN_PLACE` 다. 시각을 모르는 날의 기준 시각은 한국 표준시 정오다.
-- 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`·`UNKNOWN_PLACE`. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
+- 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`(형식은 `HH:mm` 만 — 초가 붙으면 안 된다, 날짜가 오늘(한국 시각)이면 아직 오지 않은 시각)·`UNKNOWN_PLACE`. 출생 정보를 받는 다른 경로(`PUT /profile`·`POST /synastry/direct` 등)의 `INVALID_TIME` 도 같다. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
 - `GET /places?q=`: 검색어를 공백으로 나눈 낱말이 이름에 모두 든 곳을 20개까지. `q` 가 없으면 전체 목록(229곳)을 준다. 앱의 출생지 고르기 화면이 쓴다. `name` 은 `시·도 시·군·구` 꼴이고 세종만 `세종특별자치시` 한 낱말이다.
 - `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`. `shareId` 는 **더 쓰지 않는다**(결정 012): 공유 주소가 아니고 `GET /shared/{그 값}` 은 404 다. 공유는 `POST /shares` 로 만든다. 앱이 읽지 않게 되면 응답에서 뺀다 [확인 필요].
 - 궁합 지우기 `DELETE /synastry/{id}` (2026-11-12 구현, 결정 019): 소유자만 지운다. 204(본문 없음). 남의 것·없는 것·이미 지운 것·UUID 가 아닌 값은 모두 404 `NOT_FOUND` 다. 되돌릴 수 없다.
