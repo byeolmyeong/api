@@ -21,6 +21,12 @@ last_reviewed: 2026-11-19
 ## 이 계획을 누가 하나 (추천)
 - 서버 세션의 `feat/account-nickname-consent` 가 아직 develop 에 들어가지 않았으면 **그 브랜치의 V20 · 결정 025 에 함께 넣는 것**을 추천한다(마이그레이션 하나, `POST /auth/signup` 계약을 한 번만 바꾼다). 이미 들어갔으면 결정 026 · `V21` 로 따로 한다.
 
+## 결정 025(PR #22)에 반영할 소유자 결정 (2026-11-19, 서버 세션에 보냄)
+- 닉네임: **한글(완성형 가~힣) · 영문(a~z, A~Z)만 2~10자**. 숫자 · 공백 · 기호 · 이모지 안 됨. 한글과 영문은 섞어도 된다. 025 의 "1~20자 · 중복 허용" 을 대체한다.
+- **중복 안 됨.** 영문은 대소문자를 같게 본다(`lower(nickname)` 유일 색인). 가입 · `PATCH /account` 에서 겹치면 409 `NICKNAME_TAKEN`. 탈퇴하면 그 닉네임은 다시 쓸 수 있다.
+- 가입 전 확인: `POST /auth/nickname-check { signupToken, nickname }` → 200 `{ available: boolean }`(규칙에 어긋나면 400 `INVALID_NICKNAME`). 유효한 가입권이 있어야 하고 주소별 속도 제한을 건다(남의 닉네임을 하나씩 떠보는 것을 늦춘다). 로그인한 사람은 `PATCH` 의 409 로 충분하다.
+- 프로필: 브랜드 그림 8종 중 하나. `accounts.avatar smallint`(1~8). 가입 때 `avatar`(필수), `GET/PATCH /account` 에 `avatar`. 범위 밖이면 400 `INVALID_AVATAR`.
+
 ## 내 결정 (묻지 않고 고른 기본값)
 - 약관 버전은 서버 설정 한 곳: `byeolmyeong.legal.terms-version` · `byeolmyeong.legal.privacy-version`(문자열, 예: `2026-11-19`). 앱은 보여 준 버전을 보낸다. 서버의 지금 버전과 **같아야** 받는다. 다르거나 없으면 400 `TERMS_REQUIRED`(가입권은 쓰지 않는다 — 앱이 약관 단계로 돌아가 다시 보낸다).
 - 동의 시각은 서버 시각(`now`)이다. 앱이 보낸 시각은 받지 않는다.
