@@ -13,6 +13,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import java.util.UUID
 
 private const val OWNER_ATTRIBUTE = "byeolmyeong.ownerId"
+
+/** 세션 검사가 확인한 소유자를 요청에 적는다. 같은 패키지의 다른 인터셉터(생성 속도 제한)가 [ownerOf] 로 읽는다. */
+internal fun markOwner(request: HttpServletRequest, owner: UUID) = request.setAttribute(OWNER_ATTRIBUTE, owner)
+
+/** 세션 검사를 거친 요청의 소유자. 세션이 없는 경로면 null. */
+internal fun ownerOf(request: HttpServletRequest): UUID? = request.getAttribute(OWNER_ATTRIBUTE) as UUID?
 private const val TOKEN_ATTRIBUTE = "byeolmyeong.sessionToken"
 private const val BEARER = "Bearer "
 
@@ -38,7 +44,7 @@ private const val ADMIN_PATHS = "/admin/**"
 @Component
 class CurrentOwner(private val request: HttpServletRequest) {
 
-	fun id(): UUID = checkNotNull(request.getAttribute(OWNER_ATTRIBUTE) as UUID?) {
+	fun id(): UUID = checkNotNull(ownerOf(request)) {
 		"세션 검사를 거치지 않은 경로에서 소유자를 물었다"
 	}
 
@@ -74,7 +80,7 @@ class SessionInterceptor(
 		}
 		val owner = token?.let(auth::ownerOf)
 		if (owner != null) {
-			request.setAttribute(OWNER_ATTRIBUTE, owner)
+			markOwner(request, owner)
 			request.setAttribute(TOKEN_ATTRIBUTE, token)
 			return true
 		}
