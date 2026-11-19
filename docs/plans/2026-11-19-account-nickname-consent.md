@@ -93,3 +93,5 @@ last_reviewed: 2026-11-19
 - 빨강: `./gradlew test --tests …SocialLogin… …AccountApi… …SessionPublicEndpoints… …AuthRateLimit…` → 39 tests completed, 7 failed(새 규칙 · 409 · 확인 경로).
 - 초록: `./gradlew test --tests 'com.byeolmyeong.api.auth.*' --tests '*ArchitectureTest*'` → BUILD SUCCESSFUL.
 - 전체: `./gradlew build` → BUILD SUCCESSFUL in 2m 37s, 테스트 537개 · 실패 0.
+- 독립 리뷰: 409 때 PostgreSQL 로그(DETAIL)에 닉네임이 남음 → 바꾸기 전에 먼저 확인하도록 고침(색인은 동시 경합만). 빠진 테스트 3개 더함. 동시 가입(같은 사람 · 가입권 두 장)이 닉네임 · 출생 정보를 덮어쓸 수 있는 것은 원래 있던 문제라 남김.
+- 고친 뒤: `./gradlew test --tests 'com.byeolmyeong.api.auth.*' --tests '*ArchitectureTest*'` → BUILD SUCCESSFUL.
