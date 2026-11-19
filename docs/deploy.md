@@ -113,7 +113,7 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 | 운영에 올리기 | 스테이징에서 확인 → `develop` → `main` PR → CI 통과 확인 → 합치기(합치는 것이 "사람의 확인"이다). jar 를 바꾸기 직전에 DB 를 백업한다 |
 | 되돌리기(자동) | 바꿔 띄우기가 중간에 실패하거나 `/health` 가 3분 안에 200 이 아니면 마지막 정상 jar(`app.jar.good`)로 돌아가고 작업이 실패로 끝난다. **DB 는 되돌리지 않는다**(새 jar 가 적용한 마이그레이션은 남는다) |
 | 되돌리기(더 이전 버전) | Actions → `deploy` → Run workflow → 대상·이전 커밋(또는 브랜치). 수동 실행은 빌드·테스트를 다시 돌린다 |
-| DB 까지 되돌려야 할 때(운영) | 배포 직전 덤프로 `./restore.sh backups/<배포 직전 파일> --into-live` 를 한 뒤 이전 커밋을 수동 실행으로 올린다. 그래서 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
+| DB 까지 되돌려야 할 때(운영) | ① `./restore.sh backups/<배포 직전 파일> --into-live` — 한 트랜잭션 안에서 public 스키마를 비우고 덤프를 넣으므로 새 마이그레이션이 만든 표도 남지 않는다. 끝나면 서버는 **멈춘 채로** 둔다(지금 jar 로 뜨면 그 마이그레이션이 다시 적용된다). ② Actions → `deploy` → Run workflow → 대상 `prod`·배포 전 커밋 → 그 jar 로 서버가 뜬다. 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
 | 상태 | `docker compose ps` (셋 다 Up) · `curl -s https://<서버 주소>/health` |
 | 로그 | `docker compose logs --tail 200 api` (`caddy`·`postgres` 도 같다) |
 | `.env` 를 바꾼 뒤 | `docker compose up -d --force-recreate api` (다시 만들어야 새 값을 읽는다) |
@@ -122,7 +122,7 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 | 백업 확인(주 1회) | `tail -n 3 backups/backup.log` 에 `event=backup_done`, 버킷에 오늘 덤프. 실패 알림은 없다 |
 | 손으로 백업 | `./backup.sh` |
 | 복원 연습 | `./restore.sh backups/<파일>` → 표별 행 수(일회용 컨테이너·볼륨은 지워진다). 실제 DB 와 몇 표만 견준다: `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select count(*) from accounts"` |
-| 비상 복원 | `./restore.sh backups/<파일> --into-live` (확인 문구를 받고, 지금 DB 를 `backups/before-restore-*.dump` 로 먼저 남기고, 그동안 서버를 멈춘다. 한 트랜잭션이라 실패하면 DB 는 그대로다) |
+| 비상 복원 | `./restore.sh backups/<파일> --into-live` (확인 문구 → 지금 DB 를 `backups/before-restore-*.dump` 로 남김 → 덤프를 끝까지 풀어 봄(잘렸으면 여기서 멈추고 아무것도 안 바뀜) → 서버를 멈추고 한 트랜잭션으로 교체. 실패하면 DB 는 그대로이고 서버는 다시 뜬다. 성공하면 서버는 멈춰 있으니 같은 jar 면 `docker compose start api`) |
 | 재부팅 뒤 | `docker compose ps` 로 셋 다 다시 떴는지 본다(`restart: unless-stopped`) |
 | 처음 초기화가 실패하면 | `docker compose ps` 에서 postgres 가 unhealthy, `docker compose logs postgres` 에 `initdb:` 안내가 있다. 데이터가 아직 없으니 `docker compose down && docker volume rm byeolmyeong_postgres-data` 후 `.env` 를 고치고 다시 띄운다. **데이터가 들어간 뒤에는 볼륨을 지우지 않는다** |
 | 서버가 일반 계정으로 붙는지 확인 | `docker compose exec postgres psql -U postgres -tAc "select rolsuper from pg_roles where rolname = '<DB 사용자>'"` → `f`. `t` 이거나 오류면 예전 방식(서버 계정 = 최고 관리자)으로 만든 볼륨이다. 운영 데이터가 없으면 위처럼 다시 만들고, 있으면 덤프 → 새 볼륨 → 복원으로 옮긴다 |

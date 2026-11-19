@@ -2,8 +2,11 @@
 # 백업 덤프 하나를 복원한다(결정 020). VM 의 /opt/byeolmyeong 에 있고, 어디서 불러도 된다(덤프 경로는 부른 곳 기준).
 #   ./restore.sh <덤프>              일회용 컨테이너(postgres:17)에 복원하고 표마다 행 수를 출력한 뒤 컨테이너와 볼륨을 지운다.
 #                                    실제 DB 는 건드리지 않는다.
-#   ./restore.sh <덤프> --into-live  실제 DB 를 덤프 내용으로 바꾼다. 확인 문구를 받고, 지금 DB 를 먼저 덤프해 두고, 그동안 서버를 멈춘다.
-#                                    복원은 한 트랜잭션이라 중간에 실패하면 DB 는 원래대로 남고 서버는 다시 뜬다.
+#   ./restore.sh <덤프> --into-live  실제 DB 를 덤프 내용으로 바꾼다. 확인 문구를 받고, 지금 DB 를 먼저 덤프해 두고, 서버를 멈춘다.
+#                                    한 트랜잭션 안에서 public 스키마를 비우고 덤프를 넣는다. 덤프 뒤에 생긴 표도 남지 않는다.
+#                                    중간에 실패하면 DB 는 원래대로 남고 서버는 다시 뜬다.
+#                                    성공하면 서버는 멈춘 채로 둔다. 지금 jar 로 띄우면 그 jar 의 마이그레이션이 다시 적용될 수 있어서다.
+#                                    같은 jar 로 띄우려면 `docker compose start api`, 이전 버전이면 그 커밋을 배포 수동 실행으로 올린다.
 # 운영 덤프는 운영 VM 밖(스테이징·개인 컴퓨터)으로 옮기지 않는다. 출생 정보가 들어 있다.
 # 복원 직전에 남긴 backups/before-restore-*.dump 는 자동으로 지워지지 않는다. 필요 없어지면 지운다.
 set -euo pipefail
@@ -58,8 +61,18 @@ if ! docker compose exec -T postgres pg_dump -U "$DB_USER" -d byeolmyeong -Fc > 
 fi
 log "restore_saved_current file=$(basename "$BEFORE")"
 
+# 덤프를 Postgres 컨테이너 안에서 SQL 로 끝까지 풀어 본다. 잘린 덤프면 여기서 멈추고 서버도 DB 도 그대로다.
+# 풀어 둔 파일에는 출생 정보가 들어 있으니 끝나면 반드시 지운다.
+cleanup_tmp() { docker compose exec -T postgres rm -f /tmp/restore.dump /tmp/restore.sql > /dev/null 2>&1 || true; }
+trap cleanup_tmp EXIT
+docker compose exec -T postgres sh -c 'umask 077 && cat > /tmp/restore.dump && pg_restore --no-owner --no-privileges -f /tmp/restore.sql /tmp/restore.dump' < "$DUMP" || fail convert "db=unchanged"
+
 docker compose stop api
-# 성공하든 실패하든 서버는 다시 띄운다. 실패하면 한 트랜잭션이 통째로 취소돼 DB 는 원래대로다.
-trap 'docker compose start api > /dev/null' EXIT
-docker compose exec -T postgres pg_restore -U "$DB_USER" -d byeolmyeong --clean --if-exists --no-owner --single-transaction --exit-on-error < "$DUMP" || fail pg_restore "db=unchanged"
-log "restore_live_done file=$(basename "$DUMP")"
+RESTORED=0
+# 실패하면 한 트랜잭션이 통째로 취소돼 DB 는 원래대로이므로 서버를 다시 띄운다. 성공하면 멈춘 채로 둔다(맨 위 설명).
+trap 'cleanup_tmp; [ "$RESTORED" = 1 ] || docker compose start api > /dev/null' EXIT
+# public 스키마를 지우고 처음 상태(소유자 pg_database_owner)로 다시 만든 뒤 덤프를 넣는다. 모두 한 트랜잭션이다.
+docker compose exec -T postgres sh -c '{ echo "drop schema public cascade;"; echo "create schema public authorization pg_database_owner;"; cat /tmp/restore.sql; } | psql -q -v ON_ERROR_STOP=1 --single-transaction -U "$APP_DB_USER" -d byeolmyeong > /dev/null' || fail apply "db=unchanged"
+RESTORED=1
+log "restore_live_done file=$(basename "$DUMP") api=stopped"
+echo "복원했습니다. 서버는 멈춰 있습니다. 같은 jar 로 띄우려면 docker compose start api, 이전 버전이면 그 커밋을 배포 수동 실행으로 올리세요."
