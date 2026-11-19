@@ -1,6 +1,9 @@
 package com.byeolmyeong.api.profile
 
 import com.byeolmyeong.api.auth.CurrentOwner
+import com.byeolmyeong.api.auth.UnderAgeException
+import com.byeolmyeong.api.auth.isAtLeast14
+import com.byeolmyeong.api.auth.koreaToday
 import com.byeolmyeong.api.birth.BirthProfile
 import com.byeolmyeong.api.birth.BirthProfileService
 import com.byeolmyeong.api.web.AuditAction
@@ -36,6 +39,8 @@ class ProfileController(
 	@PutMapping("/profile")
 	fun put(@RequestBody request: BirthRequest): ProfileResponse {
 		val birth = parser.parse(request)
+		// 가입 뒤에도 만 14세 미만 날짜로는 바꿀 수 없다(가입과 같은 판정, 소유자 결정 2026-11-19 · 결정 021). 있던 것은 그대로다.
+		if (!isAtLeast14(birth.date, koreaToday())) throw UnderAgeException()
 		val profile = BirthProfile(birth.date, birth.time, birth.place?.id)
 		val existed = profiles.find(owner.id()) != null
 		profiles.save(owner.id(), profile)

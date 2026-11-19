@@ -107,6 +107,21 @@ class ProfileApiIntegrationTest {
 		assertEquals(0, jdbc.queryForObject("select count(*) from profiles", Int::class.java))
 	}
 
+	// 가입 뒤에도 만 14세 미만 날짜로는 고칠 수 없다(소유자 결정 2026-11-19, 결정 021). 판정은 가입과 같은 함수 · 한국 날짜다.
+	@Test
+	fun `만 14세 미만 날짜로는 출생 정보를 저장 · 수정할 수 없고 있던 것은 그대로다`() {
+		val token = devToken(port)
+		assertEquals(200, http(port, "PUT", "/profile", """{"date":"1990-03-15","time":"14:30","placeId":$MAPO}""", token).statusCode())
+		val today = com.byeolmyeong.api.auth.koreaToday()
+
+		val young = http(port, "PUT", "/profile", """{"date":"${today.minusYears(14).plusDays(1)}","time":null}""", token)
+		assertEquals(403, young.statusCode())
+		assertEquals("""{"error":"UNDER_AGE"}""", young.body())
+		assertEquals("1990-03-15", http(port, "GET", "/profile", token = token).body().substringAfter("\"date\":\"").take(10))
+
+		assertEquals(200, http(port, "PUT", "/profile", """{"date":"${today.minusYears(14)}","time":null}""", token).statusCode(), "14번째 생일 당일은 된다")
+	}
+
 	// 소유자는 토큰에서만 얻는다. 다른 계정의 토큰으로는 그 계정의 것만 보이고 바뀐다.
 	@Test
 	fun `남의 출생 정보는 보이지도 바뀌지도 않는다`() {

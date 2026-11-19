@@ -46,6 +46,6 @@ class AppUpdateInterceptor(private val configs: AppConfigService) : HandlerInter
 class AppUpdateConfig(private val interceptor: AppUpdateInterceptor) : WebMvcConfigurer {
 
 	override fun addInterceptors(registry: InterceptorRegistry) {
-		registry.addInterceptor(interceptor).order(Ordered.HIGHEST_PRECEDENCE).excludePathPatterns("/app-config", "/health", "/admin/**", "/error")
+		registry.addInterceptor(interceptor).order(Ordered.HIGHEST_PRECEDENCE).excludePathPatterns("/app-config", "/health", "/admin/**", "/error", "/auth/apple/notifications")
 	}
 }

@@ -2,6 +2,7 @@ package com.byeolmyeong.api.auth
 
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
@@ -12,10 +13,14 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import java.util.UUID
 
 private const val OWNER_ATTRIBUTE = "byeolmyeong.ownerId"
+private const val TOKEN_ATTRIBUTE = "byeolmyeong.sessionToken"
 private const val BEARER = "Bearer "
 
+/** 쿠키로 인증돼도 `Origin` 을 보지 않는 메서드. 나머지는 상태를 바꾸므로 허용한 주소에서 온 것이어야 한다(결정 021). */
+private val SAFE_METHODS = setOf("GET", "HEAD")
+
 /** 로그인 전에 쓰는 곳. 여기 없는 경로는 모두 세션이 있어야 한다(새 엔드포인트는 기본이 "세션 필요"다). */
-private val PUBLIC_PATHS = arrayOf("/health", "/places", "/auth/dev", "/auth/login", "/invites/*", "/shared/*", "/error")
+private val PUBLIC_PATHS = arrayOf("/health", "/places", "/auth/dev", "/auth/login", "/auth/signup", "/auth/apple/notifications", "/invites/*", "/shared/*", "/error")
 
 /** 로그인 전에 쓰는 곳 가운데 읽기(GET)만 여는 경로. 같은 경로의 다른 메서드는 세션이 있어야 한다. */
 private val PUBLIC_GET_PATHS = setOf("/faqs", "/app-config")
@@ -36,28 +41,50 @@ class CurrentOwner(private val request: HttpServletRequest) {
 	fun id(): UUID = checkNotNull(request.getAttribute(OWNER_ATTRIBUTE) as UUID?) {
 		"세션 검사를 거치지 않은 경로에서 소유자를 물었다"
 	}
+
+	/** 이 요청의 세션 토큰(로그아웃이 그 세션을 지울 때). 로그에 남기지 않는다. */
+	fun sessionToken(): String = checkNotNull(request.getAttribute(TOKEN_ATTRIBUTE) as String?) {
+		"세션 검사를 거치지 않은 경로에서 세션 토큰을 물었다"
+	}
 }
 
 /**
- * 세션 검사. `Authorization: Bearer <token>` 이 없거나 틀리면 401 `UNAUTHORIZED` 로 끝낸다.
+ * 세션 검사. `Authorization: Bearer <token>` 이 없으면 웹의 쿠키 `bm_session` 을 읽는다(결정 021). 없거나 틀리면 401 `UNAUTHORIZED`.
+ * 쿠키로 인증된 GET 이 아닌 요청은 `Origin` 이 앱의 허용 주소(`byeolmyeong.cors.allowed-origins`)여야 하고, 아니면 403 `FORBIDDEN_ORIGIN` —
+ * 브라우저는 다른 사이트에서 연 요청에도 쿠키를 실어 보낼 수 있다.
  * 서블릿 필터가 아니라 인터셉터다: 브라우저의 다른 출처 요청에 CORS 허용 헤더가 먼저 붙어야 앱이 401 을 읽을 수 있다.
  */
 @Component
-class SessionInterceptor(private val auth: AuthService) : HandlerInterceptor {
+class SessionInterceptor(
+	private val auth: AuthService,
+	private val cookie: SessionCookie,
+	@Value("\${byeolmyeong.cors.allowed-origins:}") allowedOrigins: List<String>,
+) : HandlerInterceptor {
+
+	private val origins = allowedOrigins.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
 	override fun preHandle(request: HttpServletRequest, response: HttpServletResponse, handler: Any): Boolean {
 		// 브라우저가 본 요청 전에 묻는 요청에는 세션 헤더가 없다. 허용 여부는 CORS 설정이 답한다.
 		if (CorsUtils.isPreFlightRequest(request)) return true
 		if (request.method == "GET" && request.requestURI in PUBLIC_GET_PATHS) return true
-		val header = request.getHeader("Authorization")
-		val owner = header?.takeIf { it.startsWith(BEARER) }?.removePrefix(BEARER)?.let(auth::ownerOf)
+		val bearer = request.getHeader("Authorization")?.takeIf { it.startsWith(BEARER) }?.removePrefix(BEARER)
+		val token = bearer ?: cookie.read(request)
+		if (bearer == null && token != null && request.method !in SAFE_METHODS && request.getHeader("Origin") !in origins) {
+			return reject(response, 403, "FORBIDDEN_ORIGIN")
+		}
+		val owner = token?.let(auth::ownerOf)
 		if (owner != null) {
 			request.setAttribute(OWNER_ATTRIBUTE, owner)
+			request.setAttribute(TOKEN_ATTRIBUTE, token)
 			return true
 		}
-		response.status = 401
+		return reject(response, 401, "UNAUTHORIZED")
+	}
+
+	private fun reject(response: HttpServletResponse, status: Int, code: String): Boolean {
+		response.status = status
 		response.contentType = MediaType.APPLICATION_JSON_VALUE
-		response.writer.write("""{"error":"UNAUTHORIZED"}""")
+		response.writer.write("""{"error":"$code"}""")
 		return false
 	}
 }

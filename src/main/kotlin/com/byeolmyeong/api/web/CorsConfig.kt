@@ -8,7 +8,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 /**
  * 웹 앱(다른 주소에서 열린 브라우저)이 이 서버를 부를 수 있게 한다.
  * 허용할 주소는 설정 `byeolmyeong.cors.allowed-origins`(환경 변수 `ALLOWED_ORIGINS`, 쉼표로 구분)에만 둔다.
- * 비어 있으면 아무 주소도 허용하지 않는다. 세션은 쿠키가 아니라 `Authorization` 헤더로 받으므로 자격 증명 허용은 켜지 않는다.
+ * 비어 있으면 아무 주소도 허용하지 않는다. 앱 경로는 자격 증명(웹의 세션 쿠키 `bm_session`, 결정 021)을 허용하고,
+ * 관리자 경로는 허용하지 않는다(관리 화면은 `Authorization` 헤더만 쓴다).
  *
  * 관리 화면은 주소가 따로다(결정 014): `/admin/` 아래는 `byeolmyeong.cors.admin-allowed-origins`(환경 변수 `ADMIN_ALLOWED_ORIGINS`)의
  * 주소만, 나머지 경로는 앱의 주소만 허용한다. 서로의 주소는 서로의 경로에서 거절된다.
@@ -34,6 +35,7 @@ class CorsConfig(
 			.allowedOrigins(*origins.toTypedArray())
 			.allowedMethods("GET", "POST", "PUT", "DELETE")
 			.allowedHeaders("Authorization", "Content-Type")
+			.allowCredentials(true)
 	}
 
 	private fun clean(origins: List<String>): List<String> = origins.map { it.trim() }.filter { it.isNotEmpty() }
