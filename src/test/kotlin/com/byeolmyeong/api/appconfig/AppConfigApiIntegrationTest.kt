@@ -272,6 +272,8 @@ class AppConfigApiIntegrationTest {
 		assertEquals(200, config.statusCode())
 		assertEquals(true, """"active":true""" in config.body())
 		assertEquals(200, http(port, "GET", "/health").statusCode())
+		// 애플 서버 알림은 다시 보내 준다는 보장이 없어 점검 중에도 받는다(결정 021). 빈 payload 라 400 이다.
+		assertEquals(400, http(port, "POST", "/auth/apple/notifications", "{}").statusCode())
 
 		val login = http(port, "POST", "/admin/auth/login", """{"loginId":"$ADMIN_ID","password":"$ADMIN_PASSWORD"}""")
 		assertEquals(200, login.statusCode(), "관리자는 로그인해 점검을 끌 수 있어야 한다")

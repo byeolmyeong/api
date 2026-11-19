@@ -11,7 +11,7 @@ last_reviewed: 2026-11-12
 ## 서버가 하는 일
 - 차트 계산: 출생 정보를 받아 행성 위치·하우스·각도·추가 지점(버텍스 포함, 키론 제외)을 계산한다. 세션이 있어야 받는다. 결정: docs/decisions/002-chart-calculation.md, docs/decisions/003-follow-app-decisions-2026-11-11.md
 - 출생 시각 변환과 출생지: 국내 시·군·구 목록을 갖고, 현지 시각을 당시 표준시·서머타임 이력으로 UTC 로 바꾼다.
-- 로그인: 구글·애플·카카오 토큰을 검증하고 자체 세션 토큰을 준다. 익명 계정은 없다. 가입 때 만 14세 이상인지 판정하고, 미만이면 계정을 만들지 않는다.
+- 로그인: 구글·애플·카카오 토큰을 검증하고 자체 세션을 준다(앱은 토큰, 웹은 httpOnly 쿠키). 익명 계정은 없다. 처음 온 사람은 가입권을 받고 출생 정보와 함께 가입하며, 서버가 출생일로 만 14세 이상인지 판정해 미만이면 계정을 만들지 않는다. 결정: docs/decisions/021-social-login-signup-cookie.md
 - 글 생성: 계산한 차트로 Claude API(결정 006)를 호출해 요약 해석·심층 리포트·궁합 글·방향성 제시를 만들고 저장한다. 계산은 AI 에게 맡기지 않는다.
 - 변곡점: 정해진 마디(토성 사각·귀환·두 번째 귀환, 천왕성 대립)와 변화·기회·운명적 만남 구간을 계산하고, 구간마다 기간·영역·크기를 붙인다. 심층 리포트의 시기 영역(`Report.timing`)으로 준다. 규칙: 앱 저장소 release-1.0.0 F4. 서버가 고른 것: docs/decisions/008-report-timing.md
 - 궁합: 직접 입력과 초대 링크. 두 차트를 겹치는 계산과 나 기준 점수(40~100, 관계 유형별)는 서버에서만 한다. 나 기준으로 여러 명과 1:1 매칭한 결과를 랭킹으로 돌려준다(인원 제한 없음). 규칙: 앱 저장소 release-1.0.0 F5.
@@ -21,7 +21,7 @@ last_reviewed: 2026-11-12
 - `chart` — 계산. 순수 함수만 둔다(입력: UTC 시각·위경도 → 출력: 차트·변곡점 구간·궁합 점수). DB·HTTP·AI·Spring 을 모른다. 이유: 계산 정확도가 제품의 신뢰이고 기준값 테스트로 혼자 검증돼야 한다.
 - `birth` — 출생지 목록과 시각 변환(`java.time` 의 시간대 이력), 그리고 저장된 출생 정보를 읽고 쓰는 한 곳(`BirthProfileService`). 저장된 출생 정보에서 차트 입력과 "같은 차트" 를 가리는 해시(`ChartInput`)를 얻는 곳도 여기다. 해석·리포트·궁합이 모두 소유자의 출생 정보를 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다.
 - `web` — HTTP 공통: 오류 응답 모양(`ErrorResponse`·`BadRequestException`·`NotFoundException`), 출생 정보 요청 검증(`BirthRequestParser`), 요청 속도 제한, CORS(앱의 주소와 관리 화면의 주소를 경로로 나눈다), 지금의 `POST /charts` 컨트롤러. 감사 기록을 남겨 달라는 이벤트의 타입(`AuditEvent`·`AuditAction`·`AuditActor`)과 관리자에게 사용자를 가리키는 말(`ownerRef`)도 여기 둔다 — 기능 패키지와 `auth` 가 모두 써야 하는데 둘 다 쓸 수 있는 곳이 여기뿐이다(결정 015). 앱 버전을 읽고 견주는 순수 함수(`parseAppVersion`, 결정 016)도 여기 있다 — 최소 버전을 넣는 `admin` 과 요청의 버전을 보는 `appconfig` 가 같이 쓴다. `auth` 를 모른다.
-- `auth` — 세션 발급·검증, 세션 검사(`SessionInterceptor`: 로그인 전에 쓰는 경로 목록에 없으면 모두 세션 필요. `GET /faqs`·`GET /app-config` 는 GET 만 열고, `/admin/**` 는 보지 않는다 — 관리자 세션 검사가 맡는다), 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 계정 삭제(`DELETE /account`), 나중에 구글·애플·카카오 토큰 검증과 만 14세 판정.
+- `auth` — 세션 발급·검증, 세션 검사(`SessionInterceptor`: 로그인 전에 쓰는 경로 목록에 없으면 모두 세션 필요. `GET /faqs`·`GET /app-config` 는 GET 만 열고, `/admin/**` 는 보지 않는다 — 관리자 세션 검사가 맡는다), 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 계정 삭제(`DELETE /account` — 지우기 전에 카카오 연결 끊기·애플 토큰 철회), 구글·애플·카카오 토큰 검증·가입권·만 14세 판정·쿠키 세션·세션 만료·애플 서버 알림(결정 021).
 - `profile` — 내 출생 정보 저장·조회의 HTTP 입구(`GET`·`PUT /profile`). 저장 자체는 `birth.BirthProfileService` 가 한다.
 - `generation` — 글 생성 공통: 공급자를 가리는 인터페이스 `TextGenerator`(지시문·차트 글·JSON 구조를 받아 JSON 을 돌려준다)와 그 Claude 구현, 계산한 것을 프롬프트 글로 옮기는 것(차트 `chartFacts`, 시기 한 줄 `timelineFact`, 두 차트 사이의 연결 `synastryFactsText`), 근거에 쓰는 말(`Basis.kt`). 해석·리포트·궁합 글·방향성 제시가 같이 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다. `chart` 만 안다(소유자·저장·HTTP 를 모른다).
 - `reading` — 요약 해석 생성·저장. 요약 해석에만 있는 것(지시문, 돌려받을 구조, 문단·강점·보완점 개수 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다.
@@ -42,7 +42,7 @@ src/main/kotlin/com/byeolmyeong/api/
   chart/       Positions · Houses · Aspects · Points · Timeline(마디·구간) · SynastryScore   ← 순수 계산
   birth/       Places · BirthTime · BirthProfile(Service·Repository · ChartInput) · PlacesController
   web/         ErrorResponse · BirthRequest(Parser: 검증, 요청의 출생 정보 → 차트 입력) · RateLimiter · CorsConfig · ChartController · AuditEvent(감사 기록 이벤트·행동 코드·행위자) · OwnerRef · AppVersion(버전 읽기·견주기)
-  auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor)
+  auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor) · SessionCookie(웹 쿠키 bm_session, 결정 021) · ProviderToken(Provider · ProviderTokenVerifier · 공급자 셋의 검증기 설정) · KakaoOAuth(+ KakaoOAuthClient — 웹 인가 코드 교환 · 탈퇴 때 연결 끊기) · LoginService(+ SignupTicketRepository · AppleTokenRepository — 로그인 · 가입권 · 가입) · AppleSignIn(+ AppleSignInClient — 애플 토큰 교환 · 철회 · 서버 알림 확인) · Age(만 14세 · 한국 날짜) · AuthErrors(로그인 · 가입 오류 응답)
   profile/     ProfileController
   generation/  TextGenerator(인터페이스) · ClaudeTextGenerator · ChartFacts · TimelineFacts(시기 한 줄의 글) · SynastryFacts(두 차트 사이 연결의 글) · Basis
   reading/     ReadingController · ReadingService · ReadingRepository · ReadingDraft(지시문·구조·검증)
@@ -94,10 +94,13 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /faqs` | 없음 | 없음 | `[{ id, question, answer }]` 공개한 것만 순서대로 · 하나도 없으면 `[]` · 아래 "자주 묻는 질문" |
 | `GET /app-config` | 없음 | 없음 | 200 `{ ios: PlatformConfig, android: PlatformConfig, maintenance: { active, message } }` · 아래 "앱 설정과 강제 업데이트" |
 | `POST /charts` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | `Chart` |
-| `POST /auth/dev` | 없음 | 없음 | `{ token }` · 개발 설정에서만, 운영 404 (결정 005) |
-| `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken }` | `{ token }` · 만 14세 미만 403 `UNDER_AGE` · 브랜딩 뒤 구현 |
-| `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | 같은 형태 · `time` 이 `null` 이면 `placeId` 도 `null` · 저장한 적 없으면 `GET` 은 404 `NO_PROFILE` · `PUT` 의 400 은 `POST /charts` 와 같다 |
-| `DELETE /account` | 세션 | 없음 | 204 |
+| `POST /auth/dev` | 없음 | 없음 · 또는 `{ cookie: true }` | `{ token }` · `cookie` 면 본문 `{}` 와 쿠키 · 개발 설정에서만, 운영 404 (결정 005) |
+| `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken?, code?, redirectUri?, authorizationCode?, cookie? }` · `idToken` 이나 (`code` + `redirectUri`) 중 하나 — `code` 는 KAKAO 웹만 · `authorizationCode` 는 APPLE 만(웹은 그 로그인의 `redirectUri` 를 함께) | 200 `{ status: SIGNED_IN, token? }`(계정이 있다 · `cookie` 면 `token` 없이 쿠키) · 200 `{ status: SIGNUP_REQUIRED, signupToken, expiresAt }`(계정이 없다 · 30분 · 1회용) · 아래 "로그인과 가입" |
+| `POST /auth/signup` | 없음 | `{ signupToken, date, time \| null, placeId \| null, cookie? }` · 출생 정보 규칙은 `PUT /profile` 과 같다 | 201 `{ token? }` · 만 14세 미만 403 `UNDER_AGE`(계정·출생 정보 0건) · 아래 "로그인과 가입" |
+| `GET /auth/session` · `DELETE /auth/session` | 세션 | 없음 | 204 · 204(이 세션만 지운다 · 쿠키도 지운다) |
+| `POST /auth/apple/notifications` | 없음(애플 서명) | `{ payload }` — 애플이 서명한 JWT | 200 · 애플 알림이 아니면 400 `INVALID_NOTIFICATION`(본문이 JSON 이 아니면 400 `INVALID_REQUEST`) · 점검 중에도 받는다 · 아래 "로그인과 가입" |
+| `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | 같은 형태 · `time` 이 `null` 이면 `placeId` 도 `null` · 저장한 적 없으면 `GET` 은 404 `NO_PROFILE` · `PUT` 의 400 은 `POST /charts` 와 같다 · 한국 날짜 기준 만 14세 미만 날짜면 `PUT` 은 403 `UNDER_AGE` 이고 있던 것은 그대로다(결정 021) |
+| `DELETE /account` | 세션 | 없음 | 204 · 카카오 계정은 연결 끊기, 애플 계정은 토큰 철회를 먼저 부른다(실패해도 지운다) · 웹의 쿠키도 지운다 |
 | `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트는 저장된 글을 바로 준다 |
 | `POST /reports` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "리포트 상태" |
 | `GET /reports/me` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report? }` · 지금 프로필의 차트 기준 · `report` 는 `DONE` 일 때만(`sections` 와 `timing` 이 언제나 함께 온다) · 저장한 출생 정보가 없으면 `NONE` |
@@ -117,8 +120,14 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /shared/{shareId}` | 없음 | 없음 | 200 `ShareCard`(요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나, 글과 숫자만) · 없는 식별자 404 `NOT_FOUND` · 429 `RATE_LIMITED` |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
 
-- 세션: 요청 헤더 `Authorization: Bearer <token>`. 없거나 틀리면 401 `UNAUTHORIZED`. 표에서 인증이 "없음" 인 경로와 `GET /health` 말고는 모두 세션이 필요하다(새 경로는 기본이 세션 필요다). 점검 중에는 세션 검사보다 먼저 503 `MAINTENANCE` 가, 앱이 옛 버전이라 막힌 동안에는 426 `UPDATE_REQUIRED` 가 온다(아래 "앱 설정과 강제 업데이트"). 토큰은 서버가 원문을 저장하지 않는다(해시만). `/admin/**` 는 이 표에 없다 — 아래 "관리자 API" 가 따로 다루고, 사용자 세션 토큰은 거기서 통하지 않는다(관리자 토큰도 이 표의 경로에서 통하지 않는다).
-- 브라우저의 다른 출처 요청(CORS): 설정 `byeolmyeong.cors.allowed-origins`(환경 변수 `ALLOWED_ORIGINS`, 쉼표 구분)에 적힌 주소만 허용한다. 비어 있으면 허용하지 않는다. 허용 메서드 GET·POST·PUT·DELETE, 허용 헤더 `Authorization`·`Content-Type`. 쿠키는 쓰지 않는다. `/admin/**` 는 이 주소들에 열리지 않는다 — 관리 화면의 주소(`ADMIN_ALLOWED_ORIGINS`)만 부를 수 있고, 그 주소는 이 표의 경로를 부를 수 없다("관리자 API" 의 "브라우저 출처").
+- 세션: 요청 헤더 `Authorization: Bearer <token>`, 헤더가 없으면 쿠키 `bm_session`(웹, 결정 021). 없거나 틀리거나 마지막 사용 후 90일이 지났으면 401 `UNAUTHORIZED`. 쿠키로 인증된 GET · HEAD 가 아닌 요청은 `Origin` 이 `ALLOWED_ORIGINS` 에 없으면 403 `FORBIDDEN_ORIGIN`. 표에서 인증이 "없음" 인 경로와 `GET /health` 말고는 모두 세션이 필요하다(새 경로는 기본이 세션 필요다). 점검 중에는 세션 검사보다 먼저 503 `MAINTENANCE` 가, 앱이 옛 버전이라 막힌 동안에는 426 `UPDATE_REQUIRED` 가 온다(아래 "앱 설정과 강제 업데이트"). 토큰은 서버가 원문을 저장하지 않는다(해시만). `/admin/**` 는 이 표에 없다 — 아래 "관리자 API" 가 따로 다루고, 사용자 세션 토큰은 거기서 통하지 않는다(관리자 토큰도 이 표의 경로에서 통하지 않는다).
+- 브라우저의 다른 출처 요청(CORS): 설정 `byeolmyeong.cors.allowed-origins`(환경 변수 `ALLOWED_ORIGINS`, 쉼표 구분)에 적힌 주소만 허용한다. 비어 있으면 허용하지 않는다. 허용 메서드 GET·POST·PUT·DELETE, 허용 헤더 `Authorization`·`Content-Type`. 자격 증명(쿠키 `bm_session`)을 허용한다(결정 021). `/admin/**` 는 이 주소들에 열리지 않는다 — 관리 화면의 주소(`ADMIN_ALLOWED_ORIGINS`)만 부를 수 있고, 그 주소는 이 표의 경로를 부를 수 없다("관리자 API" 의 "브라우저 출처").
+- 로그인과 가입 (결정 021):
+  - `POST /auth/login`: 공급자 ID 토큰의 서명(JWKS)·`iss`·`aud`·`exp` 를 서버가 확인한다. KAKAO 웹은 `code` + `redirectUri` 를 보내고 서버가 카카오와 교환해 ID 토큰을 얻는다(`redirectUri` 는 `KAKAO_REDIRECT_URIS` 에 있어야 한다). APPLE 의 `authorizationCode` 는 서버가 바로 교환해 refresh token 을 둔다(탈퇴 때 철회용 · 5분 · 1회용이라 로그인 때 바꾼다 · 교환이 실패해도 로그인은 된다 · 웹은 로그인에 쓴 `redirectUri` 를 함께 보낸다 — 애플은 localhost 를 받지 않는다). 만 14세 미만으로 가입을 못 하면 받아 둔 애플 토큰도 철회한다. 계정에는 공급자와 공급자의 사용자 식별자만 둔다.
+  - 오류: 400 `INVALID_REQUEST`(본문이 JSON 객체가 아니다 · `provider` 가 없거나 목록에 없다 · `idToken` 과 `code` 가 둘 다 없거나 둘 다 있다) · 401 `INVALID_ID_TOKEN`(서명·발급자·대상·만료 중 하나라도 틀리다 · 대상이 여럿인데 `azp` 가 우리가 아니다 · 모르는 키로 서명했다) · 401 `INVALID_CODE`(카카오가 코드를 400 으로 거절했다 · 등록 안 된 `redirectUri`) · 502 `PROVIDER_UNAVAILABLE`(공급자의 키나 토큰 경로에 닿지 못했다 · 카카오가 401 · 403 — 우리 키 설정 문제) · 429 `RATE_LIMITED`(로그인 · 가입을 합친 주소별 분당 `auth-per-minute` 30).
+  - `POST /auth/signup`: 가입권이 없거나 썼거나 만료면 401 `SIGNUP_EXPIRED`. 출생 정보가 틀리면 `POST /charts` 와 같은 400. 한국 시간 오늘 기준 만 나이가 14 미만이면 403 `UNDER_AGE` 이고 가입권을 지운다(계정·출생 정보·가입권 0건). 14 이상이면 계정·출생 정보·세션을 한 트랜잭션에 만든다. 남은 가입권으로 다시 와서 계정이 이미 있으면 출생 정보는 그대로 두고 세션만 준다.
+  - `cookie: true` 이면 세션을 본문 대신 쿠키 `bm_session`(`HttpOnly; Secure; SameSite=Lax; Path=/`)으로 준다. `Secure` 는 `SESSION_COOKIE_SECURE=false` 로만 끈다(로컬 http).
+  - `POST /auth/apple/notifications`: 본문 `{ payload }` 의 JWT 를 애플 키(RS256)로 확인하고 발급자 `https://appleid.apple.com` · 대상(`APPLE_CLIENT_IDS`)을 본다. `events`(객체 또는 JSON 글자)의 `type` 이 `consent-revoked` 면 그 계정의 세션 가운데 `event_time` 보다 먼저 생긴 것을 지우고(없으면 모두), `account-deleted`(문서에 따라 `account-delete`)면 계정을 지운다(철회는 부르지 않는다, 감사 기록 행위자 SYSTEM). 다른 종류와 모르는 사용자는 200 으로 받고 아무것도 하지 않는다. 같은 알림이 늦게 되풀이돼도 그 뒤에 로그인한 세션은 남는다. 애플 키를 받지 못하면 502. 점검(503) 중에도 받는다.
 - `Chart` = `{ timeKnown, houseSystem: "PLACIDUS", moonSignMayChange?, positions[{ body, sign, degree, minute, longitude, house?, retrograde }], points[{ point, sign, degree, minute, longitude, house? }], houses?[12 × { house, sign, degree, minute, longitude }], angles?{ asc{ sign, degree, minute, longitude }, mc{ sign, degree, minute, longitude } }, aspects[{ a, b, type, orb, applying }] }`
   - `longitude` 는 황경 0 이상 360 미만(소수 둘째 자리, 도·분처럼 올리지 않고 버린다). 앱이 휠을 그릴 때 쓴다. `moonSignMayChange: true` 는 시각을 모르고 그날 안에 달 별자리가 바뀔 때만 보낸다. 상승점·중천은 `angles` 에만 온다. `houses` 는 1번부터 순서대로. `houseSystem` 은 시각을 몰라도 보낸다. (2026-11-11 확정·구현)
   - `body`: `SUN`·`MOON`·`MERCURY`·`VENUS`·`MARS`·`JUPITER`·`SATURN`·`URANUS`·`NEPTUNE`·`PLUTO`. `point`: `NORTH_NODE`·`LILITH`·`FORTUNE`·`VERTEX`. `sign`: `ARIES`…`PISCES`. `type`: `CONJUNCTION`·`SEXTILE`·`SQUARE`·`TRINE`·`OPPOSITION`.
@@ -462,7 +471,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 설정(`application.properties`): `byeolmyeong.admin.session-hours`(12) · `byeolmyeong.admin.bcrypt-strength`(12) · `byeolmyeong.rate-limit.admin-login-per-ip`(20) · `byeolmyeong.rate-limit.admin-login-per-id`(5) · `byeolmyeong.app-config.cache-seconds`(5) · `byeolmyeong.rate-limit.app-config-per-minute`(120).
 
 ## 데이터
-- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시) · `profiles`(출생 정보. 태어난 곳은 시각을 알 때만 있다) · `readings`(소유자, 종류, 차트 해시, 본문, 더 쓰지 않는 공유 식별자 `share_id` — 결정 012) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만 — 네 영역의 글과 시기(`timing`: 마디·구간의 날짜와 글, "지금" 은 없음), 생성을 시작한 때(그 생성의 표식)·살아 있다는 표시를 마지막으로 적은 때(`active_at`, V9)·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자·주제·대상 unique, 본문. 대상의 뜻은 주제가 정한다: `LOVE` 는 차트 해시, `FUTURE` 는 `차트 해시|지금의 시기가 같은 동안의 첫날|마지막 날`, `SYNASTRY` 는 궁합 id — 결정 009·011. 궁합 주제의 행에도 상대의 출생 정보·행성 위치·연결은 없다) · `inquiries`(V11: 소유자, 종류, 글, 답장 받을 이메일 — 없으면 null, 만든 때. 기기 정보·주소는 없다 — 결정 013) · `push_tokens`.
+- `accounts`(공급자, 공급자 사용자 식별자 unique) · `sessions`(토큰 해시, 마지막 사용 시각 — V16, 90일 지나면 끝난다 · 결정 021) · `signup_tickets`(V17: 가입권 해시, 공급자, 공급자 사용자 식별자, 끝나는 때 — 30분 · 1회용, 결정 021 · V18: 애플 클라이언트 · refresh token) · `apple_tokens`(V18: 계정, 클라이언트 ID, refresh token — 탈퇴 때 철회, 결정 021) · `profiles`(출생 정보. 태어난 곳은 시각을 알 때만 있다) · `readings`(소유자, 종류, 차트 해시, 본문, 더 쓰지 않는 공유 식별자 `share_id` — 결정 012) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만 — 네 영역의 글과 시기(`timing`: 마디·구간의 날짜와 글, "지금" 은 없음), 생성을 시작한 때(그 생성의 표식)·살아 있다는 표시를 마지막으로 적은 때(`active_at`, V9)·상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자·주제·대상 unique, 본문. 대상의 뜻은 주제가 정한다: `LOVE` 는 차트 해시, `FUTURE` 는 `차트 해시|지금의 시기가 같은 동안의 첫날|마지막 날`, `SYNASTRY` 는 궁합 id — 결정 009·011. 궁합 주제의 행에도 상대의 출생 정보·행성 위치·연결은 없다) · `inquiries`(V11: 소유자, 종류, 글, 답장 받을 이메일 — 없으면 null, 만든 때. 기기 정보·주소는 없다 — 결정 013) · `push_tokens`.
 - 소유자를 가리키는 테이블은 모두 `on delete cascade` 다: 계정을 지우면 문의도 함께 지워진다. 문의는 관리자 API(`/admin/inquiries`)로 읽고 처리한다(결정 014).
 - 관리자 쪽 테이블(V12, 결정 014): `admin_accounts`(로그인 아이디 unique·소문자, bcrypt 해시, 표시 이름, 활성 여부, 만든 때) · `admin_sessions`(토큰 해시, 관리자, 끝나는 때) · `faqs`(질문, 답, 순서, 공개 여부, 고친 때, 고친 관리자). `inquiries` 에는 처리 칸 넷이 더해졌다: 상태(`NEW`·`IN_PROGRESS`·`DONE`, 기본 `NEW`)·관리자 메모·처리한 관리자·처리한 때. 관리자 테이블은 `accounts`·`sessions` 와 아무 관계가 없고, 관리자는 지우지 않는다(끄기만 한다).
 - 감사 기록(V13, 결정 015): `audit_logs`(일어난 때, 행위자 종류 `ADMIN`·`USER`·`SYSTEM`, 행위자 id — 계정 id 의 글자, 행위자 표시 — 관리자는 그때의 로그인 아이디·사용자는 `ownerRef`, 행동 코드, 대상 종류·id, 결과 `SUCCESS`·`FAILURE`, 덧붙임 `detail` — 코드 값만 담는 작은 JSON). **계정을 가리키는 외래 키가 없다: 계정을 지워도 이 행들은 남는다**(위 줄의 "모두 `on delete cascade`" 의 유일한 예외). 그래서 출생 정보·이름·이메일·사용자가 쓴 글·비밀번호·토큰·주소는 어느 칸에도 없다. 넣기만 하고 보관 기한은 아직 없다.
@@ -493,7 +502,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 
 ## 요청 속도 제한 (남용 방지, 서버에서만 판정한다)
 - 리포트·궁합·방향성 제시에 기능 횟수 제한은 없다(앱 결정 011). 같은 차트·같은 두 사람의 글은 한 번만 만든다(방향성 제시의 미래 주제는 지금의 시기가 같은 동안 한 번, 궁합 주제는 궁합마다 한 번).
-- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다)·`GET /faqs`(주소별, `faqs-per-minute` 120)·`GET /app-config`(주소별, `app-config-per-minute` 120)·`GET /shared/{shareId}`(주소별 `shared-per-minute`, 식별자를 마구 넣어 보는 것을 늦춘다).
+- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다)·`GET /faqs`(주소별, `faqs-per-minute` 120)·`GET /app-config`(주소별, `app-config-per-minute` 120)·`GET /shared/{shareId}`(주소별 `shared-per-minute`, 식별자를 마구 넣어 보는 것을 늦춘다)·`POST /auth/login` + `POST /auth/signup`(합쳐 주소별 `auth-per-minute` 30 — 카카오 웹 코드는 확인 전에 카카오를 부른다, 결정 021). 주소는 연결의 상대 주소(`remoteAddr`)라 프록시 뒤에서는 전달 헤더 설정이 있어야 주소별이 된다.
 - 관리자 로그인(`POST /admin/auth/login`)은 10분에 주소별 `byeolmyeong.rate-limit.admin-login-per-ip`(20)번·아이디별 `admin-login-per-id`(5)번까지다. `admin.AdminAuthService` 가 같은 `web.RateLimiter` 를 쓴다(결정 014).
 - 계정별 제한은 `POST /inquiries` 하나뿐이다: 소유자 id 별로 한 시간에 `byeolmyeong.rate-limit.inquiries-per-hour`(5)건, 같은 `web.RateLimiter`(고정 창, 서버 메모리)를 `inquiry.InquiryService` 가 쓴다(결정 013). 다른 엔드포인트의 계정별 제한은 미뤄져 있다(계획 "배포 전 확인" 1번).
 - 광고 시청 판정은 1.1.0 에 더한다(앱 결정 015).
@@ -503,7 +512,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|---|
 | PostgreSQL | 저장 | 로컬은 컨테이너. 운영 호스팅은 [확인 필요] |
 | Claude API | 글 생성 | 키는 환경 변수 `ANTHROPIC_API_KEY`. 모델은 설정 `byeolmyeong.claude.model`(결정 006) |
-| 구글·애플·카카오 로그인 | 토큰 검증 | [확인 필요] 클라이언트 등록, 만 14세 확인 방법(생년월일 / 카카오 연령대) |
+| 구글·애플·카카오 로그인 | ID 토큰 확인(공급자 JWKS, RS256 — `auth.ProviderTokenVerifier`) · 카카오 웹 코드 교환(`auth.KakaoOAuth`) · 애플 토큰 교환 · 철회 · 서버 알림(`auth.AppleSignIn`, `APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`) | 대상(aud)은 환경 변수 `GOOGLE_CLIENT_IDS`·`APPLE_CLIENT_IDS`·`KAKAO_REST_API_KEY`·`KAKAO_NATIVE_APP_KEY`. 발급자·키 주소는 결정 021 "공급자 값". 만 14세는 출생일로 서버가 판정(결정 021). [확인 필요] 클라이언트 등록(소유자) |
 | 푸시 발송 | 초대 수락·리포트 완성 알림 | [확인 필요] 발송 경로는 구현 시 Expo 공식 문서로 확정 |
 
 ## 관련

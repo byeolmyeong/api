@@ -1,0 +1,56 @@
+---
+type: decision
+tags: [로그인, 소셜 로그인, 가입, 만 14세, 세션, 쿠키, 계정 삭제, 애플, 카카오, 구글]
+status: active
+last_reviewed: 2026-11-18
+superseded_by:
+---
+# 021. 소셜 로그인은 가입권을 거쳐 출생 정보와 함께 가입하고, 웹은 쿠키 세션을 쓴다
+
+> 상태: 활성 · 결정일 2026-11-18(소유자) · 결정 005 의 "브랜딩 뒤" 를 채운다 · 계획: 앱 저장소 `docs/plans/2026-11-18-social-login.md` · 계약은 docs/architecture.md "API 계약"
+
+## 맥락
+- 결정 005 는 개발용 로그인으로 기능부터 만들고, 구글·애플·카카오 토큰 검증과 만 14세 판정(`POST /auth/login`)을 브랜딩 뒤로 미뤘다. 앱 이름이 "별명" 으로 정해져(앱 결정 032) 미룰 이유가 없어졌다.
+- 소유자 결정(2026-11-18): 로그인 수단은 애플·카카오·구글(네이버는 나중), 만 14세는 출생일로 서버가 판정, 앱은 웹·iOS·Android 를 한 번에, 웹은 쿠키로 로그인을 유지.
+- 구글·애플은 나이 정보를 주지 않는다. 출생 정보는 가입 마지막 단계에서 어차피 받는다(앱 release-1.0.0 F1).
+
+## 결정
+1. **가입은 두 단계다.** `POST /auth/login` 은 공급자 토큰을 확인해 계정이 있으면 세션을, 없으면 30분짜리 1회용 가입권(`signupToken`)을 준다. `POST /auth/signup` 이 가입권과 출생 정보를 받아 **만 14세 이상일 때만** 계정·출생 정보·세션을 한 트랜잭션에 만든다. 미만이면 403 `UNDER_AGE` 이고 가입권을 지운다 — 계정·출생 정보는 어디에도 남지 않는다.
+   - 만 14세 = 한국 시간(`Asia/Seoul`) 오늘 기준 만 나이 14 이상. 2월 29일생은 평년에 3월 1일에 나이를 먹는다(`java.time.Period` 기준).
+   - 가입권은 DB 에 해시만 두고, 쓰거나 만료되면 401 `SIGNUP_EXPIRED`.
+   - 가입 뒤에도 출생 정보를 만 14세 미만 날짜로 고칠 수 없다(`PUT /profile` 403 `UNDER_AGE`, 있던 것은 그대로). 같은 판정 함수다(소유자 결정 2026-11-19 — 독립 리뷰가 "가입 때만 본다" 를 짚었다).
+2. **공급자 토큰은 서버가 직접 확인한다.** ID 토큰의 서명(공급자 JWKS)·발급자(iss)·대상(aud, 우리 앱의 클라이언트 ID 목록)·만료(exp). 틀리면 401 `INVALID_ID_TOKEN`, 공급자 키를 받지 못하면 502 `PROVIDER_UNAVAILABLE`. 라이브러리는 `com.nimbusds:nimbus-jose-jwt` 하나만 더한다(Spring Security 의 웹 쪽은 들이지 않는다 — 결정 014 와 같은 이유). 공급자별 iss·JWKS 주소는 구현 태스크(S4)가 공식 문서로 확인해 아래 "공급자 값" 에 적는다.
+   - 카카오 웹은 앱이 인가 코드를 받고 서버가 REST API 키 + 클라이언트 시크릿으로 교환해 ID 토큰을 얻는다(카카오 문서: 토큰 요청은 서비스 서버가 한다). 돌아올 주소는 등록한 목록(`KAKAO_REDIRECT_URIS`)에 있어야 한다. 카카오 앱(네이티브 SDK)은 ID 토큰을 바로 보낸다.
+   - 계정에는 공급자와 공급자의 사용자 식별자(`sub`)만 둔다. 이메일·이름은 받지 않는다(V2).
+3. **세션은 마지막 사용 후 90일 지나면 끝난다.** 마지막 사용 시각은 하루에 한 번만 고쳐 쓴다. `DELETE /auth/session` 은 그 세션만 지운다(로그아웃은 이 기기만). `GET /auth/session` 은 세션이 살아 있는지 답한다(웹이 쿠키 세션을 확인할 때).
+4. **웹은 httpOnly 쿠키 세션을 쓴다.** 로그인·가입·개발용 로그인 요청 본문에 `cookie: true` 가 있으면 토큰을 본문에 넣지 않고 쿠키 `bm_session`(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 속성 없음)으로만 준다. 세션 검사는 `Authorization: Bearer` 가 없을 때 이 쿠키를 읽는다. 쿠키로 인증된 GET 이 아닌 요청은 `Origin` 이 앱 허용 주소(`ALLOWED_ORIGINS`)에 있어야 하고 아니면 403 `FORBIDDEN_ORIGIN`. 앱 경로의 CORS 는 자격 증명(쿠키)을 허용한다. 관리자 API 는 쿠키를 받지 않는다(관리 화면은 sessionStorage, 결정 014).
+   - 로컬 http 개발을 위해 `Secure` 만 설정으로 끈다(`SESSION_COOKIE_SECURE=false`).
+5. **탈퇴할 때 공급자 연결도 정리한다.** 카카오 계정은 지우기 전에 어드민 키로 연결 끊기(카카오 문서상 필수). 애플 계정은 로그인 때 authorization code 를 바로 교환해 둔 refresh token 을 철회(App Store 심사 지침 5.1.1(v)). 둘 다 실패해도 계정은 지우고 구조화 로그(`kakao_unlink_failed`·`apple_revoke_failed`)를 남긴다.
+6. **애플 서버 알림을 받는다.** 2026-01-01 부터 한국 개발자는 Services ID 를 등록할 때 서버 알림 주소가 필수다. `POST /auth/apple/notifications` 가 본문 `{ payload }` 의 애플 서명 JWT 를 확인하고 `consent-revoked` 면 그 계정의 세션 가운데 알림이 일어난 때(`event_time`)보다 먼저 생긴 것을 지우고, `account-deleted`(애플 문서의 이름. 다른 자료의 `account-delete` 도 받는다)면 계정을 지운다(감사 기록 `ACCOUNT_DELETED`, 행위자 SYSTEM). 같은 알림이 되풀이돼도(되풀이 전송 보고가 있다) 그 뒤에 로그인한 세션은 남는다. 점검 중에도 받는다.
+7. **개발용 로그인(결정 005)은 그대로 둔다.** 운영 기본값(`AUTH_DEV_ENABLED` 없음)에서 `/auth/dev` 가 404 인 것을 테스트로 지킨다.
+
+## 근거
+- 가입권: 애플 ID 토큰은 수명이 짧을 수 있어, 출생 정보를 입력하는 동안 원래 토큰으로 다시 가입하게 하면 만료될 수 있다. 가입권은 우리가 수명을 정한다.
+- 출생일 판정: 네 공급자 어디서나 같은 방식이고, 출생 정보가 처음부터 계정에 저장된다(결정 009 의 근거 그대로). 카카오 연령대는 카카오에만 있고 권한 신청이 필요하다.
+- 쿠키: 웹에는 기기 보안 저장소가 없다. 브라우저 저장소(localStorage)는 화면에 끼어든 코드가 토큰을 읽을 수 있고, 메모리에만 두면 새로고침마다 로그인이 풀린다.
+
+## 대안
+- 로그인 한 번에 출생 정보까지 받기 — 계정이 없는 사람과 있는 사람의 요청이 달라 앱이 먼저 알아야 한다.
+- 체크박스("만 14세 이상이에요")만 — 본인 말만 믿는다. 소유자가 고르지 않았다.
+- 웹 토큰을 localStorage 에 — 만들기 쉽지만 토큰이 새어 나갈 수 있다. 소유자가 고르지 않았다.
+- nonce — 이번에는 넣지 않는다. ID 토큰은 TLS 로만 오가고 수명이 짧다. 넣으려면 서버 nonce 발급 경로 하나와 앱 세 곳을 고친다.
+
+## 결과·재검토 조건
+- 웹 앱과 서버는 같은 도메인 아래 주소여야 한다. 다른 도메인이면 `SameSite=Lax` 쿠키가 가지 않는다. 호스팅 결정 020(같은 날, 브랜치 `chore/deploy-oracle`)의 주소 — 앱 웹 `byeolmyeong.com`·`staging.byeolmyeong.com`, 서버 `api.byeolmyeong.com`·`api-staging.byeolmyeong.com` — 는 이 조건을 채운다. 번호 020 은 그 결정이 먼저 썼다.
+- 애플 refresh token 을 DB 에 둔다(`apple_tokens`). 새면 그 사람의 애플 연동을 끊을 수 있는 정도다.
+- 안드로이드에는 애플 로그인이 없다(앱 결정 034). 애플로 가입한 사람이 안드로이드로 옮기면 그 기기에서는 들어올 수 없다. 요청이 생기면 서버 리디렉트 경로를 더한다.
+- 애플 웹 로그인과 Services ID 등록은 https 서버(테스트 서버)가 뜬 뒤에 할 수 있다.
+- 서버 계획 "배포 전 확인" 3(세션 만료·로그아웃)이 이 결정으로 풀린다. 2(개발용 로그인이 켜진 채 운영에서 뜨지 않게)는 풀리지 않았다 — 기본값이 꺼짐이라는 테스트만 있고, 기동 안전장치는 호스팅 결정 020 의 "배포 전 안전장치" 계획이 맡는다(독립 리뷰 2026-11-18 지적으로 바로잡음).
+
+## 공급자 값 (2026-11-18 각 공급자의 `/.well-known/openid-configuration` 으로 확인 — 셋 다 서명 RS256)
+| 공급자 | iss | JWKS | aud(환경 변수) |
+|---|---|---|---|
+| 구글 | `https://accounts.google.com` (구글 문서상 `accounts.google.com` 도 온다) | `https://www.googleapis.com/oauth2/v3/certs` | `GOOGLE_CLIENT_IDS` |
+| 애플 | `https://appleid.apple.com` | `https://appleid.apple.com/auth/keys` | `APPLE_CLIENT_IDS` |
+| 카카오 | `https://kauth.kakao.com` | `https://kauth.kakao.com/.well-known/jwks.json` | `KAKAO_REST_API_KEY` · `KAKAO_NATIVE_APP_KEY` |
+- 라이브러리: `com.nimbusds:nimbus-jose-jwt` 10.10(2026-09-17 판). Spring Boot 가 버전을 관리하지 않아 `build.gradle.kts` 에 정했다.
