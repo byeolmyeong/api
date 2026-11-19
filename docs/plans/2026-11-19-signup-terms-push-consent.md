@@ -18,14 +18,14 @@ last_reviewed: 2026-11-19
 - 마케팅 수신 동의(`marketingConsent` · `marketing_consented_at`)는 025 가 이미 맡는다. 여기서 다시 만들지 않는다.
 - 소유자(2026-11-19): 약관 단계는 닉네임보다 먼저, 필수 2 · 선택 2(푸시 알림 받기 · 마케팅 정보 수신). 야간(21~08시) 광고는 보내지 않으므로 야간 동의는 받지 않는다.
 
-## 이 계획을 누가 하나 (추천)
-- 서버 세션의 `feat/account-nickname-consent` 가 아직 develop 에 들어가지 않았으면 **그 브랜치의 V20 · 결정 025 에 함께 넣는 것**을 추천한다(마이그레이션 하나, `POST /auth/signup` 계약을 한 번만 바꾼다). 이미 들어갔으면 결정 026 · `V21` 로 따로 한다.
+## 번호
+- PR #22(결정 025 · V20, 닉네임 · 마케팅 동의 · `GET/PATCH /account`)는 2026-11-19 develop 에 합쳐졌다(`872745a`). 이 계획은 **결정 026 · `V21`** 로 따로 한다.
 
-## 결정 025(PR #22)에 반영할 소유자 결정 (2026-11-19, 서버 세션에 보냄)
-- 닉네임: **한글(완성형 가~힣) · 영문(a~z, A~Z)만 2~10자**. 숫자 · 공백 · 기호 · 이모지 안 됨. 한글과 영문은 섞어도 된다. 025 의 "1~20자 · 중복 허용" 을 대체한다.
-- **중복 안 됨.** 영문은 대소문자를 같게 본다(`lower(nickname)` 유일 색인). 가입 · `PATCH /account` 에서 겹치면 409 `NICKNAME_TAKEN`. 탈퇴하면 그 닉네임은 다시 쓸 수 있다.
-- 가입 전 확인: `POST /auth/nickname-check { signupToken, nickname }` → 200 `{ available: boolean }`(규칙에 어긋나면 400 `INVALID_NICKNAME`). 유효한 가입권이 있어야 하고 주소별 속도 제한을 건다(남의 닉네임을 하나씩 떠보는 것을 늦춘다). 로그인한 사람은 `PATCH` 의 409 로 충분하다.
-- 프로필: 브랜드 그림 8종 중 하나. `accounts.avatar smallint`(1~8). 가입 때 `avatar`(필수), `GET/PATCH /account` 에 `avatar`. 범위 밖이면 400 `INVALID_AVATAR`.
+## PR #22 에 이미 들어간 것 (다시 만들지 않는다)
+- 닉네임: 한글(가~힣) · 영문만 2~10자, 중복 금지(`lower(nickname)` 유일 색인, 409 `NICKNAME_TAKEN`), `POST /auth/nickname-check { signupToken, nickname }` → `{ available }`. 바꾸기 전에 먼저 확인한다(색인 위반은 DB 로그에 값을 남긴다).
+
+## 이 계획에 더하는 것: 프로필 (소유자 2026-11-19)
+- 브랜드 그림 8종 중 하나(앱 `assets/brand/avatar-1~8.svg`). `accounts.avatar smallint`(1~8, null = 옛 계정). 가입 때 `avatar` 필수, `GET/PATCH /account` 에 `avatar`. 범위 밖이면 400 `INVALID_AVATAR`. → 태스크 2 · 3 · 4 에 함께 넣는다.
 
 ## 내 결정 (묻지 않고 고른 기본값)
 - 약관 버전은 서버 설정 한 곳: `byeolmyeong.legal.terms-version` · `byeolmyeong.legal.privacy-version`(문자열, 예: `2026-11-19`). 앱은 보여 준 버전을 보낸다. 서버의 지금 버전과 **같아야** 받는다. 다르거나 없으면 400 `TERMS_REQUIRED`(가입권은 쓰지 않는다 — 앱이 약관 단계로 돌아가 다시 보낸다).
@@ -40,32 +40,32 @@ last_reviewed: 2026-11-19
 ## 전역 제약
 - Spring Boot 4.1 · Kotlin · JVM 21 · Flyway. 마이그레이션은 더하기만, 모두 null 허용(옛 계정 때문에).
 - 계약을 바꾸면 `docs/architecture.md` 의 계약 표를 같은 커밋에서 고친다(CLAUDE.md 규칙).
-- 오류 이름: `TERMS_REQUIRED`(400). 기존 `INVALID_NICKNAME`(025) · `UNDER_AGE`(403) · `SIGNUP_EXPIRED`(401)와 판정 순서: 가입권 → 약관 → 닉네임 → 출생 정보 → 만 14세.
+- 오류 이름: `TERMS_REQUIRED`(400). 기존 `INVALID_NICKNAME`(025) · `UNDER_AGE`(403) · `SIGNUP_EXPIRED`(401)와 판정 순서: 가입권 → 약관 → 닉네임 → 프로필 → 출생 정보 → 만 14세.
 
 ## 태스크
 
 ### 1. adr-terms-push · 상태: 대기
 - 읽을 것: 결정 021 · 024 · 025(서버 세션 브랜치), 이 계획 "내 결정"
-- 할 것: 025 가 아직 안 합쳐졌으면 025 에 "약관 버전 · 푸시 동의" 절을 더한다. 합쳐졌으면 `docs/decisions/026-terms-push-consent.md`(번호는 develop 과 원격 브랜치를 모두 훑어 빈 것)
+- 할 것: `docs/decisions/026-terms-push-avatar.md`(번호는 develop 과 원격 브랜치를 모두 훑어 빈 것 — 지금 develop 은 025 까지). 약관 버전 · 푸시 동의 · 프로필.
 - 주는 것: 결정 번호
 - 하지 말 것: 합쳐진 결정의 본문을 고쳐 쓰지 않는다. 이유: 대체 표시만 한다(골든 룰).
 - 검증: `ls docs/decisions | cut -c1-3 | sort | uniq -d` → 비어 있음
 
 ### 2. migration · 상태: 대기
-- 할 것: `accounts.terms_version text` · `accounts.terms_agreed_at timestamptz` · `accounts.privacy_version text` · `accounts.privacy_agreed_at timestamptz` · `accounts.push_consented_at timestamptz`. 025 와 함께면 V20 에, 아니면 `V21__terms_push_consent.sql`.
+- 할 것: `accounts.terms_version text` · `accounts.terms_agreed_at timestamptz` · `accounts.privacy_version text` · `accounts.privacy_agreed_at timestamptz` · `accounts.push_consented_at timestamptz` · `accounts.avatar smallint`(1~8 check). `V21__terms_push_avatar.sql`.
 - 하지 말 것: 기존 행을 채우지 않는다(backfill 없음). 이유: 옛 계정은 동의한 버전을 모른다.
 - 검증: 마이그레이션이 깨끗한 DB 와 V19/V20 DB 양쪽에서 돈다(Testcontainers 통합 테스트가 Flyway 를 탄다)
 
 ### 3. signup-terms · 상태: 대기
 - 읽을 것: `auth/AuthController.kt`(`SignupRequest`), `auth/LoginService.kt`(`signup`), 계약 표 `POST /auth/signup`
-- 할 것: `SignupRequest` 에 `termsVersion: String?` · `privacyVersion: String?` · `pushConsent: Boolean?`(기본 false). 지금 버전과 다르거나 없으면 400 `TERMS_REQUIRED`, 가입권은 그대로. 맞으면 계정 · 출생 정보 · 닉네임(025)과 같은 트랜잭션에 버전 · 시각 · 푸시 동의 시각을 저장하고 `TERMS_AGREED` 감사 기록. 계약 표 같은 커밋.
+- 할 것: `SignupRequest` 에 `termsVersion: String?` · `privacyVersion: String?` · `pushConsent: Boolean?`(기본 false) · `avatar: Int?`(필수 1~8, 아니면 400 `INVALID_AVATAR`). 지금 버전과 다르거나 없으면 400 `TERMS_REQUIRED`, 가입권은 그대로. 맞으면 계정 · 출생 정보 · 닉네임(025)과 같은 트랜잭션에 버전 · 시각 · 푸시 동의 시각을 저장하고 `TERMS_AGREED` 감사 기록. 계약 표 같은 커밋.
 - 주는 것: 계약 `POST /auth/signup { …, termsVersion, privacyVersion, pushConsent? }`
 - 하지 말 것: 앱이 보낸 시각을 저장하지 않는다. 이유: 동의 시각은 서버가 증명한다.
 - 검증: 빨강 → 초록. 버전 없음 · 옛 버전 → 400 `TERMS_REQUIRED` 이고 가입권 남음(같은 가입권으로 다시 보내 201), 맞으면 네 칸이 채워짐, `pushConsent` true 면 일시 · false/없음이면 null, 감사 기록에 버전만
 
 ### 4. account-push · 상태: 대기
 - 읽을 것: 025 의 `GET/PATCH /account`
-- 할 것: 응답에 `pushConsent: boolean` · `pushConsentAt: string | null`, `PATCH /account { pushConsent? }`. 같은 값이면 일시 그대로, 바뀔 때만 `PUSH_CONSENT_CHANGED`. 계약 표 같은 커밋.
+- 할 것: 응답에 `pushConsent: boolean` · `pushConsentAt: string | null` · `avatar: number | null`, `PATCH /account { pushConsent?, avatar? }`. 같은 값이면 일시 그대로, 바뀔 때만 `PUSH_CONSENT_CHANGED`. 계약 표 같은 커밋.
 - 검증: 빨강 → 초록. 켜고 끄면 일시가 생기고 사라짐, 같은 값이면 그대로, 세션 없으면 401
 
 ### 5. delete-account · 상태: 대기
