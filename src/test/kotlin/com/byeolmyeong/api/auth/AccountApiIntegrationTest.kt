@@ -98,6 +98,15 @@ class AccountApiIntegrationTest {
 	}
 
 	@Test
+	fun `탈퇴하면 닉네임·이메일·동의가 계정과 함께 지워진다`() {
+		val token = devToken(port)
+		patch(token, """{"nickname":"별이","marketingConsent":true}""")
+		jdbc.update("update accounts set email = 'dev@example.com' where provider = 'DEV'")
+		assertEquals(204, http(port, "DELETE", "/account", token = token).statusCode())
+		assertEquals(0, jdbc.queryForObject("select count(*) from accounts where nickname = '별이' or email = 'dev@example.com' or marketing_consented_at is not null", Int::class.java))
+	}
+
+	@Test
 	fun `세션이 없으면 401 이다`() {
 		assertEquals(401, http(port, "GET", "/account").statusCode())
 		assertEquals(401, http(port, "PATCH", "/account", """{"nickname":"별이"}""").statusCode())
