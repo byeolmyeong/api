@@ -274,3 +274,7 @@ last_reviewed: 2026-11-18
 - E(지적 4·5·11·13) 737fae5: `\password`, `--base develop`, 기본 브랜치의 deploy.yml 로 돈다는 점, develop 은 소유자가 화면에서, 작성 예정 계획 표시.
 - 결정: 지적 8(되돌리기가 compose.yaml·Caddyfile 은 되돌리지 않음)은 고치지 않고 문서에 적었다 — 이전 커밋을 수동 실행으로 올리면 그 커밋의 파일이 함께 올라가 완전히 되돌아간다. 설정 파일은 자주 바뀌지 않는다 — 틀리면 비용: 설정 변경으로 깨지면 수동 실행 한 번.
 - 결정(소유자 2026-11-19 "기본 브랜치 디벨롭으로 하자"): 저장소 기본 브랜치를 develop 으로(지적 4). PR 기본 대상이 develop 이 되고 배포 워크플로도 develop 의 파일로 돈다. 결정 020 #4·런북 10번에 반영.
+- develop 브랜치·기본 브랜치(소유자 승인 "Claude 가 gh 로"): `gh api` 로 byeolmyeong-api·app·admin 에 develop 을 main 과 같은 커밋(2ed185e·4d3395f·581aa6c)으로 만들고, byeolmyeong-api 의 기본 브랜치를 develop 으로. 확인: ls-remote 에서 세 저장소 모두 develop = main, `gh repo view` → develop, 로컬 origin/HEAD → origin/develop.
+  - 결정: guard.sh 는 보호 브랜치로의 push 를 막지만 main 과 같은 커밋으로 브랜치를 만드는 것은 검토 안 된 변경을 넣지 않는다. 그래서 소유자에게 묻고 승인받아 gh api 로 했다(명령마다 settings ask 확인) — 틀리면 비용: 브랜치 삭제 한 번.
+- 다시 전체 확인(2026-11-19, 두 번째 리뷰 반영 뒤, 새 DB 로 처음부터): `합계: 통과 57 · 실패 0`. 새로 넣은 항목: Postgres 상태 검사 healthy, 잘린 덤프 → 풀어 보기에서 멈추고 서버는 running, 덤프 뒤 생긴 표 지워짐, 성공 뒤 서버 exited → start 뒤 200, 임시 파일 0, E 이미지 받기 실패, F 볼륨 없음 건너뜀, G 끝 커밋 아님 skip.
+- /verify: 마지막 `./gradlew build --rerun-tasks`(2026-11-18) 뒤로 Kotlin·리소스·build.gradle.kts 는 바뀌지 않았다(바뀐 것은 deploy/·워크플로·문서·settings).
