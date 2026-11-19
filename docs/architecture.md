@@ -94,7 +94,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /faqs` | 없음 | 없음 | `[{ id, question, answer }]` 공개한 것만 순서대로 · 하나도 없으면 `[]` · 아래 "자주 묻는 질문" |
 | `GET /app-config` | 없음 | 없음 | 200 `{ ios: PlatformConfig, android: PlatformConfig, maintenance: { active, message } }` · 아래 "앱 설정과 강제 업데이트" |
 | `POST /charts` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | `Chart` |
-| `POST /auth/dev` | 없음 | 없음 · 또는 `{ cookie: true }` | `{ token }` · `cookie` 면 본문 `{}` 와 쿠키 · 개발 설정에서만, 운영 404 (결정 005) |
+| `POST /auth/dev` | 없음 | 없음 · 또는 `{ cookie: true }` | `{ token }` · `cookie` 면 본문 `{}` 와 쿠키 · 개발 설정에서만, 꺼져 있으면 404 (결정 005). 켜는 것은 `DEPLOY_ENV` 가 local·staging 일 때만 — 그 밖에서 켜면 서버가 시작하지 않는다(결정 022) |
 | `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken?, code?, redirectUri?, authorizationCode?, cookie? }` · `idToken` 이나 (`code` + `redirectUri`) 중 하나 — `code` 는 KAKAO 웹만 · `authorizationCode` 는 APPLE 만(웹은 그 로그인의 `redirectUri` 를 함께) | 200 `{ status: SIGNED_IN, token? }`(계정이 있다 · `cookie` 면 `token` 없이 쿠키) · 200 `{ status: SIGNUP_REQUIRED, signupToken, expiresAt }`(계정이 없다 · 30분 · 1회용) · 아래 "로그인과 가입" |
 | `POST /auth/signup` | 없음 | `{ signupToken, date, time \| null, placeId \| null, cookie? }` · 출생 정보 규칙은 `PUT /profile` 과 같다 | 201 `{ token? }` · 만 14세 미만 403 `UNDER_AGE`(계정·출생 정보 0건) · 아래 "로그인과 가입" |
 | `GET /auth/session` · `DELETE /auth/session` | 세션 | 없음 | 204 · 204(이 세션만 지운다 · 쿠키도 지운다) |

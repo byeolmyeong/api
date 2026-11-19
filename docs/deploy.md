@@ -20,7 +20,8 @@ last_reviewed: 2026-11-18
 | 관리 화면(버셀) | `admin.byeolmyeong.com` | `admin-staging.byeolmyeong.com` |
 | 오라클 VM 이름 | `byeolmyeong-prod` | `byeolmyeong-staging` |
 | DB 백업 | 매일 04:00 + 배포 직전 → VM 7개 + Object Storage 30일 | 없음(버려도 되는 데이터) |
-| 개발용 로그인 | 끔 | 켬(실제 출생 정보는 넣지 않는다) |
+| `.env` 의 `DEPLOY_ENV`(결정 022) | `prod` | `staging` — 없거나 비면 운영으로 본다 |
+| 개발용 로그인 | 끔 | 켬(실제 출생 정보는 넣지 않는다). `DEPLOY_ENV` 가 `staging` 이 아니면 서버가 시작하지 않는다 |
 
 흐름: 작업 브랜치 → PR(`gh pr create --base develop`) → `develop`(스테이징에서 확인) → `develop` → `main` PR → `main`(운영). 두 브랜치 모두 직접 push 하지 않는다(`.claude/hooks/guard.sh` 가 막는다). GitHub 무료 요금제라 보호 규칙이 없으니 **CI 가 통과했는지 보고 합친다**.
 
@@ -122,6 +123,7 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 | 상태 | `docker compose ps` (셋 다 Up) · `curl -s https://<서버 주소>/health` |
 | 로그 | `docker compose logs --tail 200 api` (`caddy`·`postgres` 도 같다) |
 | `.env` 를 바꾼 뒤 | `docker compose up -d --force-recreate api` (다시 만들어야 새 값을 읽는다) |
+| 서버가 계속 다시 시작한다 | `docker compose logs --tail 50 api` 에 `event=startup_refused reason=dev_login_outside_local_staging` 이면 개발용 로그인(`AUTH_DEV_ENABLED=true`)이 켜졌는데 `DEPLOY_ENV` 가 `staging` 이 아니다(결정 022). 운영이면 `AUTH_DEV_ENABLED` 를 지우고, 스테이징이면 `DEPLOY_ENV=staging` → 위 명령 |
 | DB 비밀번호 바꾸기 | `docker compose exec postgres psql -U postgres` 로 들어가 `\password <DB 사용자>` (새 값이 셸 기록·프로세스 목록에 남지 않는다) → `.env` 의 `DATABASE_PASSWORD` 를 같은 값으로 → `docker compose up -d --force-recreate postgres api` (Postgres 의 상태 검사도 이 값으로 접속한다. `.env` 만 바꾸면 Postgres 는 처음 값을 그대로 쓴다) |
 | 첫 관리자 만들기(운영) | `.env` 의 `ADMIN_BOOTSTRAP_*` 주석을 풀고 값 → 위 명령 → 관리 화면 로그인 확인 → 다시 주석 → 위 명령 |
 | 백업 확인(주 1회) | `tail -n 3 backups/backup.log` 에 `event=backup_done kind=daily`, 버킷에 오늘 덤프. 실패 알림은 없다. 덤프 이름은 매일 `byeolmyeong-daily-<시각>.dump`, 배포 직전 `byeolmyeong-predeploy-<시각>.dump` 이고 VM 에는 종류마다 7개 남는다 |
