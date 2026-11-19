@@ -258,3 +258,19 @@ last_reviewed: 2026-11-18
 - 다시 확인(소유자 "다시 다 확인해줘"): 확인 스크립트를 쓰다 `POSTGRES_ADMIN_PASSWORD` 가 `.env` → 서버 컨테이너 환경에 들어가는 것을 찾았다(1단계에서 내가 만든 구멍). `db.env` 로 옮겨 1 → 0. `.gitignore` 에 `deploy/db.env`·`deploy/backup.env`.
 - 전체 확인(새 DB 로 처음부터, 저장소의 deploy/·워크플로 그대로): 47항목 통과. 처음 실행에서 "compose 문법" 1건이 실패했으나 확인 스크립트가 저장소 폴더(`.env` 없음)에서 돌린 준비 실수였고, VM 과 같은 배치(한 폴더에 compose.yaml·.env·db.env)로 `compose config` exit 0.
 - /verify: `./gradlew build --rerun-tasks` → `BUILD SUCCESSFUL in 2m 34s` · exit=0 · `tests=414 failures=0 errors=0 skipped=0`.
+
+### 두 번째 독립 리뷰 반영 (2026-11-19, 범위 b8162a9..8c73df4)
+- 지적 13건. 1(DB 관리자 비밀번호가 서버 컨테이너에 보임)은 다시 확인 중 내가 먼저 찾아 e0c6174 로 고쳤다. 나머지는 코드로 확인한 뒤 아래처럼 처리했다.
+- A(지적 2·12) e9e86c7: initdb 가 빈 값·이름 postgres 를 거부하고 실패 문장을 로그에 남기지 않는다. 상태 검사는 서버 계정으로 compose 내부망 주소에 접속해 select 1.
+  - 재현: 옛 스크립트는 이름 postgres 로 실패하며 로그에 `STATEMENT: create role "postgres" login password '…'` 를 남겼고, 다시 시작한 뒤 DB 가 없는데 pg_isready 가 exit 0.
+  - 확인: 이름 postgres → 안내문·로그에 비밀번호 0줄·약 2분 뒤 unhealthy / 정상 → healthy·rolsuper=f / `.env` 비밀번호만 바꿈 → healthy 가 되지 않음.
+  - 결정: 상태 검사를 127.0.0.1 이 아니라 `-h postgres` 로 — 이미지 기본 pg_hba 가 127.0.0.1 을 trust 로 두어 비밀번호를 확인하지 못했다(처음 시도에서 비밀번호를 바꿔도 healthy 로 나와 알았다) — 틀리면 비용: compose 한 줄.
+- B(지적 3) 4b8ac92: 실제 DB 복원은 덤프를 컨테이너 안에서 SQL 로 끝까지 풀어 본 뒤, 한 트랜잭션으로 `drop schema public` → `create schema public authorization pg_database_owner` → 덤프. 성공하면 서버를 멈춘 채로 둔다.
+  - 재현: 옛 스크립트(`--clean`)는 덤프 뒤에 생긴 표가 남고 flyway 기록만 15 로 돌아갔다. 새 스크립트는 표가 지워지고 15 로 일치, 서버 exited → `docker compose start api` 뒤 /health 200. 잘린 덤프 → `step=convert` 에서 멈추고 서버는 멈추지 않음. 복원 뒤 뜬 덤프(`COMMENT ON SCHEMA public` 한 줄 포함)로 다시 복원 → 성공. 임시 파일 0.
+  - 결정: 파이프로 바로 psql 에 넣지 않고 SQL 을 먼저 다 만든다 — 잘린 덤프가 앞부분만 흘려보내면 psql 이 그것만 커밋할 수 있다 — 틀리면 비용: 컨테이너 안 임시 파일(지운다).
+- C(지적 6·7·9·10) ab89f13: pull 을 맨 앞으로, 운영 배포 직전 백업은 DB 볼륨이 있으면 `up --wait postgres` 후 `backup.sh predeploy`(볼륨 없을 때만 건너뜀 event), backup.sh 에 종류(daily·predeploy)와 종류별 보관, 바꾸기 전에 멈췄고 서버가 살아 있으면 되돌리지 않음, workflow_run 의 커밋이 브랜치 끝이 아니면 건너뜀.
+  - 로컬 모의: A 정상·B 깨진 jar·C 바꾼 직후 끊김 → 기대대로 / E 이미지 받기 실패·D1 운영 백업 실패 → "jar 를 바꾸기 전에 멈춰 서버는 그대로", 서버 컨테이너 다시 만들어지지 않음 / D2 → predeploy 덤프 / F 볼륨 없음 → `predeploy_backup_skipped` / G 끝 커밋 아님 → skip=true, 수동 실행 → 그대로.
+- D(지적 9) 2f3d315: settings ask 에 `gh run rerun*`·`gh api*`.
+- E(지적 4·5·11·13) 737fae5: `\password`, `--base develop`, 기본 브랜치의 deploy.yml 로 돈다는 점, develop 은 소유자가 화면에서, 작성 예정 계획 표시.
+- 결정: 지적 8(되돌리기가 compose.yaml·Caddyfile 은 되돌리지 않음)은 고치지 않고 문서에 적었다 — 이전 커밋을 수동 실행으로 올리면 그 커밋의 파일이 함께 올라가 완전히 되돌아간다. 설정 파일은 자주 바뀌지 않는다 — 틀리면 비용: 설정 변경으로 깨지면 수동 실행 한 번.
+- 결정(소유자 2026-11-19 "기본 브랜치 디벨롭으로 하자"): 저장소 기본 브랜치를 develop 으로(지적 4). PR 기본 대상이 develop 이 되고 배포 워크플로도 develop 의 파일로 돈다. 결정 020 #4·런북 10번에 반영.

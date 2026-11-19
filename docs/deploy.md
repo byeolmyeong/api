@@ -91,7 +91,7 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 
 ### 10. GitHub (저장소 Settings → Secrets and variables → Actions)
 - `develop` 브랜치가 없으면 소유자가 GitHub 화면에서 `main` 으로부터 만든다(Branches → New branch). Claude 는 보호 브랜치로 push 하지 않는다(`guard.sh`).
-- 배포 워크플로(`workflow_run`)는 **저장소 기본 브랜치에 있는 `deploy.yml`** 로 돈다. 그래서 이 파일이 기본 브랜치에 들어가기 전에는 배포가 일어나지 않고, 기본 브랜치가 `main` 이면 스테이징 배포도 `main` 의 워크플로로 돈다. 기본 브랜치를 `develop` 으로 두면 PR 의 기본 대상도 `develop` 이 되어 실수로 운영에 바로 합치는 일이 줄어든다(Settings → General → Default branch).
+- 배포 워크플로(`workflow_run`)는 **저장소 기본 브랜치에 있는 `deploy.yml`** 로 돈다. 그래서 이 파일이 기본 브랜치에 들어가기 전에는 배포가 일어나지 않고, 기본 브랜치가 `main` 이면 스테이징 배포도 `main` 의 워크플로로 돈다. **기본 브랜치는 `develop` 으로 둔다**(결정 020 #4, Settings → General → Default branch). PR 의 기본 대상도 `develop` 이 되어 실수로 운영에 바로 합치는 일이 줄어든다. 워크플로 변경은 `develop` 에 합치면 바로 적용된다.
 - Secrets: `STAGING_SSH_HOST`·`PROD_SSH_HOST`(VM 공인 IP), `STAGING_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-staging` 파일 내용)·`PROD_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-prod`), `STAGING_SSH_KNOWN_HOSTS`·`PROD_SSH_KNOWN_HOSTS`(`ssh-keyscan -t ed25519 <IP>` 의 출력 한 줄). 명령으로 넣으면 값이 화면에 나오지 않는다: `gh secret set STAGING_SSH_KEY < ~/.ssh/byeolmyeong-deploy-staging`.
 - 등록한 뒤 이 맥의 배포용 **개인 키는 지운다**: `rm ~/.ssh/byeolmyeong-deploy-staging ~/.ssh/byeolmyeong-deploy-prod`(`.pub` 은 남긴다). 다시 필요하면 새로 만들어 VM 의 authorized_keys 와 GitHub 비밀값을 함께 바꾼다.
 - Variables: `STAGING_BASE_URL` = `https://api-staging.byeolmyeong.com`, `PROD_BASE_URL` = `https://api.byeolmyeong.com`.
