@@ -135,7 +135,7 @@ class LoginService(
 	 * → 만 14세(403, 가입권을 지운다) → 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 닉네임 · 프로필 · 동의 · 세션.
 	 * 닉네임을 다른 계정이 쓰면 트랜잭션을 되돌리고 409(가입권은 남는다). 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나이고,
 	 * 계정을 채우는 것(출생 정보 · 닉네임 · 약관 · 동의 · 프로필 · 가입 감사 기록)은 계정을 실제로 만든 요청 하나뿐이다.
-	 * 동의 시각은 서버 시각이다(결정 026). 세션 토큰을 돌려준다.
+	 * 동의 시각은 서버 시각이다(결정 026 · 027). 세션 토큰을 돌려준다.
 	 */
 	fun signup(
 		signupToken: String?,
@@ -151,7 +151,7 @@ class LoginService(
 		if (!tickets.isValid(hash)) throw SignupExpiredException()
 		// 지금 약관 · 처리방침에 동의하지 않았으면 가입권을 쓰지 않고 돌려보낸다(앱이 약관 단계로 돌아가 다시 보낸다, 결정 026).
 		if (!legal.agreed(termsVersion, privacyVersion)) throw BadRequestException("TERMS_REQUIRED")
-		// 닉네임 · 프로필이 틀려도 가입권을 쓰지 않고 돌려보낸다(고쳐서 다시 보낸다, 결정 025 · 026).
+		// 닉네임 · 프로필이 틀려도 가입권을 쓰지 않고 돌려보낸다(고쳐서 다시 보낸다, 결정 025 · 028).
 		val name = normalizeNickname(nickname) ?: throw BadRequestException("INVALID_NICKNAME")
 		val picture = requireAvatar(avatar)
 		val parsed = birthParser.parse(birth)

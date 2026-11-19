@@ -19,7 +19,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** 결정 025 · 026: 계정의 닉네임·이메일·공급자·수신 동의(마케팅 · 푸시)·프로필을 보고(GET) 닉네임·동의·프로필을 바꾼다(PATCH). 소유자는 세션에서만. */
+/** 결정 025 · 027 · 028: 계정의 닉네임·이메일·공급자·수신 동의(마케팅 · 푸시)·프로필을 보고(GET) 닉네임·동의·프로필을 바꾼다(PATCH). 소유자는 세션에서만. */
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [DEV_AUTH_ON])
 class AccountApiIntegrationTest {
@@ -63,7 +63,7 @@ class AccountApiIntegrationTest {
 	}
 
 	@Test
-	fun `푸시 동의를 켜면 일시가 생기고, 같은 값이면 그대로, 끄면 사라진다 — 바뀔 때만 감사 기록(결정 026)`() {
+	fun `푸시 동의를 켜면 일시가 생기고, 같은 값이면 그대로, 끄면 사라진다 — 바뀔 때만 감사 기록(결정 027)`() {
 		val token = devToken(port)
 		val on = json(patch(token, """{"pushConsent":true}""").body())
 		assertEquals(true, on["pushConsent"].asBoolean())
@@ -86,7 +86,7 @@ class AccountApiIntegrationTest {
 	}
 
 	@Test
-	fun `프로필을 1~8 로 바꾸고, 범위 밖이면 400 INVALID_AVATAR 이고 같이 보낸 칸도 바꾸지 않는다(결정 026)`() {
+	fun `프로필을 1~8 로 바꾸고, 범위 밖이면 400 INVALID_AVATAR 이고 같이 보낸 칸도 바꾸지 않는다(결정 028)`() {
 		val token = devToken(port)
 		assertEquals(5, json(patch(token, """{"avatar":5}""").body())["avatar"].asInt())
 		val nickname = freshNickname()
@@ -117,7 +117,7 @@ class AccountApiIntegrationTest {
 	}
 
 	@Test
-	fun `닉네임이 409 면 같이 보낸 푸시 동의 · 프로필도 바꾸지 않고 감사 기록도 없다(결정 026)`() {
+	fun `닉네임이 409 면 같이 보낸 푸시 동의 · 프로필도 바꾸지 않고 감사 기록도 없다(결정 027 · 028)`() {
 		val taken = freshNickname()
 		jdbc.update("insert into accounts (id, provider, provider_user_id, nickname) values (gen_random_uuid(), 'GOOGLE', 'other', ?)", taken)
 		val token = devToken(port)

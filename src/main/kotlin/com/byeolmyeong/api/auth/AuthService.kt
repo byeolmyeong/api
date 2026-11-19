@@ -66,7 +66,7 @@ class AuthService(
 	fun account(ownerId: UUID): AccountResponse = checkNotNull(accounts.account(ownerId)) { "세션의 계정이 없다" }
 
 	/**
-	 * 보낸 칸만 바꾼다(결정 025 · 026). 닉네임이 틀리면 400 `INVALID_NICKNAME`, 프로필이 1~8 밖이면 400 `INVALID_AVATAR`,
+	 * 보낸 칸만 바꾼다(결정 025 · 027 · 028). 닉네임이 틀리면 400 `INVALID_NICKNAME`, 프로필이 1~8 밖이면 400 `INVALID_AVATAR`,
 	 * 닉네임을 다른 계정이 쓰면 409 `NICKNAME_TAKEN` — 모두 아무것도 바꾸지 않는다.
 	 * 동의(마케팅 · 푸시)가 바뀔 때만 감사 기록(동의/철회만, 닉네임·이메일 없이). 프로필 바꾸기는 남기지 않는다.
 	 */
@@ -145,7 +145,7 @@ class AuthService(
 @Repository
 class AccountRepository(private val jdbc: JdbcTemplate) {
 
-	/** 계정 화면의 값(결정 025 · 026). 없으면 null. 닉네임·이메일은 로그에 남기지 않는다. */
+	/** 계정 화면의 값(결정 025 · 027 · 028). 없으면 null. 닉네임·이메일은 로그에 남기지 않는다. */
 	fun account(id: UUID): AccountResponse? = jdbc.query(
 		"select nickname, email, provider, marketing_consented_at, push_consented_at, avatar from accounts where id = ?",
 		{ rs, _ ->
@@ -192,7 +192,7 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 			jdbc.update("update accounts set marketing_consented_at = null where id = ? and marketing_consented_at is not null", id) > 0
 		}
 
-	/** 푸시 수신 동의를 켜면 지금, 끄면 null(결정 026). 이미 그 값이면 바꾸지 않고 false(일시가 그대로 남는다). */
+	/** 푸시 수신 동의를 켜면 지금, 끄면 null(결정 027). 이미 그 값이면 바꾸지 않고 false(일시가 그대로 남는다). */
 	fun setPushConsent(id: UUID, consent: Boolean): Boolean =
 		if (consent) {
 			jdbc.update("update accounts set push_consented_at = now() where id = ? and push_consented_at is null", id) > 0
@@ -200,7 +200,7 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 			jdbc.update("update accounts set push_consented_at = null where id = ? and push_consented_at is not null", id) > 0
 		}
 
-	/** 프로필 번호(1~8, 결정 026)를 바꾼다. */
+	/** 프로필 번호(1~8, 결정 028)를 바꾼다. */
 	fun updateAvatar(id: UUID, avatar: Int) {
 		jdbc.update("update accounts set avatar = ? where id = ?", avatar, id)
 	}
@@ -229,7 +229,7 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 	}
 
 	/**
-	 * 가입할 때 동의한 약관 · 처리방침 버전과 그 시각(서버 시각), 푸시 수신 동의 일시(null = 동의 안 함), 프로필 번호를 둔다(결정 026).
+	 * 가입할 때 동의한 약관 · 처리방침 버전과 그 시각(서버 시각), 푸시 수신 동의 일시(null = 동의 안 함), 프로필 번호를 둔다(결정 026 · 027 · 028).
 	 * 값은 로그에 남기지 않는다.
 	 */
 	fun setTermsPushAvatar(id: UUID, termsVersion: String, privacyVersion: String, agreedAt: java.time.Instant, pushConsentedAt: java.time.Instant?, avatar: Int) {

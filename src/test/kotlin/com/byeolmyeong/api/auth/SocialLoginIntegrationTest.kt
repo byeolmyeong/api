@@ -136,7 +136,7 @@ class SocialLoginIntegrationTest {
 	}
 
 	/**
-	 * 닉네임(결정 025) · 약관 · 처리방침 버전 · 프로필(결정 026)은 필수다. 값이 null 이면 그 칸을 보내지 않는다.
+	 * 닉네임(결정 025) · 약관 · 처리방침 버전(결정 026) · 프로필(결정 028)은 필수다. 값이 null 이면 그 칸을 보내지 않는다.
 	 * [date] 는 `LocalDate` 나 틀린 날짜 글자다.
 	 */
 	private fun signup(
@@ -251,7 +251,7 @@ class SocialLoginIntegrationTest {
 	}
 
 	@Test
-	fun `가입 때 푸시 동의를 켜면 일시가 남고, 끄거나 보내지 않으면 null 이다(결정 026)`() {
+	fun `가입 때 푸시 동의를 켜면 일시가 남고, 끄거나 보내지 않으면 null 이다(결정 027)`() {
 		assertEquals(201, signup(signupToken("push-on"), adult(), extra = ",\"pushConsent\":true").statusCode())
 		assertNotNull(accountColumn("push-on", "push_consented_at"))
 		assertEquals(201, signup(signupToken("push-off"), adult(), extra = ",\"pushConsent\":false").statusCode())
@@ -261,7 +261,7 @@ class SocialLoginIntegrationTest {
 	}
 
 	@Test
-	fun `프로필이 없거나 1~8 밖이면 400 INVALID_AVATAR 이고 가입권은 남는다 — 맞으면 번호를 둔다(결정 026)`() {
+	fun `프로필이 없거나 1~8 밖이면 400 INVALID_AVATAR 이고 가입권은 남는다 — 맞으면 번호를 둔다(결정 028)`() {
 		val ticket = signupToken("avatar-bad")
 		for (bad in listOf(null, 0, 9, -1)) {
 			assertEquals(400 to """{"error":"INVALID_AVATAR"}""", error(signup(ticket, adult(), avatar = bad)), "avatar=$bad")
@@ -610,7 +610,7 @@ class SocialLoginIntegrationTest {
 	}
 
 	@Test
-	fun `탈퇴하면 약관 · 푸시 동의 · 프로필 칸이 계정과 함께 지워지고 감사 기록 TERMS_AGREED 는 남는다(결정 026 · 015)`() {
+	fun `탈퇴하면 약관 · 푸시 동의 · 프로필 칸이 계정과 함께 지워지고 감사 기록 TERMS_AGREED 는 남는다(결정 026 · 027 · 028 · 015)`() {
 		val created = signup(signupToken("bye-terms"), adult(), extra = ",\"pushConsent\":true")
 		assertEquals(201, created.statusCode())
 		val owner = accountColumn("bye-terms", "id").toString()

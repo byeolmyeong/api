@@ -19,7 +19,7 @@ last_reviewed: 2026-11-19
 - 소유자(2026-11-19): 약관 단계는 닉네임보다 먼저, 필수 2 · 선택 2(푸시 알림 받기 · 마케팅 정보 수신). 야간(21~08시) 광고는 보내지 않으므로 야간 동의는 받지 않는다.
 
 ## 번호
-- PR #22(결정 025 · V20, 닉네임 · 마케팅 동의 · `GET/PATCH /account`)는 2026-11-19 develop 에 합쳐졌다(`872745a`). 이 계획은 **결정 026 · `V21`** 로 따로 한다.
+- PR #22(결정 025 · V20, 닉네임 · 마케팅 동의 · `GET/PATCH /account`)는 2026-11-19 develop 에 합쳐졌다(`872745a`). 이 계획은 **결정 026(약관 동의) · 027(푸시 수신 동의) · 028(프로필) · `V21`** 로 따로 한다(처음엔 결정 026 하나였고, 독립 리뷰 뒤 소유자가 셋으로 나눴다).
 
 ## PR #22 에 이미 들어간 것 (다시 만들지 않는다)
 - 닉네임: 한글(가~힣) · 영문만 2~10자, 중복 금지(`lower(nickname)` 유일 색인, 409 `NICKNAME_TAKEN`), `POST /auth/nickname-check { signupToken, nickname }` → `{ available }`. 바꾸기 전에 먼저 확인한다(색인 위반은 DB 로그에 값을 남긴다).
@@ -46,7 +46,7 @@ last_reviewed: 2026-11-19
 
 ### 1. adr-terms-push · 상태: 완료
 - 읽을 것: 결정 021 · 024 · 025(서버 세션 브랜치), 이 계획 "내 결정"
-- 할 것: `docs/decisions/026-terms-push-avatar.md`(번호는 develop 과 원격 브랜치를 모두 훑어 빈 것 — 지금 develop 은 025 까지). 약관 버전 · 푸시 동의 · 프로필.
+- 할 것: `docs/decisions/026-terms-version-consent.md` · `027-push-consent.md` · `028-avatar.md`(번호는 develop 과 원격 브랜치를 모두 훑어 빈 것 — 지금 develop 은 025 까지). 약관 버전 · 푸시 동의 · 프로필을 하나씩.
 - 주는 것: 결정 번호
 - 하지 말 것: 합쳐진 결정의 본문을 고쳐 쓰지 않는다. 이유: 대체 표시만 한다(골든 룰).
 - 검증: `ls docs/decisions | cut -c1-3 | sort | uniq -d` → 비어 있음
@@ -104,3 +104,4 @@ last_reviewed: 2026-11-19
 - 리뷰 1(동시 가입): 같은 사람의 가입권 두 장이 동시에 오면 둘 다 "새 계정"으로 보고 약관 · 푸시 · 프로필 · 닉네임 · 출생 정보를 덮어쓰고 `TERMS_AGREED` 가 두 번 남았다 → 새 계정인지를 `insert … on conflict do nothing returning id` 결과로 판정(`AccountRepository.create`). 테스트: 기존 동시 가입 테스트를 latch 로 10회 + 계정마다 `TERMS_AGREED` · `PROFILE_SAVED` 1건, 첫 요청이 커밋하기 전에 뒤 요청을 끼워 넣는 결정적 테스트(처음 값 그대로 · 출생 정보 0 · 감사 기록 0). 빨강 `SocialLoginIntegrationTest tests 36 fail 2`(round 0 에서 `TERMS_AGREED` 2건, 닉네임 덮어씀) → 초록 가입 36 · 애플 11 fail 0. 결정 026 3번 · 아키텍처 가입 설명에 동시 요청 한 줄.
 - 리뷰 2(빠진 테스트): (a) 중복 닉네임 409 는 마지막 — 중복 닉네임 + 틀린 약관 400 `TERMS_REQUIRED` · 프로필 0 400 `INVALID_AVATAR` · 틀린 날짜 400 · 만 14세 미만 403. (b) `PATCH /account` 409 면 같이 보낸 `pushConsent` · `avatar` 그대로 · `PUSH_CONSENT_CHANGED` 0건. 둘 다 이미 되는 동작이라, 닉네임 중복을 앞에서 검사 · 푸시 · 프로필을 트랜잭션 밖에서 먼저 쓰도록 잠깐 바꿔(커밋 안 함) `tests 2 fail 2`(409 가 먼저 옴 · avatar 7) 확인 → 되돌려 가입 37 · 계정 12 fail 0.
 - 리뷰 발견 2 → 소유자 "전부 다 고쳐"(A, 엄격한 JSON): 서버 전체에서 스칼라 강제 변환을 끔(`spring.jackson.deserialization.accept-float-as-int=false` — Jackson 3.1.7 은 실수 → 정수를 이것만 본다 · `spring.jackson.mapper.allow-coercion-of-scalars=false` — 글자 → 숫자 · 참거짓, 숫자 → 참거짓). 먼저 클라이언트 확인(읽기만): 앱 `src/lib/api.ts`(`placeId: number \| null`, 동의 boolean, 프로필 number) · 어드민(본문을 서버가 `JsonNode` 로 직접 검사 — 이 설정과 무관, 보내는 값도 타입이 맞다) — 깨지는 요청 없음. 기존 테스트 중 느슨한 타입에 기댄 것 없음. 테스트: 가입(avatar `4.9` · `"3"`, 두 동의 `1` · `"true"`, placeId `"…"` · `….0`)과 `PATCH /account`(avatar · 두 동의) → 400 `INVALID_REQUEST`, 맞는 타입은 통과. 빨강 `tests 2 fail 2`(4.9 → 200/201) → 초록 가입 38 · 계정 13 · 차트 8 · 프로필 6 · 궁합 15 · 궁합 방향성 11 · 공유 19 fail 0. 계약 절에 한 줄.
+- 리뷰 발견 4 → 소유자 "전부 다 고쳐"(B, 결정 하나에 ADR 하나): `026-terms-push-avatar.md`(위 1 의 이름) → `026-terms-version-consent.md`(약관 · 처리방침 버전과 시각, 판정 순서, 가입 때 저장 규칙 · 동시 요청, `TERMS_AGREED`) · `027-push-consent.md`(푸시 수신 동의, 광고성 푸시 규칙, `PUSH_CONSENT_CHANGED`) · `028-avatar.md`(프로필 8종, `INVALID_AVATAR`). `git fetch --prune` 뒤 원격 20개 · 로컬 브랜치 모두 027 · 028 없음(develop 은 그대로 `872745a`, 025 · V20 까지). 코드 주석 · 테스트 이름 · 계약 표 · 이 계획 · V21 주석(SQL 은 그대로)의 번호를 고침. `ls docs/decisions | cut -c1-3 | sort | uniq -d` → 빈 출력.

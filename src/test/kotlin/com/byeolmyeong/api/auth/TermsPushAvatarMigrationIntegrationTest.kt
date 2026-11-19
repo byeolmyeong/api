@@ -14,7 +14,7 @@ import javax.sql.DataSource
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-/** 결정 026 · V21 의 계정 칸. 모두 null 허용(옛 계정)이고 있던 행은 채우지 않는다. */
+/** 결정 026(약관) · 027(푸시) · 028(프로필) · V21 의 계정 칸. 모두 null 허용(옛 계정)이고 있던 행은 채우지 않는다. */
 private val V21_COLUMNS = mapOf(
 	"terms_version" to "text",
 	"terms_agreed_at" to "timestamp with time zone",
@@ -25,7 +25,7 @@ private val V21_COLUMNS = mapOf(
 )
 
 /**
- * V21(결정 026): 약관 · 처리방침 버전과 동의 시각, 푸시 수신 동의 일시, 프로필 번호. 깨끗한 DB(테스트 서버가 띄운 DB)와
+ * V21(결정 026 · 027 · 028): 약관 · 처리방침 버전과 동의 시각, 푸시 수신 동의 일시, 프로필 번호. 깨끗한 DB(테스트 서버가 띄운 DB)와
  * V19 · V20 까지만 돈 DB(같은 DB 의 다른 스키마) 양쪽에서 돈다.
  */
 @Import(TestcontainersConfiguration::class)
