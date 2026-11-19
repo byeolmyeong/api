@@ -16,7 +16,7 @@ last_reviewed: 2026-11-19
 
 ## 결정된 전제
 - 앱 결정 039(소유자 2026-11-19): 닉네임·출생 정보는 가입 화면에서, 마케팅은 별도 선택 동의(정보통신망법 50조). 메일 발송·2년 동의 확인(S8)은 범위 밖.
-- 서버 결정 024(PR #19): 이메일은 공급자가 확인한 값, 새 사람 + 이메일 없음 403 `EMAIL_REQUIRED`, 소문자로 저장. 이 계획은 그 동작을 그대로 둔다.
+- 서버 결정 024(PR #19, f239294): 이메일은 공급자가 확인한 값(구글·애플 email_verified, 카카오는 준 값), 새 사람 + 이메일 없음 400 `EMAIL_REQUIRED`, 받은 그대로 저장. 이 계획은 그 동작을 그대로 둔다.
 - 처리방침·약관 개정 공개됨(랜딩 1dffda4): 닉네임(필수), 마케팅 동의 여부·동의/철회 일시(선택), 보유는 탈퇴까지(동의 기록은 철회 또는 탈퇴까지).
 
 ## 내 결정 (묻지 않고 고른 기본값)
@@ -34,28 +34,34 @@ last_reviewed: 2026-11-19
 - 계약 표는 경로를 바꾸는 커밋에서 같이 고친다. 확정되면 앱 세션에 한 줄로.
 
 ## 태스크
-### 1. adr-025 · 상태: 대기
+### 1. adr-025 · 상태: 완료
 - 할 것: `docs/decisions/025-nickname-marketing-consent.md`. 결정 021 앞머리에 "이름은 받지 않는다"를 025 가 대체한다고 덧붙인다(024 표시는 그대로).
 - 검증: 파일, 021 앞머리 diff.
+- 결과 요약: `docs/decisions/025-nickname-marketing-consent.md`, 결정 021 앞머리에 024·025 대체 표시.
 
-### 2. migration-v20 · 상태: 대기
+### 2. migration-v20 · 상태: 완료
 - 할 것: `accounts.nickname text` · `accounts.marketing_consented_at timestamptz`.
 - 검증: Flyway 적용(통합 테스트 시작), 기존 테스트 통과.
+- 결과 요약: `V20__account_nickname_consent.sql`(nickname · marketing_consented_at, null 허용).
 
-### 3. signup-nickname-consent · 상태: 대기
+### 3. signup-nickname-consent · 상태: 완료
 - 할 것: `POST /auth/signup` 이 `nickname`(필수) · `marketingConsent`(기본 false)를 받아 계정·출생 정보와 같은 트랜잭션에 저장. 닉네임 검사는 출생 정보 검사보다 먼저(틀리면 가입권을 쓰지 않는다). 계약 표 같은 커밋.
 - 검증: 빨강 → 초록. 닉네임 없음·빈 값·공백만·21자·줄바꿈·제어 문자 400 `INVALID_NICKNAME`(가입권은 남는다), 이모지 20개 통과, 앞뒤 공백은 떼고 저장, 동의 true 면 일시 있음·false/없음이면 null.
+- 결과 요약: `auth/Nickname.kt`(normalizeNickname), `POST /auth/signup` 에 nickname · marketingConsent. 계약 표.
 
-### 4. account-get-patch · 상태: 대기
+### 4. account-get-patch · 상태: 완료
 - 할 것: `GET /account` → `{ nickname|null, email|null, provider, marketingConsent, marketingConsentAt|null }`, `PATCH /account { nickname?, marketingConsent? }` → 같은 모양. 감사 기록(동의/철회). 계약 표 같은 커밋.
 - 검증: 빨강 → 초록. 세션 없으면 401, 켜고 끄면 일시가 생기고 사라짐, 같은 값이면 일시 그대로, 닉네임 규칙 400, 빈 본문은 그대로, 감사 기록에 닉네임·이메일 없음.
+- 결과 요약: `GET/PATCH /account`(AuthController·AuthService·AccountRepository), 감사 MARKETING_CONSENT_CHANGED, 앱 경로 CORS 에 PATCH. 계약 표.
 
-### 5. delete-account · 상태: 대기
+### 5. delete-account · 상태: 완료
 - 할 것: `DELETE /account` 뒤 그 계정의 닉네임·동의·이메일이 남지 않는지 테스트.
 - 검증: 탈퇴 뒤 `accounts` 에 그 행 0건.
+- 결과 요약: 탈퇴 뒤 닉네임·이메일·동의 0건 테스트.
 
-### 6. notify-app · 상태: 대기
+### 6. notify-app · 상태: 완료
 - 할 것: 확정된 계약을 앱 세션에 한 줄로. 스테이징 배포는 앱 가입 화면(닉네임)과 같은 날 — 서버가 닉네임을 필수로 받으면 옛 가입 화면은 400 이다.
+- 결과 요약: 앱 세션에 계약 한 줄(2026-11-19).
 
 ## 검증 (전체)
 - `./gradlew build` 통과, 새 테스트 모두 빨강을 거쳤다. 독립 리뷰.
@@ -74,3 +80,10 @@ last_reviewed: 2026-11-19
 
 ## 실행 기록
 - 결정: 처음 계획(이메일 포함)의 결정 024·공급자 이메일 작업은 PR #19 와 겹쳐 버렸다(백업 브랜치 `backup/account-email-nickname-dup`) — 소유자가 "서버는 PR #19" 를 골랐다 — 틀리면 비용: 없음(PR #19 의 동작이 기준).
+- 1~2: 결정 025(16b8034), V20(ff8bcc8). PR #19 최신(f239294) 위로 다시 올림(충돌 없음).
+- 3: 빨강(닉네임 테스트 3건) → 초록. `SocialLoginIntegrationTest` → `tests 24 fail 0`, 애플 11 · 속도 제한 1 · 공개 경로 3 통과. 기존 가입 요청에 닉네임을 더함(테스트의 의도는 그대로).
+- 4: 빨강(6건) → 초록. `AccountApiIntegrationTest tests 6 fail 0` · `CorsIntegrationTest tests 5 fail 0` · `AdminCorsIntegrationTest tests 3 fail 0`.
+  - 결정: 앱 경로 CORS 에 PATCH 를 연다(계약은 PATCH 그대로) — 부분 변경이라 PATCH 가 맞고, 앱 세션이 PUT 대안을 물었다. 관리 화면 CORS 테스트의 "앱 경로에 PATCH 를 열지 않는다" 줄을 "앱 주소는 허용, 관리 화면 주소는 403" 으로 바꿨다 — 틀리면 비용: 없음(관리 화면 주소의 분리는 그대로 확인된다).
+- 5: `AccountApiIntegrationTest tests 7 fail 0`. 기존 동작(계정 행 삭제)을 지키는 테스트라 빨강 없음.
+- 6: 앱 세션에 계약 전달(2026-11-19).
+
