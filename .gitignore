@@ -18,3 +18,7 @@ build/
 out/
 .vscode/
 .kotlin
+
+# 배포 VM 에만 두는 비밀값 파일(결정 020). 틀은 *.env.example 이고 커밋한다.
+deploy/db.env
+deploy/backup.env

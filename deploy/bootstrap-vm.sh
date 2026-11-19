@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# 새 오라클 VM(E2.1.Micro, Ubuntu 24.04 Minimal)을 배포할 수 있는 상태로 만든다(결정 020). VM 에서 한 번: sudo ./bootstrap-vm.sh <staging|prod>
+# 여러 번 돌려도 결과가 같다. 결과는 한 줄: event=bootstrap_done 또는 event=bootstrap_failed(단계·줄).
+# SSH 설정은 바꾸지 않고 확인만 한다. 키로만 로그인되는 상태가 아니면 아무것도 바꾸지 않고 멈춘다.
+set -Eeuo pipefail
+
+ENV_NAME="${1:-}"
+case "$ENV_NAME" in staging | prod) ;; *) echo "사용법: sudo $0 <staging|prod>" >&2; exit 2 ;; esac
+[ "$(id -u)" -eq 0 ] || { echo "sudo 로 돌린다." >&2; exit 2; }
+
+APP_DIR=/opt/byeolmyeong
+APP_USER=ubuntu
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) event=$*"; }
+trap 'log "bootstrap_failed env=$ENV_NAME line=$LINENO"' ERR
+
+# 시작 전 확인(읽기만): 비밀번호·키보드 입력 로그인이 꺼져 있고 root 는 비밀번호로 못 들어와야 한다(오라클 Ubuntu 이미지의 기본값).
+# 직접 고치지 않는 이유: 잘못 고치면 VM 에 다시 못 들어간다. 콘솔에서 고친 뒤 다시 돌린다.
+ssh_conf="$(sshd -T 2> /dev/null || true)"
+if ! grep -qx 'passwordauthentication no' <<< "$ssh_conf"; then
+	log "bootstrap_failed env=$ENV_NAME step=ssh_check reason=password_login_on"
+	exit 1
+fi
+if ! grep -qx 'kbdinteractiveauthentication no' <<< "$ssh_conf"; then
+	log "bootstrap_failed env=$ENV_NAME step=ssh_check reason=keyboard_interactive_on"
+	exit 1
+fi
+if ! grep -qxE 'permitrootlogin (no|prohibit-password|without-password|forced-commands-only)' <<< "$ssh_conf"; then
+	log "bootstrap_failed env=$ENV_NAME step=ssh_check reason=root_password_login_on"
+	exit 1
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -q
+# Minimal 이미지에는 cron·편집기가 없을 수 있다.
+apt-get install -y -q iptables-persistent unattended-upgrades curl cron nano
+
+# 0. 스왑 2GB: 메모리가 1GB 라 순간적으로 넘칠 때 서버가 죽지 않게 한다. 평소에는 거의 쓰지 않게 swappiness 를 낮춘다.
+if ! swapon --show=NAME --noheadings | grep -qx /swapfile; then
+	if [ ! -f /swapfile ]; then
+		fallocate -l 2G /swapfile
+		chmod 600 /swapfile
+		mkswap /swapfile > /dev/null
+	fi
+	swapon /swapfile
+fi
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+echo 'vm.swappiness=10' > /etc/sysctl.d/99-byeolmyeong.conf
+sysctl -q -p /etc/sysctl.d/99-byeolmyeong.conf
+
+# 1. 방화벽: 오라클 Ubuntu 이미지의 iptables 는 22 만 열고 나머지를 REJECT 한다. REJECT 규칙 앞에 80·443 을 넣는다.
+#    (콘솔의 보안 목록에서도 80·443 을 열어야 한다. docs/deploy.md)
+#    Docker 를 설치하기 전에, 그리고 바뀐 것이 있을 때만 저장한다. Docker 가 돌 때 저장하면 Docker 의 규칙까지 굳어 재부팅 뒤 꼬인다.
+changed=0
+for port in 80 443; do
+	if ! iptables -C INPUT -p tcp -m state --state NEW --dport "$port" -j ACCEPT 2> /dev/null; then
+		reject_line="$(iptables -L INPUT --line-numbers -n | awk '$2 == "REJECT" { print $1; exit }')"
+		if [ -n "$reject_line" ]; then
+			iptables -I INPUT "$reject_line" -p tcp -m state --state NEW --dport "$port" -j ACCEPT
+		else
+			iptables -A INPUT -p tcp -m state --state NEW --dport "$port" -j ACCEPT
+		fi
+		changed=1
+	fi
+done
+if [ "$changed" -eq 1 ]; then
+	if systemctl is-active --quiet docker; then
+		log "bootstrap_warning step=firewall reason=docker_running_rules_not_saved"
+	else
+		netfilter-persistent save
+	fi
+fi
+
+# 2. Docker: Ubuntu 저장소의 꾸러미로 설치하고 부팅 때 켜지게 한다.
+apt-get install -y -q docker.io docker-compose-v2
+systemctl enable --now docker
+usermod -aG docker "$APP_USER"
+
+# 3. 배포 디렉터리와 시간대.
+install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_DIR" "$APP_DIR/backups"
+timedatectl set-timezone Asia/Seoul
+
+# 4. 자동 보안 업데이트를 켠다(Ubuntu 기본값과 같은 설정을 확실히 적어 둔다). 커널 업데이트 뒤 재부팅은 자동으로 하지 않는다.
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+
+# 5. 운영만: 매일 04:00(KST) 백업. 출력은 backups/backup.log 에 쌓는다.
+CRON_LINE="0 4 * * * $APP_DIR/backup.sh >> $APP_DIR/backups/backup.log 2>&1"
+if [ "$ENV_NAME" = prod ]; then
+	( crontab -u "$APP_USER" -l 2> /dev/null | grep -vF "$APP_DIR/backup.sh" || true; echo "$CRON_LINE" ) | crontab -u "$APP_USER" -
+fi
+
+log "bootstrap_done env=$ENV_NAME swap=$(swapon --show=SIZE --noheadings | head -n 1 | tr -d " ") docker=$(docker --version | awk '{ print $3 }' | tr -d ,)"

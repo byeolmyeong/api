@@ -3,7 +3,7 @@ type: decision
 tags: [Spring Boot, PostgreSQL, 저장소 분리, OpenAI]
 status: active
 last_reviewed: 2026-11-10
-superseded_by: 006-reading-provider-claude.md (글 생성 공급자만. 나머지는 유효)
+superseded_by: 006-reading-provider-claude.md (글 생성 공급자만), 020-hosting-oracle-vercel.md (운영 호스팅만). 나머지는 유효
 ---
 # 001. Spring Boot + PostgreSQL 로 만들고 앱과 저장소를 나눈다
 
