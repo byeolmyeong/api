@@ -288,6 +288,17 @@ class SocialLoginIntegrationTest {
 	}
 
 	@Test
+	fun `중복 닉네임 409 는 판정의 마지막이다 — 약관 · 프로필 · 출생 정보 · 만 14세가 먼저다`() {
+		val taken = freshNickname()
+		assertEquals(201, signup(signupToken("order-taken"), adult(), nickname = taken).statusCode())
+		val ticket = signupToken("order-late")
+		assertEquals(400 to """{"error":"TERMS_REQUIRED"}""", error(signup(ticket, adult(), nickname = taken, terms = null)))
+		assertEquals(400 to """{"error":"INVALID_AVATAR"}""", error(signup(ticket, adult(), nickname = taken, avatar = 0)))
+		assertEquals(400 to """{"error":"INVALID_DATE"}""", error(signup(ticket, "1990-13-45", nickname = taken)))
+		assertEquals(403 to """{"error":"UNDER_AGE"}""", error(signup(ticket, koreaToday().minusYears(10), nickname = taken)))
+	}
+
+	@Test
 	fun `남은 가입권으로 다시 와도 이미 있는 계정의 약관 시각 · 푸시 동의 · 프로필은 그대로이고 TERMS_AGREED 는 한 번이다`() {
 		val tickets = List(2) { signupToken("keep-terms") }
 		assertEquals(201, signup(tickets[0], adult(), avatar = 2).statusCode())

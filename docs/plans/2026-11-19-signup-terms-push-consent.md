@@ -102,3 +102,4 @@ last_reviewed: 2026-11-19
 
 ### 2026-11-19 독립 리뷰 반영
 - 리뷰 1(동시 가입): 같은 사람의 가입권 두 장이 동시에 오면 둘 다 "새 계정"으로 보고 약관 · 푸시 · 프로필 · 닉네임 · 출생 정보를 덮어쓰고 `TERMS_AGREED` 가 두 번 남았다 → 새 계정인지를 `insert … on conflict do nothing returning id` 결과로 판정(`AccountRepository.create`). 테스트: 기존 동시 가입 테스트를 latch 로 10회 + 계정마다 `TERMS_AGREED` · `PROFILE_SAVED` 1건, 첫 요청이 커밋하기 전에 뒤 요청을 끼워 넣는 결정적 테스트(처음 값 그대로 · 출생 정보 0 · 감사 기록 0). 빨강 `SocialLoginIntegrationTest tests 36 fail 2`(round 0 에서 `TERMS_AGREED` 2건, 닉네임 덮어씀) → 초록 가입 36 · 애플 11 fail 0. 결정 026 3번 · 아키텍처 가입 설명에 동시 요청 한 줄.
+- 리뷰 2(빠진 테스트): (a) 중복 닉네임 409 는 마지막 — 중복 닉네임 + 틀린 약관 400 `TERMS_REQUIRED` · 프로필 0 400 `INVALID_AVATAR` · 틀린 날짜 400 · 만 14세 미만 403. (b) `PATCH /account` 409 면 같이 보낸 `pushConsent` · `avatar` 그대로 · `PUSH_CONSENT_CHANGED` 0건. 둘 다 이미 되는 동작이라, 닉네임 중복을 앞에서 검사 · 푸시 · 프로필을 트랜잭션 밖에서 먼저 쓰도록 잠깐 바꿔(커밋 안 함) `tests 2 fail 2`(409 가 먼저 옴 · avatar 7) 확인 → 되돌려 가입 37 · 계정 12 fail 0.

@@ -117,6 +117,26 @@ class AccountApiIntegrationTest {
 	}
 
 	@Test
+	fun `닉네임이 409 면 같이 보낸 푸시 동의 · 프로필도 바꾸지 않고 감사 기록도 없다(결정 026)`() {
+		val taken = freshNickname()
+		jdbc.update("insert into accounts (id, provider, provider_user_id, nickname) values (gen_random_uuid(), 'GOOGLE', 'other', ?)", taken)
+		val token = devToken(port)
+		assertEquals(200, patch(token, """{"avatar":2}""").statusCode())
+
+		val response = patch(token, """{"nickname":"$taken","pushConsent":true,"avatar":7}""")
+		assertEquals(409, response.statusCode())
+		assertEquals("""{"error":"NICKNAME_TAKEN"}""", response.body())
+		val now = json(get(token).body())
+		assertEquals(2, now["avatar"].asInt())
+		assertEquals(false, now["pushConsent"].asBoolean())
+		assertTrue(now["pushConsentAt"].isNull)
+		val pushAudits = jdbc.queryForObject(
+			"select count(*) from audit_logs where action = 'PUSH_CONSENT_CHANGED' and actor_id = ?", Int::class.java, ownerId(),
+		)
+		assertEquals(0, pushAudits)
+	}
+
+	@Test
 	fun `탈퇴하면 그 닉네임을 다른 사람이 쓸 수 있다`() {
 		val first = devToken(port)
 		patch(first, """{"nickname":"Moon"}""")
