@@ -14,7 +14,7 @@ last_reviewed: 2026-11-18
 | | 운영(prod) | 스테이징(staging) |
 |---|---|---|
 | 브랜치 | `main` | `develop` |
-| 올라가는 때 | `main` 에 합쳐지고 CI 가 통과할 때(jar 를 바꾸기 직전에 DB 백업) | `develop` 에 합쳐지고 CI 가 통과할 때 |
+| 올라가는 때 | `main` 에 합쳐지고 CI 가 통과할 때(jar 를 바꾸기 직전에 DB 백업). 그 커밋이 아직 `main` 의 끝일 때만 | `develop` 에 합쳐지고 CI 가 통과할 때. 그 커밋이 아직 `develop` 의 끝일 때만 |
 | 서버 주소 | `https://api.byeolmyeong.com` | `https://api-staging.byeolmyeong.com` |
 | 앱 웹·관리 화면(버셀) | `byeolmyeong.com` · `admin.byeolmyeong.com` | `staging.byeolmyeong.com` · `admin-staging.byeolmyeong.com` |
 | 오라클 VM 이름 | `byeolmyeong-prod` | `byeolmyeong-staging` |
@@ -111,16 +111,16 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 |---|---|
 | 스테이징에 올리기 | 작업 브랜치 → `develop` 으로 PR → CI 통과 확인 → 합치기. Actions 의 `deploy` 가 알아서 올린다 |
 | 운영에 올리기 | 스테이징에서 확인 → `develop` → `main` PR → CI 통과 확인 → 합치기(합치는 것이 "사람의 확인"이다). jar 를 바꾸기 직전에 DB 를 백업한다 |
-| 되돌리기(자동) | 바꿔 띄우기가 중간에 실패하거나 `/health` 가 3분 안에 200 이 아니면 마지막 정상 jar(`app.jar.good`)로 돌아가고 작업이 실패로 끝난다. **DB 는 되돌리지 않는다**(새 jar 가 적용한 마이그레이션은 남는다) |
+| 되돌리기(자동) | jar 를 바꾼 뒤 바꿔 띄우기가 중간에 실패하거나 `/health` 가 3분 안에 200 이 아니면 마지막 정상 jar(`app.jar.good`)로 돌아가고 작업이 실패로 끝난다. jar 를 바꾸기 전에 멈췄으면(이미지 받기·배포 직전 백업 실패) 서버는 그대로 두고 실패로 끝난다. **DB 와 설정 파일(compose.yaml·Caddyfile)은 되돌리지 않는다** — 설정 파일 변경이 원인이면 이전 커밋을 수동 실행으로 올린다(그 커밋의 파일이 함께 올라간다) |
 | 되돌리기(더 이전 버전) | Actions → `deploy` → Run workflow → 대상·이전 커밋(또는 브랜치). 수동 실행은 빌드·테스트를 다시 돌린다 |
-| DB 까지 되돌려야 할 때(운영) | ① `./restore.sh backups/<배포 직전 파일> --into-live` — 한 트랜잭션 안에서 public 스키마를 비우고 덤프를 넣으므로 새 마이그레이션이 만든 표도 남지 않는다. 끝나면 서버는 **멈춘 채로** 둔다(지금 jar 로 뜨면 그 마이그레이션이 다시 적용된다). ② Actions → `deploy` → Run workflow → 대상 `prod`·배포 전 커밋 → 그 jar 로 서버가 뜬다. 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
+| DB 까지 되돌려야 할 때(운영) | ① `./restore.sh backups/byeolmyeong-predeploy-<시각>.dump --into-live` — 한 트랜잭션 안에서 public 스키마를 비우고 덤프를 넣으므로 새 마이그레이션이 만든 표도 남지 않는다. 끝나면 서버는 **멈춘 채로** 둔다(지금 jar 로 뜨면 그 마이그레이션이 다시 적용된다). ② Actions → `deploy` → Run workflow → 대상 `prod`·배포 전 커밋 → 그 jar 로 서버가 뜬다. 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
 | 상태 | `docker compose ps` (셋 다 Up) · `curl -s https://<서버 주소>/health` |
 | 로그 | `docker compose logs --tail 200 api` (`caddy`·`postgres` 도 같다) |
 | `.env` 를 바꾼 뒤 | `docker compose up -d --force-recreate api` (다시 만들어야 새 값을 읽는다) |
 | DB 비밀번호 바꾸기 | DB 에서 먼저 `docker compose exec postgres psql -U postgres -c "alter role <DB 사용자> password '<새 값>'"` → `.env` 의 `DATABASE_PASSWORD` 를 바꾸고 → 위 명령(`.env` 만 바꾸면 Postgres 는 처음 값을 그대로 쓴다) |
 | 첫 관리자 만들기(운영) | `.env` 의 `ADMIN_BOOTSTRAP_*` 주석을 풀고 값 → 위 명령 → 관리 화면 로그인 확인 → 다시 주석 → 위 명령 |
-| 백업 확인(주 1회) | `tail -n 3 backups/backup.log` 에 `event=backup_done`, 버킷에 오늘 덤프. 실패 알림은 없다 |
-| 손으로 백업 | `./backup.sh` |
+| 백업 확인(주 1회) | `tail -n 3 backups/backup.log` 에 `event=backup_done kind=daily`, 버킷에 오늘 덤프. 실패 알림은 없다. 덤프 이름은 매일 `byeolmyeong-daily-<시각>.dump`, 배포 직전 `byeolmyeong-predeploy-<시각>.dump` 이고 VM 에는 종류마다 7개 남는다 |
+| 손으로 백업 | `./backup.sh` (매일 백업과 같은 종류) |
 | 복원 연습 | `./restore.sh backups/<파일>` → 표별 행 수(일회용 컨테이너·볼륨은 지워진다). 실제 DB 와 몇 표만 견준다: `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select count(*) from accounts"` |
 | 비상 복원 | `./restore.sh backups/<파일> --into-live` (확인 문구 → 지금 DB 를 `backups/before-restore-*.dump` 로 남김 → 덤프를 끝까지 풀어 봄(잘렸으면 여기서 멈추고 아무것도 안 바뀜) → 서버를 멈추고 한 트랜잭션으로 교체. 실패하면 DB 는 그대로이고 서버는 다시 뜬다. 성공하면 서버는 멈춰 있으니 같은 jar 면 `docker compose start api`) |
 | 재부팅 뒤 | `docker compose ps` 로 셋 다 다시 떴는지 본다(`restart: unless-stopped`) |
