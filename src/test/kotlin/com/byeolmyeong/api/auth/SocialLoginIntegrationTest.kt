@@ -288,6 +288,28 @@ class SocialLoginIntegrationTest {
 	}
 
 	@Test
+	fun `값은 정확한 JSON 타입만 받는다 — 실수 · 글자로 온 숫자, 숫자 · 글자로 온 참거짓은 400 INVALID_REQUEST 이고 가입권은 남는다`() {
+		val ticket = signupToken("strict")
+		val wrong = listOf(
+			signup(ticket, adult(), avatar = null, extra = ",\"avatar\":4.9"),
+			signup(ticket, adult(), avatar = null, extra = ",\"avatar\":\"3\""),
+			signup(ticket, adult(), extra = ",\"pushConsent\":1"),
+			signup(ticket, adult(), extra = ",\"pushConsent\":\"true\""),
+			signup(ticket, adult(), extra = ",\"marketingConsent\":1"),
+			signup(ticket, adult(), extra = ",\"marketingConsent\":\"true\""),
+			http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"${adult()}","time":"14:30","placeId":"$PLACE","nickname":"${freshNickname()}","termsVersion":"$TERMS","privacyVersion":"$TERMS","avatar":1}"""),
+			http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"${adult()}","time":"14:30","placeId":$PLACE.0,"nickname":"${freshNickname()}","termsVersion":"$TERMS","privacyVersion":"$TERMS","avatar":1}"""),
+		)
+		for ((i, response) in wrong.withIndex()) assertEquals(400 to """{"error":"INVALID_REQUEST"}""", error(response), "요청 $i")
+		assertEquals(0, count("accounts"), "계정을 만들지 않았다")
+		assertEquals(1, count("signup_tickets"), "가입권을 쓰지 않았다")
+
+		assertEquals(201, signup(ticket, adult(), avatar = 4, extra = ",\"pushConsent\":true,\"marketingConsent\":false").statusCode(), "맞는 타입은 그대로 받는다")
+		assertEquals(4, (accountColumn("strict", "avatar") as Number).toInt())
+		assertNotNull(accountColumn("strict", "push_consented_at"))
+	}
+
+	@Test
 	fun `중복 닉네임 409 는 판정의 마지막이다 — 약관 · 프로필 · 출생 정보 · 만 14세가 먼저다`() {
 		val taken = freshNickname()
 		assertEquals(201, signup(signupToken("order-taken"), adult(), nickname = taken).statusCode())

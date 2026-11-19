@@ -123,6 +123,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /shared/{shareId}` | 없음 | 없음 | 200 `ShareCard`(요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나, 글과 숫자만) · 없는 식별자 404 `NOT_FOUND` · 429 `RATE_LIMITED` |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
 
+- 요청 본문: 값은 정확한 JSON 타입만 받는다(소유자 2026-11-19). 정수 칸에 실수 · 글자(`4.9` · `3.0` · `"3"`), 참거짓 칸에 숫자 · 글자(`1` · `"true"`)가 오면 본문을 읽지 못한 것으로 보고 400 `INVALID_REQUEST` 다 — 본문을 읽을 때 걸리므로 가입권 확인 같은 다른 검사보다 먼저다(세션 검사는 그보다 먼저). 실수 칸에 정수는 받는다. 설정 `spring.jackson.deserialization.accept-float-as-int=false` · `spring.jackson.mapper.allow-coercion-of-scalars=false`. 관리자 API 는 본문을 직접 검사해 원래부터 이렇다.
 - 세션: 요청 헤더 `Authorization: Bearer <token>`, 헤더가 없으면 쿠키 `bm_session`(웹, 결정 021). 없거나 틀리거나 마지막 사용 후 90일이 지났으면 401 `UNAUTHORIZED`. 쿠키로 인증된 GET · HEAD 가 아닌 요청은 `Origin` 이 `ALLOWED_ORIGINS` 에 없으면 403 `FORBIDDEN_ORIGIN`. 표에서 인증이 "없음" 인 경로와 `GET /health` 말고는 모두 세션이 필요하다(새 경로는 기본이 세션 필요다). 점검 중에는 세션 검사보다 먼저 503 `MAINTENANCE` 가, 앱이 옛 버전이라 막힌 동안에는 426 `UPDATE_REQUIRED` 가 온다(아래 "앱 설정과 강제 업데이트"). 토큰은 서버가 원문을 저장하지 않는다(해시만). `/admin/**` 는 이 표에 없다 — 아래 "관리자 API" 가 따로 다루고, 사용자 세션 토큰은 거기서 통하지 않는다(관리자 토큰도 이 표의 경로에서 통하지 않는다).
 - 브라우저의 다른 출처 요청(CORS): 설정 `byeolmyeong.cors.allowed-origins`(환경 변수 `ALLOWED_ORIGINS`, 쉼표 구분)에 적힌 주소만 허용한다. 비어 있으면 허용하지 않는다. 허용 메서드 GET·POST·PUT·DELETE, 허용 헤더 `Authorization`·`Content-Type`. 자격 증명(쿠키 `bm_session`)을 허용한다(결정 021). `/admin/**` 는 이 주소들에 열리지 않는다 — 관리 화면의 주소(`ADMIN_ALLOWED_ORIGINS`)만 부를 수 있고, 그 주소는 이 표의 경로를 부를 수 없다("관리자 API" 의 "브라우저 출처").
 - 로그인과 가입 (결정 021):

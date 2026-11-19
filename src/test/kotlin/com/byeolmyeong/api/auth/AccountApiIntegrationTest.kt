@@ -137,6 +137,28 @@ class AccountApiIntegrationTest {
 	}
 
 	@Test
+	fun `값은 정확한 JSON 타입만 받는다 — 틀린 타입은 400 INVALID_REQUEST 이고 아무것도 바꾸지 않는다`() {
+		val token = devToken(port)
+		for (body in listOf(
+			"""{"avatar":4.9}""", """{"avatar":"3"}""",
+			"""{"pushConsent":1}""", """{"pushConsent":"true"}""",
+			"""{"marketingConsent":1}""", """{"marketingConsent":"true"}""",
+		)) {
+			val response = patch(token, body)
+			assertEquals(400, response.statusCode(), body)
+			assertEquals("""{"error":"INVALID_REQUEST"}""", response.body(), body)
+		}
+		val now = json(get(token).body())
+		assertTrue(now["avatar"].isNull)
+		assertEquals(false, now["pushConsent"].asBoolean())
+		assertEquals(false, now["marketingConsent"].asBoolean())
+
+		val ok = json(patch(token, """{"avatar":3,"pushConsent":true,"marketingConsent":false}""").body())
+		assertEquals(3, ok["avatar"].asInt())
+		assertEquals(true, ok["pushConsent"].asBoolean())
+	}
+
+	@Test
 	fun `탈퇴하면 그 닉네임을 다른 사람이 쓸 수 있다`() {
 		val first = devToken(port)
 		patch(first, """{"nickname":"Moon"}""")
