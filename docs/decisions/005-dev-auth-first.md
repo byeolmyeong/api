@@ -3,7 +3,7 @@ type: decision
 tags: [로그인, 개발용 로그인, 구현 순서]
 status: active
 last_reviewed: 2026-11-11
-superseded_by:
+superseded_by: 022-deploy-env-and-generation-limits.md (운영 안전장치만 — 개발용 로그인은 local·staging 에서만 켤 수 있다)
 ---
 # 005. 소셜 로그인 전에 개발용 로그인으로 기능부터 만든다
 

@@ -49,7 +49,7 @@ last_reviewed: 2026-11-18
 - GitHub 비밀값은 저장소 단위로 둔다(무료 요금제 비공개 저장소는 환경별 비밀값·승인 규칙을 못 쓴다). 운영 배포의 "사람이 한 번 확인"은 태그를 다는 행위로 한다.
 
 ## 범위 밖
-- "배포 전 확인" 3건: 별도 계획 `docs/plans/2026-11-18-pre-deploy-hardening.md`(이 계획 승인 뒤 작성).
+- "배포 전 확인" 3건: 별도 계획 `docs/plans/2026-11-19-pre-deploy-hardening.md`(이 계획 승인 뒤 작성).
 - 버셀 프로젝트 설정(앱·관리 화면 저장소의 일). 이 계획은 서버가 허용할 주소(`ALLOWED_ORIGINS`·`ADMIN_ALLOWED_ORIGINS`)만 정한다.
 - 가동 감시·알림(백업 실패 알림 포함), 무중단 배포, 서버 여러 대, 관리형 DB, 소셜 로그인.
 
@@ -138,7 +138,7 @@ last_reviewed: 2026-11-18
 - 실행 패턴: 혼자 (SSH 명령마다 사람 확인)
 - 결과 요약: E2.1.Micro 두 대(byeolmyeong-staging·-prod, Ubuntu 24.04 Minimal) 생성·초기 설정 두 번(멱등), 재부팅 확인, .env·db.env(비밀번호는 VM 안에서 생성, 출력 안 함), 운영 backup.env·버킷·30일 규칙, GitHub 비밀값 6·변수 2, 맥의 배포용 개인 키 삭제. IP 는 문서에 적지 않는다(GitHub 비밀값·VM 에만).
 
-### 8. first-deploy-staging · 상태: 대기 (`2026-11-18-pre-deploy-hardening` 계획이 끝나야 시작)
+### 8. first-deploy-staging · 상태: 대기 (`2026-11-19-pre-deploy-hardening` 계획이 끝나야 시작)
 - 읽을 것: docs/deploy.md (나), `.github/workflows/deploy.yml`
 - 할 것: `DEPLOY_ENABLED=true` 를 넣은 뒤 이 브랜치를 `develop` 으로 PR → CI 통과 확인 → 소유자가 합친다 → `deploy` 워크플로가 스테이징에 배포. 되돌리기 연습: 시작하자마자 끝나는 버림용 브랜치를 `workflow_dispatch`(staging) 로 배포해 직전 jar 로 돌아오는지 보고 브랜치를 지운다.
 - 주는 것: 스테이징 주소가 살아 있음. 버셀 스테이징이 붙을 수 있다.
@@ -296,3 +296,5 @@ last_reviewed: 2026-11-18
   - 위험: 스테이징은 누구나 개발용 로그인으로 모델을 부를 수 있어 그 비용이 같은 키의 한도에서 빠진다 → 키에 지출 한도, "배포 전 확인" 의 계정별 생성 속도 제한, 실제 사용자 전에 키 분리 재검토.
 - DNS 확인(소유자가 Cloudflare 에 넣음): 1.1.1.1·8.8.8.8·담당 네임서버(max/yolanda.ns.cloudflare.com) 모두 `api` → 운영 VM, `api-staging` → 스테이징 VM. VM IP 로 바로 나와 프록시는 꺼져 있다(Caddy 가 인증서를 직접 받는다).
 - 키 넣기 도구: 키를 화면에 안 보이게 받아 ssh 표준 입력으로 두 VM 의 `.env` 에 넣는 스크립트를 scratch 에 만들었다(가짜 키로 치환 로직 확인, shellcheck 0). 저장소에는 넣지 않았다(한 번 쓰는 도구).
+- Anthropic 키(소유자 2026-11-19 "로컬에 있는거 그냥 넣어 너가 직접"): 로컬 `byeolmyeong-api/.env` 의 키를 읽어 보이지 않고(`Read(.env)` 금지 규칙의 취지대로 값은 출력하지 않음) ssh 표준 입력으로 두 VM `.env` 에 넣었다. 원격은 bash 내장 printf 로 다시 쓰고, API 확인은 600 헤더 파일로. 확인: 두 VM 모두 `sk-ant-` 줄 1개·권한 600·각 VM 에서 `GET /v1/models` 200. 이제 로컬·스테이징·운영이 같은 키다 — 지출 한도 필수.
+  - 결정: 처음 시도는 fd 3 으로 넘기려다 ssh 가 3번을 원격에 넘기지 않아 키를 쓰기 전에 멈췄다(변경 없음) → 키 없는 도우미 스크립트를 먼저 올리고 키는 표준 입력으로 — 틀리면 비용: 없음.

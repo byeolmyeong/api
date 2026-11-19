@@ -48,8 +48,19 @@ class ClaudeTextGenerator(
 
 	override fun generate(request: GenerationRequest): JsonNode? {
 		val client = client ?: throw GenerationException("NO_API_KEY")
-		val message = try {
-			client.messages().create(params(request))
+		// 부르기와 응답 필드 읽기를 한 try 에 둔다. SDK 는 필드를 읽을 때 응답 모양을 확인하고 예외를 던질 수 있다(배포 전 확인 6).
+		val text = try {
+			val message = client.messages().create(params(request))
+			val stopReason = message.stopReason().orElse(null)
+			val usage = message.usage()
+			log.info(
+				"event=generation_model_call purpose={} model={} stop_reason={} input_tokens={} output_tokens={} thinking_tokens={}",
+				request.purpose, model, stopReason, usage.inputTokens(), usage.outputTokens(),
+				usage.outputTokensDetails().map { it.thinkingTokens() }.orElse(null),
+			)
+			// 거절(refusal)·잘림(max_tokens)이면 내용이 구조에 맞지 않을 수 있다. 내용을 읽지 않는다.
+			if (stopReason != StopReason.END_TURN) null
+			else message.content().mapNotNull { block -> block.text().orElse(null)?.text() }.joinToString("")
 		} catch (e: AnthropicServiceException) {
 			throw GenerationException("HTTP_${e.statusCode()}")
 		} catch (e: AnthropicIoException) {
@@ -57,17 +68,7 @@ class ClaudeTextGenerator(
 		} catch (e: AnthropicException) {
 			throw GenerationException("SDK")
 		}
-		val stopReason = message.stopReason().orElse(null)
-		val usage = message.usage()
-		log.info(
-			"event=generation_model_call purpose={} model={} stop_reason={} input_tokens={} output_tokens={} thinking_tokens={}",
-			request.purpose, model, stopReason, usage.inputTokens(), usage.outputTokens(),
-			usage.outputTokensDetails().map { it.thinkingTokens() }.orElse(null),
-		)
-		// 거절(refusal)·잘림(max_tokens)이면 내용이 구조에 맞지 않을 수 있다. 내용을 읽기 전에 본다.
-		if (stopReason != StopReason.END_TURN) return null
-		val text = message.content().mapNotNull { block -> block.text().orElse(null)?.text() }.joinToString("")
-		return parse(text)
+		return text?.let(::parse)
 	}
 
 	// 생각(thinking)은 이 모델에서 늘 켜져 있어 따로 보내지 않고, 깊이는 effort 로 정한다. 표본 추출 값(temperature 등)은 보내지 않는다.

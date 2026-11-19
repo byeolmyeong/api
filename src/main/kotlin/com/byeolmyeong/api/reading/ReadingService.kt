@@ -8,6 +8,7 @@ import com.byeolmyeong.api.share.ReadingCardRequested
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
+import com.byeolmyeong.api.web.GenerationQuota
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
@@ -15,12 +16,20 @@ import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Service
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.UUID
 
 private const val SUMMARY = "SUMMARY"
 
 /** 처음 한 번 + 다시 생성 2번. */
 private const val MAX_ATTEMPTS = 3
+
+/** 진행 중인 같은 생성을 기다리는 최대 시간. 생성 한 번은 모델 호출 시간 제한(120초) × 시도 횟수 안에 끝난다. */
+private const val IN_FLIGHT_WAIT_MINUTES = 10L
 private const val SHARE_ID_BYTES = 16
 
 /** 공유 카드의 키워드로 내주는 문단 제목의 수(앞에서부터). 마지막 문단(과제)은 내주지 않는다. */
@@ -36,18 +45,53 @@ class ReadingService(
 	private val repository: ReadingRepository,
 	private val generator: TextGenerator,
 	private val events: ApplicationEventPublisher,
+	private val quota: GenerationQuota,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val random = SecureRandom()
+
+	/** 진행 중인 요약 해석 생성(소유자·종류·차트 해시 → 결과). 서버 메모리에만 있고 끝나면 지운다. */
+	private val inFlight = ConcurrentHashMap<String, CompletableFuture<Reading>>()
 
 	fun summary(ownerId: UUID): Reading {
 		val birth = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
 		val chartHash = birth.hash
 		repository.find(ownerId, SUMMARY, chartHash)?.let { return it }
 
-		// 감사 기록(결정 015): 새 글을 만든 요청만 남긴다. 위에서 저장본을 돌려준 요청은 남기지 않는다.
+		// 결정 022: 같은 소유자·같은 차트의 생성이 진행 중이면 그 결과를 기다린다(모델을 두 번 부르지 않는다).
+		val key = "$ownerId:$SUMMARY:$chartHash"
+		val mine = CompletableFuture<Reading>()
+		inFlight.putIfAbsent(key, mine)?.let { return await(it) }
+		try {
+			// 앞 요청이 방금 끝나고 진행 표시를 지운 틈이면 저장본이 있다.
+			val reading = repository.find(ownerId, SUMMARY, chartHash) ?: run {
+				// 모델을 부르기 직전에 센다(결정 023). 한도를 넘으면 기다리던 요청도 같은 429 를 받는다.
+				quota.acquire(ownerId)
+				createSummary(ownerId, birth.chart(), chartHash)
+			}
+			mine.complete(reading)
+			return reading
+		} catch (e: Throwable) {
+			mine.completeExceptionally(e)
+			throw e
+		} finally {
+			inFlight.remove(key, mine)
+		}
+	}
+
+	/** 진행 중인 생성의 결과를 기다린다. 그 생성이 실패하면 같은 예외를 던진다(앞 요청과 같은 응답). */
+	private fun await(running: CompletableFuture<Reading>): Reading = try {
+		running.get(IN_FLIGHT_WAIT_MINUTES, TimeUnit.MINUTES)
+	} catch (e: ExecutionException) {
+		throw e.cause ?: e
+	} catch (e: TimeoutException) {
+		throw GenerationException("IN_FLIGHT_WAIT_TIMEOUT")
+	}
+
+	private fun createSummary(ownerId: UUID, chart: Chart, chartHash: String): Reading {
+		// 감사 기록(결정 015): 새 글을 만든 요청만 남긴다. 저장본을 돌려준 요청·기다린 요청은 남기지 않는다.
 		val draft = try {
-			generate(birth.chart())
+			generate(chart)
 		} catch (e: GenerationException) {
 			events.publishEvent(AuditEvent(AuditAction.READING_GENERATED, AuditActor.user(ownerId), success = false))
 			throw e

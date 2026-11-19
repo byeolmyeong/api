@@ -16,10 +16,12 @@ last_reviewed: 2026-11-18
 | 브랜치 | `main` | `develop` |
 | 올라가는 때 | `main` 에 합쳐지고 CI 가 통과할 때(jar 를 바꾸기 직전에 DB 백업). 그 커밋이 아직 `main` 의 끝일 때만 | `develop` 에 합쳐지고 CI 가 통과할 때. 그 커밋이 아직 `develop` 의 끝일 때만 |
 | 서버 주소 | `https://api.byeolmyeong.com` | `https://api-staging.byeolmyeong.com` |
-| 앱 웹·관리 화면(버셀) | `byeolmyeong.com` · `admin.byeolmyeong.com` | `staging.byeolmyeong.com` · `admin-staging.byeolmyeong.com` |
+| 앱 웹(버셀, 앱 결정 037) | `app.byeolmyeong.com` | `app.staging.byeolmyeong.com` |
+| 관리 화면(버셀) | `admin.byeolmyeong.com` | `admin-staging.byeolmyeong.com` |
 | 오라클 VM 이름 | `byeolmyeong-prod` | `byeolmyeong-staging` |
 | DB 백업 | 매일 04:00 + 배포 직전 → VM 7개 + Object Storage 30일 | 없음(버려도 되는 데이터) |
-| 개발용 로그인 | 끔 | 켬(실제 출생 정보는 넣지 않는다) |
+| `.env` 의 `DEPLOY_ENV`(결정 022) | `prod` | `staging` — 없거나 비면 운영으로 본다 |
+| 개발용 로그인 | 끔 | 켬(실제 출생 정보는 넣지 않는다). `DEPLOY_ENV` 가 `staging` 이 아니면 서버가 시작하지 않는다 |
 
 흐름: 작업 브랜치 → PR(`gh pr create --base develop`) → `develop`(스테이징에서 확인) → `develop` → `main` PR → `main`(운영). 두 브랜치 모두 직접 push 하지 않는다(`.claude/hooks/guard.sh` 가 막는다). GitHub 무료 요금제라 보호 규칙이 없으니 **CI 가 통과했는지 보고 합친다**.
 
@@ -63,7 +65,7 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 ### 5. DNS (`byeolmyeong.com` 을 관리하는 곳)
 - A 레코드 `api` → 운영 VM 의 공인 IP
 - A 레코드 `api-staging` → 스테이징 VM 의 공인 IP
-- 버셀 쪽 레코드(`@`·`admin`·`staging`·`admin-staging`)는 버셀이 알려 주는 값으로 넣는다(11번).
+- 버셀 쪽 레코드(`app`·`app.staging`·`admin`·`admin-staging`)는 버셀이 알려 주는 값으로 넣는다(11번).
 - Cloudflare 를 쓰면 `api`·`api-staging` 은 프록시를 끈다(회색 구름). Caddy 가 인증서를 직접 받아야 하고, 켜려면 먼저 Caddyfile 에 `trusted_proxies` 를 정한다(안 하면 주소별 요청 제한이 Cloudflare 주소로 뭉친다).
 
 ### 6. 오라클 Object Storage (운영 백업)
@@ -97,14 +99,15 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - Secrets: `STAGING_SSH_HOST`·`PROD_SSH_HOST`(VM 공인 IP), `STAGING_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-staging` 파일 내용)·`PROD_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-prod`), `STAGING_SSH_KNOWN_HOSTS`·`PROD_SSH_KNOWN_HOSTS`(`ssh-keyscan -t ed25519 <IP>` 의 출력 한 줄). 명령으로 넣으면 값이 화면에 나오지 않는다: `gh secret set STAGING_SSH_KEY < ~/.ssh/byeolmyeong-deploy-staging`.
 - 등록한 뒤 이 맥의 배포용 **개인 키는 지운다**: `rm ~/.ssh/byeolmyeong-deploy-staging ~/.ssh/byeolmyeong-deploy-prod`(`.pub` 은 남긴다). 다시 필요하면 새로 만들어 VM 의 authorized_keys 와 GitHub 비밀값을 함께 바꾼다.
 - Variables: `STAGING_BASE_URL` = `https://api-staging.byeolmyeong.com`, `PROD_BASE_URL` = `https://api.byeolmyeong.com`.
-- Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-18-pre-deploy-hardening.md`, 작성 예정)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
+- Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-19-pre-deploy-hardening.md`)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
 
 ### 11. 버셀 (앱·관리 화면 저장소의 일)
-- 브랜치: 버셀의 운영 브랜치(Production Branch)는 `main`. `develop` 브랜치에 스테이징 도메인(`staging.byeolmyeong.com`·`admin-staging.byeolmyeong.com`)을 붙인다(Settings → Domains → 도메인의 Git Branch 를 `develop` 으로). 앱·관리 화면 저장소에도 `develop` 브랜치가 있어야 한다.
+- 브랜치: 버셀의 운영 브랜치(Production Branch)는 `main`. `develop` 브랜치에 스테이징 도메인(앱 `app.staging.byeolmyeong.com`, 관리 화면 `admin-staging.byeolmyeong.com`)을 붙인다(Settings → Domains → 도메인의 Git Branch 를 `develop` 으로). 앱·관리 화면 저장소에도 `develop` 브랜치가 있다(2026-11-19 만듦).
 - 서버 주소: 앱 `EXPO_PUBLIC_API_URL`, 관리 화면 `VITE_API_URL` 을 운영(Production)에는 `https://api.byeolmyeong.com`, `develop` 브랜치(Preview, 브랜치 지정)에는 `https://api-staging.byeolmyeong.com` 으로.
 - 서버는 출처를 정확히 일치로만 허용한다. 미리보기마다 바뀌는 주소가 아니라 위 "한눈에" 표의 고정 도메인을 서버 `.env` 에 넣는다:
-  - 운영: `ALLOWED_ORIGINS=https://byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin.byeolmyeong.com`
-  - 스테이징: `ALLOWED_ORIGINS=https://staging.byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin-staging.byeolmyeong.com`
+  - 운영: `ALLOWED_ORIGINS=https://app.byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin.byeolmyeong.com`
+  - 스테이징: `ALLOWED_ORIGINS=https://app.staging.byeolmyeong.com`, `ADMIN_ALLOWED_ORIGINS=https://admin-staging.byeolmyeong.com`
+  - 웹은 `bm_session` 쿠키로 자격 증명을 보내므로 정확한 출처가 필요하다(버셀 임시 주소 `*.vercel.app` 는 넣지 않는다). `app.*` ↔ `api.*` 는 같은 사이트(`byeolmyeong.com`)라 쿠키가 오간다(결정 021).
 - 버셀 Hobby 는 비상업용만이다(결정 020). 결제·수익이 생기기 전에 다시 본다.
 
 ## (나) 평소 운영
@@ -120,6 +123,7 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 | 상태 | `docker compose ps` (셋 다 Up) · `curl -s https://<서버 주소>/health` |
 | 로그 | `docker compose logs --tail 200 api` (`caddy`·`postgres` 도 같다) |
 | `.env` 를 바꾼 뒤 | `docker compose up -d --force-recreate api` (다시 만들어야 새 값을 읽는다) |
+| 서버가 계속 다시 시작한다 | `docker compose logs --tail 50 api` 에 `event=startup_refused reason=dev_login_outside_local_staging` 이면 개발용 로그인(`AUTH_DEV_ENABLED=true`)이 켜졌는데 `DEPLOY_ENV` 가 `staging` 이 아니다(결정 022). 운영이면 `AUTH_DEV_ENABLED` 를 지우고, 스테이징이면 `DEPLOY_ENV=staging` → 위 명령 |
 | DB 비밀번호 바꾸기 | `docker compose exec postgres psql -U postgres` 로 들어가 `\password <DB 사용자>` (새 값이 셸 기록·프로세스 목록에 남지 않는다) → `.env` 의 `DATABASE_PASSWORD` 를 같은 값으로 → `docker compose up -d --force-recreate postgres api` (Postgres 의 상태 검사도 이 값으로 접속한다. `.env` 만 바꾸면 Postgres 는 처음 값을 그대로 쓴다) |
 | 첫 관리자 만들기(운영) | `.env` 의 `ADMIN_BOOTSTRAP_*` 주석을 풀고 값 → 위 명령 → 관리 화면 로그인 확인 → 다시 주석 → 위 명령 |
 | 백업 확인(주 1회) | `tail -n 3 backups/backup.log` 에 `event=backup_done kind=daily`, 버킷에 오늘 덤프. 실패 알림은 없다. 덤프 이름은 매일 `byeolmyeong-daily-<시각>.dump`, 배포 직전 `byeolmyeong-predeploy-<시각>.dump` 이고 VM 에는 종류마다 7개 남는다 |

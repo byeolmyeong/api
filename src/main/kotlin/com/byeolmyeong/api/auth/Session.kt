@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
+import org.springframework.util.AntPathMatcher
 import org.springframework.web.cors.CorsUtils
 import org.springframework.web.servlet.HandlerInterceptor
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry
@@ -13,17 +14,41 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import java.util.UUID
 
 private const val OWNER_ATTRIBUTE = "byeolmyeong.ownerId"
+
+/** 세션 검사가 확인한 소유자를 요청에 적는다. 같은 패키지의 다른 인터셉터(생성 속도 제한)가 [ownerOf] 로 읽는다. */
+internal fun markOwner(request: HttpServletRequest, owner: UUID) = request.setAttribute(OWNER_ATTRIBUTE, owner)
+
+/** 세션 검사를 거친 요청의 소유자. 세션이 없는 경로면 null. */
+internal fun ownerOf(request: HttpServletRequest): UUID? = request.getAttribute(OWNER_ATTRIBUTE) as UUID?
 private const val TOKEN_ATTRIBUTE = "byeolmyeong.sessionToken"
 private const val BEARER = "Bearer "
 
 /** 쿠키로 인증돼도 `Origin` 을 보지 않는 메서드. 나머지는 상태를 바꾸므로 허용한 주소에서 온 것이어야 한다(결정 021). */
 private val SAFE_METHODS = setOf("GET", "HEAD")
 
-/** 로그인 전에 쓰는 곳. 여기 없는 경로는 모두 세션이 있어야 한다(새 엔드포인트는 기본이 "세션 필요"다). */
-private val PUBLIC_PATHS = arrayOf("/health", "/places", "/auth/dev", "/auth/login", "/auth/signup", "/auth/apple/notifications", "/invites/*", "/shared/*", "/error")
+/**
+ * 로그인 전에 쓰는 곳: "메서드 + 경로". 여기 없는 요청은 모두 세션이 있어야 한다(새 엔드포인트는 기본이 "세션 필요"다).
+ * 경로만 열면 같은 경로에 나중에 생긴 다른 메서드도 세션 없이 열리므로 메서드를 함께 적는다(배포 전 확인 5). HEAD 는 GET 과 같이 연다.
+ * 초대 경로(`/invites/…`)는 만들 때 필요한 메서드만 더한다.
+ */
+private val PUBLIC_ENDPOINTS = listOf(
+	"GET" to "/health",
+	"GET" to "/places",
+	"GET" to "/faqs",
+	"GET" to "/app-config",
+	"GET" to "/shared/*",
+	"POST" to "/auth/dev",
+	"POST" to "/auth/login",
+	"POST" to "/auth/signup",
+	"POST" to "/auth/apple/notifications",
+)
 
-/** 로그인 전에 쓰는 곳 가운데 읽기(GET)만 여는 경로. 같은 경로의 다른 메서드는 세션이 있어야 한다. */
-private val PUBLIC_GET_PATHS = setOf("/faqs", "/app-config")
+private val PATH_MATCHER = AntPathMatcher()
+
+private fun isPublic(request: HttpServletRequest): Boolean {
+	val method = if (request.method == "HEAD") "GET" else request.method
+	return PUBLIC_ENDPOINTS.any { (allowed, pattern) -> allowed == method && PATH_MATCHER.match(pattern, request.requestURI) }
+}
 
 /**
  * 관리자 API. 사용자 세션 검사는 이 아래를 보지 않는다 — 열어 두는 것이 아니라, 같은 경로 전부를 관리자 세션 검사
@@ -38,7 +63,7 @@ private const val ADMIN_PATHS = "/admin/**"
 @Component
 class CurrentOwner(private val request: HttpServletRequest) {
 
-	fun id(): UUID = checkNotNull(request.getAttribute(OWNER_ATTRIBUTE) as UUID?) {
+	fun id(): UUID = checkNotNull(ownerOf(request)) {
 		"세션 검사를 거치지 않은 경로에서 소유자를 물었다"
 	}
 
@@ -66,7 +91,7 @@ class SessionInterceptor(
 	override fun preHandle(request: HttpServletRequest, response: HttpServletResponse, handler: Any): Boolean {
 		// 브라우저가 본 요청 전에 묻는 요청에는 세션 헤더가 없다. 허용 여부는 CORS 설정이 답한다.
 		if (CorsUtils.isPreFlightRequest(request)) return true
-		if (request.method == "GET" && request.requestURI in PUBLIC_GET_PATHS) return true
+		if (isPublic(request)) return true
 		val bearer = request.getHeader("Authorization")?.takeIf { it.startsWith(BEARER) }?.removePrefix(BEARER)
 		val token = bearer ?: cookie.read(request)
 		if (bearer == null && token != null && request.method !in SAFE_METHODS && request.getHeader("Origin") !in origins) {
@@ -74,7 +99,7 @@ class SessionInterceptor(
 		}
 		val owner = token?.let(auth::ownerOf)
 		if (owner != null) {
-			request.setAttribute(OWNER_ATTRIBUTE, owner)
+			markOwner(request, owner)
 			request.setAttribute(TOKEN_ATTRIBUTE, token)
 			return true
 		}
@@ -93,6 +118,6 @@ class SessionInterceptor(
 class SessionConfig(private val interceptor: SessionInterceptor) : WebMvcConfigurer {
 
 	override fun addInterceptors(registry: InterceptorRegistry) {
-		registry.addInterceptor(interceptor).excludePathPatterns(*PUBLIC_PATHS, ADMIN_PATHS)
+		registry.addInterceptor(interceptor).excludePathPatterns("/error", ADMIN_PATHS)
 	}
 }
