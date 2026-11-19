@@ -40,62 +40,62 @@ last_reviewed: 2026-11-19
 
 ## 태스크
 
-### 1. adr-022-safety · 상태: 대기
+### 1. adr-022-safety · 상태: 완료
 - 읽을 것: docs/decisions/005·020·021, 이 계획 "내 결정"
 - 할 것: `docs/decisions/022-deploy-env-and-generation-limits.md` — `DEPLOY_ENV`(비면 prod)와 개발용 로그인 시작 거부, 계정별 생성 속도 제한(분당 5·시간당 30, 대상 경로), `POST /readings` 겹침은 기다려 같은 결과. 결정 005 에는 front matter 대체 표시만("022(운영 안전장치)").
 - 주는 것: 결정 022 번호, `DEPLOY_ENV` 이름, 설정 이름 `byeolmyeong.deploy-env`·`byeolmyeong.rate-limit.generation-per-minute`·`generation-per-hour`
 - 하지 말 것: 결정 005 본문 고쳐 쓰기. 이유: golden rules.
 - 검증: `grep -n "022" docs/decisions/005-dev-auth-first.md` → front matter 한 줄
 - 실행 패턴: 혼자
-- 결과 요약:
+- 결과 요약: 결정 022 를 썼다(997d4ee). DEPLOY_ENV(없으면 prod)·개발용 로그인 허용 환경·생성 한도 분당 5·시간당 30·요약 해석 진행 중 대기. 결정 005 는 운영 안전장치만 대체 표시.
 
-### 2. dev-login-guard · 상태: 대기
+### 2. dev-login-guard · 상태: 완료
 - 읽을 것: `auth/AuthService.kt`, `application.properties`, `src/test/kotlin/.../TestHttp.kt`(`DEV_AUTH_ON`), `DevAuthOffByDefaultIntegrationTest`
 - 할 것: 설정 `byeolmyeong.deploy-env=${DEPLOY_ENV:prod}`. 시작할 때 `dev-enabled=true` 이고 환경이 `local`·`staging` 이 아니면 예외로 멈춘다(로그 `event=startup_refused reason=dev_login_outside_local_staging`). 테스트에서 개발용 로그인을 켜는 곳은 환경을 `local` 로 함께 준다. 루트 `.env.example` 에 `DEPLOY_ENV` 설명(로컬 `local`), `deploy/.env.example` 에 스테이징 `staging`·운영 `prod`.
 - 주는 것: `DEPLOY_ENV` 를 VM `.env` 에 넣어야 한다는 사실(태스크 7)
 - 하지 말 것: 운영에서 404 로만 숨기기. 이유: 켜진 채 뜬 것을 아무도 모른다.
 - 검증: 테스트(빨강 먼저) — ① 켜짐 + prod → 컨텍스트 시작 실패 ② 켜짐 + 환경 없음 → 실패 ③ 켜짐 + staging → `POST /auth/dev` 200 ④ 꺼짐 + prod → 시작·`/auth/dev` 404. `./gradlew test` 통과.
 - 실행 패턴: 혼자
-- 결과 요약:
+- 결과 요약: `auth/DevLoginGuard.kt`(bb0ee10). 개발용 로그인이 켜졌는데 DEPLOY_ENV 가 local·staging 이 아니면 `event=startup_refused` 로그 후 시작 거부. 설정 `byeolmyeong.deploy-env`.
 
-### 3. generation-rate-limit · 상태: 대기
+### 3. generation-rate-limit · 상태: 완료
 - 읽을 것: `web/RateLimitConfig.kt`·`web/RateLimiter.kt`, `auth/Session.kt`(소유자 속성), 대상 컨트롤러 5곳, docs/architecture.md 의 해당 경로 오류 줄
 - 할 것: 세션 검사 뒤에 도는 인터셉터 하나가 대상 5개 경로(POST)를 소유자 id 로 센다 — 분당 `generation-per-minute`(5)·시간당 `generation-per-hour`(30), 둘 중 하나라도 넘으면 429 `{"error":"RATE_LIMITED"}`. 기존 주소별 제한은 그대로.
 - 하지 말 것: 주소(IP)로 세기. 이유: 같은 계정이 여러 곳에서 부르면 못 막고, 같은 곳의 다른 사람을 막는다.
 - 검증: 테스트(빨강 먼저) — 같은 계정 6번째(분) 429, 다른 계정은 200, 시간 창은 시계를 주입해 31번째 429, GET 은 세지 않음. 계약 표의 다섯 경로 오류에 429 를 적는다.
 - 실행 패턴: 혼자
-- 결과 요약:
+- 결과 요약: `auth/GenerationRateLimit.kt`(d6b75b0). 세션 검사(순서 0) 뒤 순서 1, 다섯 경로 POST 를 계정별로 합쳐 세고 넘으면 429 `RATE_LIMITED`. `Session.kt` 에 `markOwner`·`ownerOf`.
 
-### 4. readings-in-flight · 상태: 대기
+### 4. readings-in-flight · 상태: 완료
 - 읽을 것: `reading/ReadingService.kt`
 - 할 것: 같은 (소유자, 종류, 차트 해시)의 생성이 진행 중이면 그 결과를 기다려 돌려준다. 실패하면 기다리던 쪽도 같은 실패(502). 끝나면 진행 표시를 지운다(성공·실패 모두).
 - 하지 말 것: 응답 코드를 새로 만들기. 이유: 앱 계약이 그대로여야 한다.
 - 검증: 테스트(빨강 먼저) — 느린 가짜 생성기로 같은 계정이 동시에 두 번 부르면 생성기 호출 1번·둘 다 같은 글, 다른 계정·다른 차트는 각자 호출.
 - 실행 패턴: 혼자
-- 결과 요약:
+- 결과 요약: `ReadingService.summary`(6deb4d5). (소유자·종류·차트 해시)별 진행 표시, 뒤 요청은 최대 10분 대기, 실패는 같은 예외, 표시는 finally 에서 지움.
 
-### 5. birth-time-strict · 상태: 대기
+### 5. birth-time-strict · 상태: 완료
 - 읽을 것: `web/BirthRequest.kt`, `birth/BirthTime.kt`, 계약 표의 `INVALID_TIME`
 - 할 것: 시각은 `HH:mm` 형식만. 날짜가 오늘(한국 시각)이면 지금보다 늦은 시각은 400 `INVALID_TIME`.
 - 검증: 테스트(빨강 먼저) — `12:30:00` → 400, `12:30` → 200, 오늘 + 한 시간 뒤 → 400(시계 주입), 어제 + 23:59 → 200.
 - 실행 패턴: 혼자
-- 결과 요약:
+- 결과 요약: `web/BirthRequest.kt`(94353c9). 시각 `HH:mm` 만, 오늘(한국 시각)이면 지금보다 늦은 시각은 INVALID_TIME, 시각 모름은 그대로. 파서에 시계 인자.
 
-### 6. public-paths-by-method · 상태: 대기
+### 6. public-paths-by-method · 상태: 완료
 - 읽을 것: `auth/Session.kt`
 - 할 것: 세션 없이 여는 목록을 "메서드 + 경로" 로. `/shared/*` 는 GET 만, `/invites/*` 는 뺀다. 나머지(`/health`·`/places`·`/auth/*` 로그인류·`/error`·애플 알림)는 지금 열린 메서드 그대로.
 - 검증: 테스트(빨강 먼저) — `POST /shared/x` 세션 없이 401, `GET /shared/x` 세션 없이 404(없는 식별자)·200, 지금 열린 경로들은 그대로.
 - 실행 패턴: 혼자
-- 결과 요약:
+- 결과 요약: `auth/Session.kt`(42f309f·d5869bb). `PUBLIC_ENDPOINTS`(메서드 + 경로), HEAD 는 GET 과 같이, `/invites/*` 뺌, `/error`·`/admin/**` 는 그대로 제외.
 
-### 7. claude-generator-try · 상태: 대기
+### 7. claude-generator-try · 상태: 완료
 - 읽을 것: `generation/ClaudeTextGenerator.kt`
 - 할 것: `stopReason`·`usage`·`content` 읽기를 `try` 안으로. SDK 예외는 `GenerationException("SDK")`.
 - 검증: 테스트(빨강 먼저) — 응답 필드 읽기에서 SDK 예외가 나면 `GenerationException`.
 - 실행 패턴: 혼자
-- 결과 요약:
+- 결과 요약: `generation/ClaudeTextGenerator.kt`(bf753f1). 응답 필드 읽기를 부르기와 같은 try 에. SDK 예외는 GenerationException("SDK").
 
-### 8. vm-env-and-first-staging-deploy · 상태: 대기 (1~7 이 develop 에 합쳐진 뒤)
+### 8. vm-env-and-first-staging-deploy · 상태: 진행 (VM `.env` 는 끝, 합친 뒤 첫 배포)
 - 할 것: 두 VM `.env` 에 `DEPLOY_ENV`(스테이징 `staging`, 운영 `prod`). 저장소 변수 `DEPLOY_ENABLED=true`(소유자 확인). develop 에 합칠 때의 deploy 워크플로가 스테이징에 첫 배포.
 - 검증: `https://api-staging.byeolmyeong.com/health` 200(인증서 Let's Encrypt), 스테이징 `POST /auth/dev` 200, 같은 계정 생성 6번째 429. 배포 계획(2026-11-18) 태스크 8 의 되돌리기 연습.
 - 실행 패턴: 함께
@@ -121,3 +121,25 @@ last_reviewed: 2026-11-19
 - 되돌리기: 브랜치를 버리면 원래대로. 합친 뒤에는 커밋 되돌리기.
 
 ## 실행 기록
+- 1(adr-022-safety): `docs/decisions/022-deploy-env-and-generation-limits.md` 새로, 결정 005 앞머리 `superseded_by`. 커밋 997d4ee.
+- 2(dev-login-guard): 빨강 → 초록. `./gradlew test --tests '*DevLoginGuardTest'` → `tests 5 fail 0 err 0`. 커밋 bb0ee10.
+- 3(generation-rate-limit): 빨강 → 초록. `GenerationRateLimitInterceptorTest` → `tests 5 fail 0`, `GenerationRateLimitIntegrationTest` → `tests 2 fail 0`. 커밋 d6b75b0.
+- 4(readings-in-flight): 빨강(모델 2번·시도 6번) → 초록. `ReadingApiIntegrationTest` → `tests 16 fail 0 err 0`. 커밋 6deb4d5.
+  - 결정: 기존 테스트 '동시에 온 두 요청은 한 행만 남기고 같은 글을 받는다'(모델이 두 번 불리는 것을 CyclicBarrier 로 확인)를 지웠다 — 결정 022 가 바꾼 동작을 확인하던 테스트라 남기면 거짓 실패다. 한 행·같은 글은 새 테스트가 확인한다 — 틀리면 비용: 동시 요청에서 저장 경합(insertIfAbsent) 경로를 직접 치는 테스트가 없어진다(그 경로는 다른 소유자·서버 재시작 같은 드문 경우에만 탄다).
+- 5(birth-time-strict): 빨강(형식·미래 시각 2건) → 초록. `BirthRequestParserTest` → `tests 5 fail 0`, `ChartApiIntegrationTest` → `tests 8 fail 0`, `ProfileApiIntegrationTest` → `tests 6 fail 0`. 커밋 94353c9.
+- 6(public-paths-by-method): 빨강(테스트 전용 컨트롤러로 `DELETE /shared/{id}`·`GET`·`POST /invites/{id}` 가 세션 없이 200) → 초록. 관련 테스트(SessionPublic·AuthApi·AppConfigApi·Share·Faq·Places) → `관련 테스트 92개 · 실패 0 · 오류 0`. 커밋 42f309f, 문서 d5869bb.
+- 7(claude-generator-try): 빨강(usage 없는 응답에서 SDK 예외가 그대로 나옴) → 초록. `ClaudeTextGeneratorTest` → `tests 9 fail 0 err 0`. 커밋 bf753f1.
+- 전체: `./gradlew build` → `BUILD SUCCESSFUL in 3m 44s`, `테스트 512개 · 실패 0 · 오류 0 · 건너뜀 0`.
+- 로컬 배포 모의(버리는 Postgres + `build/libs/app.jar`, `AUTH_DEV_ENABLED=true`):
+  ```
+  [unset] DEPLOY_ENV=(없음) → 종료(exit 1)  로그: event=startup_refused reason=dev_login_outside_local_staging deploy_env=prod
+  [prod] DEPLOY_ENV=prod → 종료(exit 1)  로그: event=startup_refused reason=dev_login_outside_local_staging deploy_env=prod
+  [staging] DEPLOY_ENV=staging → 떠 있음 · /health 200
+  ```
+- 8(일부): 두 VM `.env` 에 `DEPLOY_ENV`(staging·prod)를 넣고 `ALLOWED_ORIGINS` 를 웹 주소로 바꿨다(권한 600 그대로). 문서 dd59b3b.
+  ```
+  byeolmyeong-staging: DEPLOY_ENV=staging SITE_ADDRESS=api-staging.byeolmyeong.com ALLOWED_ORIGINS=https://app.staging.byeolmyeong.com ADMIN_ALLOWED_ORIGINS=https://admin-staging.byeolmyeong.com AUTH_DEV_ENABLED=true · 권한 600
+  byeolmyeong-prod: DEPLOY_ENV=prod SITE_ADDRESS=api.byeolmyeong.com ALLOWED_ORIGINS=https://app.byeolmyeong.com ADMIN_ALLOWED_ORIGINS=https://admin.byeolmyeong.com · 권한 600
+  ```
+  - 결정: VM `.env` 는 합치기 전에 바꿨다 — 아직 컨테이너를 띄우지 않았고, 옛 jar 는 DEPLOY_ENV 를 읽지 않아 해가 없다. 앱 세션(byeolmyeong-45)이 웹 주소(앱 결정 037)를 알려 와 ALLOWED_ORIGINS 도 같이 — 틀리면 비용: 웹 주소가 또 바뀌면 두 VM `.env` 를 다시 고친다.
+
