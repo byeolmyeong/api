@@ -2,6 +2,7 @@ package com.byeolmyeong.api.auth
 
 import com.byeolmyeong.api.TestcontainersConfiguration
 import com.byeolmyeong.api.http
+import com.byeolmyeong.api.freshNickname
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.RSASSASigner
@@ -110,7 +111,7 @@ class AppleAccountIntegrationTest {
 
 	private fun signUp(sub: String, code: String?, date: String = "1995-05-05"): Int {
 		val ticket = mapper.readTree(login(sub, code).body())["signupToken"].asString()
-		return http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"$date","time":null,"placeId":null,"nickname":"별이"}""").statusCode()
+		return http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"$date","time":null,"placeId":null,"nickname":"${freshNickname()}"}""").statusCode()
 	}
 
 	private fun sessionToken(sub: String, code: String? = null): String = mapper.readTree(login(sub, code).body())["token"].asString()

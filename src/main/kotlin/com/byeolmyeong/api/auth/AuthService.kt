@@ -66,7 +66,7 @@ class AuthService(
 	fun account(ownerId: UUID): AccountResponse = checkNotNull(accounts.account(ownerId)) { "세션의 계정이 없다" }
 
 	/**
-	 * 보낸 칸만 바꾼다(결정 025). 닉네임이 틀리면 아무것도 바꾸지 않고 400 `INVALID_NICKNAME`.
+	 * 보낸 칸만 바꾼다(결정 025). 닉네임이 틀리면 400 `INVALID_NICKNAME`, 다른 계정이 쓰면 409 `NICKNAME_TAKEN` — 둘 다 아무것도 바꾸지 않는다.
 	 * 동의가 바뀔 때만 감사 기록(동의/철회만, 닉네임·이메일 없이).
 	 */
 	fun updateAccount(ownerId: UUID, nickname: String?, marketingConsent: Boolean?): AccountResponse {
@@ -150,7 +150,18 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 	).firstOrNull()
 
 	fun updateNickname(id: UUID, nickname: String) {
-		jdbc.update("update accounts set nickname = ? where id = ?", nickname, id)
+		nicknameUnique { jdbc.update("update accounts set nickname = ? where id = ?", nickname, id) }
+	}
+
+	/** 다른 계정이 이 닉네임을 쓰는가(영문 대소문자는 같게 본다, 결정 025). */
+	fun nicknameTaken(nickname: String): Boolean =
+		jdbc.queryForObject("select exists(select 1 from accounts where lower(nickname) = lower(?))", Boolean::class.java, nickname) == true
+
+	/** 닉네임 유일 색인에 걸리면 409 로 바꾼다. 다른 제약 위반은 그대로 둔다. */
+	private fun <T> nicknameUnique(block: () -> T): T = try {
+		block()
+	} catch (e: org.springframework.dao.DuplicateKeyException) {
+		if (e.message?.contains(NICKNAME_UNIQUE_INDEX) == true) throw NicknameTakenException() else throw e
 	}
 
 	/** 동의를 켜면 지금, 끄면 null. 이미 그 값이면 바꾸지 않고 false(일시가 그대로 남는다). */
@@ -175,10 +186,12 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 
 	/** 가입할 때 닉네임과 마케팅 수신 동의 일시(null = 동의 안 함)를 둔다(결정 025). 값은 로그에 남기지 않는다. */
 	fun setNicknameAndConsent(id: UUID, nickname: String, marketingConsentedAt: java.time.Instant?) {
-		jdbc.update(
-			"update accounts set nickname = ?, marketing_consented_at = ? where id = ?",
-			nickname, marketingConsentedAt?.let { java.sql.Timestamp.from(it) }, id,
-		)
+		nicknameUnique {
+			jdbc.update(
+				"update accounts set nickname = ?, marketing_consented_at = ? where id = ?",
+				nickname, marketingConsentedAt?.let { java.sql.Timestamp.from(it) }, id,
+			)
+		}
 	}
 
 	/** 공급자·사용자의 계정. 없으면 null. */

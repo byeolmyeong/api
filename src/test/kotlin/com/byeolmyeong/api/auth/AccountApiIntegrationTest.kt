@@ -54,12 +54,31 @@ class AccountApiIntegrationTest {
 	}
 
 	@Test
+	fun `다른 사람이 쓰는 닉네임으로는 바꿀 수 없다 — 영문 대소문자도 같은 이름이고, 내 닉네임의 대소문자만 바꾸는 건 된다`() {
+		jdbc.update("insert into accounts (id, provider, provider_user_id, nickname) values (gen_random_uuid(), 'GOOGLE', 'other', 'Star')")
+		val token = devToken(port)
+		val taken = patch(token, """{"nickname":"star"}""")
+		assertEquals(409, taken.statusCode())
+		assertEquals("""{"error":"NICKNAME_TAKEN"}""", taken.body())
+		assertEquals(200, patch(token, """{"nickname":"Moon"}""").statusCode())
+		assertEquals("MOON", json(patch(token, """{"nickname":"MOON"}""").body())["nickname"].asString())
+	}
+
+	@Test
+	fun `탈퇴하면 그 닉네임을 다른 사람이 쓸 수 있다`() {
+		val first = devToken(port)
+		patch(first, """{"nickname":"Moon"}""")
+		assertEquals(204, http(port, "DELETE", "/account", token = first).statusCode())
+		assertEquals(200, patch(devToken(port), """{"nickname":"Moon"}""").statusCode())
+	}
+
+	@Test
 	fun `닉네임을 바꾸면 앞뒤 공백을 떼어 두고, 틀리면 400 이고 그대로다`() {
 		val token = devToken(port)
 		val changed = patch(token, """{"nickname":"  별이  "}""")
 		assertEquals(200, changed.statusCode())
 		assertEquals("별이", json(changed.body())["nickname"].asString())
-		for (bad in listOf("\"\"", "\"   \"", "\"${"가".repeat(21)}\"", "\"별\\n이\"")) {
+		for (bad in listOf("\"\"", "\"   \"", "\"별\"", "\"${"가".repeat(11)}\"", "\"별이1\"", "\"별 이\"", "\"별\\n이\"")) {
 			val response = patch(token, """{"nickname":$bad}""")
 			assertEquals(400, response.statusCode(), bad)
 			assertEquals("""{"error":"INVALID_NICKNAME"}""", response.body())
