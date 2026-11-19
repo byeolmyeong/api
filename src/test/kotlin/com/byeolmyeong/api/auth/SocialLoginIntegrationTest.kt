@@ -2,6 +2,7 @@ package com.byeolmyeong.api.auth
 
 import com.byeolmyeong.api.TestcontainersConfiguration
 import com.byeolmyeong.api.http
+import com.byeolmyeong.api.freshNickname
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.RSASSASigner
@@ -32,6 +33,8 @@ import java.util.Date
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertNotNull
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -125,10 +128,75 @@ class SocialLoginIntegrationTest {
 		return node["signupToken"].asString()
 	}
 
-	private fun signup(ticket: String, date: LocalDate, extra: String = "") =
-		http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"$date","time":"14:30","placeId":$PLACE$extra}""")
+	/** 닉네임은 결정 025 로 필수다. [nickname] 이 null 이면 보내지 않는다. */
+	private fun signup(ticket: String, date: LocalDate, extra: String = "", nickname: String? = freshNickname()) =
+		http(
+			port, "POST", "/auth/signup",
+			"""{"signupToken":"$ticket","date":"$date","time":"14:30","placeId":$PLACE${nickname?.let { ",\"nickname\":${mapper.writeValueAsString(it)}" } ?: ""}$extra}""",
+		)
+
+	private fun accountColumn(sub: String, column: String): Any? =
+		jdbc.queryForList("select $column from accounts where provider = 'GOOGLE' and provider_user_id = ?", sub).single()[column]
 
 	private fun adult() = koreaToday().minusYears(30)
+
+	@Test
+	fun `가입 때 닉네임이 없거나 틀리면 400 INVALID_NICKNAME 이고 가입권은 남는다(결정 025)`() {
+		val ticket = signupToken("nick-bad")
+		for (bad in listOf(null, "", "   ", "별", "가".repeat(11), "별이1", "별 이", "star 1", "별이!", "ㅋㅋ", "\uD83D\uDE00\uD83D\uDE00", "별\n이", "별\u0007이")) {
+			val response = signup(ticket, adult(), nickname = bad)
+			assertEquals(400, response.statusCode(), "닉네임 ${bad?.length}자")
+			assertEquals("""{"error":"INVALID_NICKNAME"}""", response.body())
+		}
+		assertEquals(0, count("accounts where provider = 'GOOGLE'"), "계정을 만들지 않았다")
+		assertEquals(201, signup(ticket, adult(), nickname = "별이").statusCode(), "같은 가입권으로 다시 보낼 수 있다")
+	}
+
+	@Test
+	fun `닉네임은 한글 · 영문 2~10자이고 섞어 쓸 수 있으며 앞뒤 공백을 떼어 저장한다`() {
+		assertEquals(201, signup(signupToken("nick-mix"), adult(), nickname = "Star별이").statusCode())
+		assertEquals("Star별이", accountColumn("nick-mix", "nickname"))
+		assertEquals(201, signup(signupToken("nick-ten"), adult(), nickname = "가".repeat(10)).statusCode())
+		assertEquals(201, signup(signupToken("nick-trim"), adult(), nickname = "  지우  ").statusCode())
+		assertEquals("지우", accountColumn("nick-trim", "nickname"))
+	}
+
+	@Test
+	fun `이미 있는 닉네임이면 409 NICKNAME_TAKEN 이고 가입권은 남는다 — 영문은 대소문자를 가리지 않는다`() {
+		assertEquals(201, signup(signupToken("dup-a"), adult(), nickname = "Star").statusCode())
+		val ticket = signupToken("dup-b")
+		val taken = signup(ticket, adult(), nickname = "star")
+		assertEquals(409, taken.statusCode())
+		assertEquals("""{"error":"NICKNAME_TAKEN"}""", taken.body())
+		assertEquals(1, count("accounts where provider = 'GOOGLE'"), "두 번째 계정을 만들지 않았다")
+		assertEquals(201, signup(ticket, adult(), nickname = "Moon").statusCode(), "같은 가입권으로 다른 닉네임을 보낼 수 있다")
+	}
+
+	@Test
+	fun `가입 전에 닉네임을 쓸 수 있는지 묻는다 — 가입권이 있어야 하고 규칙에 어긋나면 400 이다`() {
+		val ticket = signupToken("check")
+		fun check(body: String) = http(port, "POST", "/auth/nickname-check", body)
+		val free = check("""{"signupToken":"$ticket","nickname":"Star"}""")
+		assertEquals(200, free.statusCode())
+		assertEquals("""{"available":true}""", free.body())
+		assertEquals(201, signup(signupToken("check-other"), adult(), nickname = "Star").statusCode())
+		assertEquals("""{"available":false}""", check("""{"signupToken":"$ticket","nickname":"STAR"}""").body())
+		assertEquals(400, check("""{"signupToken":"$ticket","nickname":"별1"}""").statusCode())
+		assertEquals("""{"error":"SIGNUP_EXPIRED"}""", check("""{"signupToken":"no-such","nickname":"Star"}""").body())
+		assertEquals(401, check("""{"nickname":"Star"}""").statusCode())
+		jdbc.update("update signup_tickets set expires_at = now() - interval '1 minute'")
+		assertEquals(401, check("""{"signupToken":"$ticket","nickname":"Moon"}""").statusCode(), "만료된 가입권")
+	}
+
+	@Test
+	fun `가입 때 마케팅 동의를 켜면 일시가 남고, 끄거나 보내지 않으면 null 이다(결정 025)`() {
+		assertEquals(201, signup(signupToken("mk-on"), adult(), extra = ",\"marketingConsent\":true").statusCode())
+		assertNotNull(accountColumn("mk-on", "marketing_consented_at"))
+		assertEquals(201, signup(signupToken("mk-off"), adult(), extra = ",\"marketingConsent\":false").statusCode())
+		assertNull(accountColumn("mk-off", "marketing_consented_at"))
+		assertEquals(201, signup(signupToken("mk-none"), adult()).statusCode())
+		assertNull(accountColumn("mk-none", "marketing_consented_at"))
+	}
 
 	@Test
 	fun `처음 온 사람은 계정 대신 가입권을 받는다`() {
@@ -205,7 +273,7 @@ class SocialLoginIntegrationTest {
 	@Test
 	fun `출생 정보가 틀리면 400 이고 가입권은 다시 쓸 수 있다`() {
 		val ticket = signupToken("u5")
-		val bad = http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"1990-13-45","time":null,"placeId":null}""")
+		val bad = http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"1990-13-45","time":null,"placeId":null,"nickname":"${freshNickname()}"}""")
 		assertEquals(400, bad.statusCode())
 		assertEquals("""{"error":"INVALID_DATE"}""", bad.body())
 		assertEquals(201, signup(ticket, adult()).statusCode())
@@ -221,6 +289,15 @@ class SocialLoginIntegrationTest {
 		assertEquals(listOf(201, 201), codes)
 		assertEquals(1, count("accounts"))
 		assertEquals(1, count("profiles"))
+	}
+
+	@Test
+	fun `남은 가입권으로 다시 와도 이미 있는 계정의 닉네임은 그대로이고, 자기 닉네임을 보내도 409 가 아니다`() {
+		val tickets = List(3) { signupToken("keep-nick") }
+		assertEquals(201, signup(tickets[0], adult(), nickname = "Star").statusCode())
+		assertEquals(201, signup(tickets[1], adult(), nickname = "Moon").statusCode(), "세션만 준다")
+		assertEquals("Star", accountColumn("keep-nick", "nickname"))
+		assertEquals(201, signup(tickets[2], adult(), nickname = "Star").statusCode())
 	}
 
 	@Test

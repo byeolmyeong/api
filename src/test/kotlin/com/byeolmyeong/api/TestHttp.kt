@@ -33,3 +33,6 @@ fun devToken(port: Int): String {
 	check(response.statusCode() == 200) { "개발용 로그인이 꺼져 있다: ${response.statusCode()}" }
 	return JsonMapper().readTree(response.body())["token"].asString()
 }
+
+/** 테스트용 닉네임(결정 025: 한글 · 영문 2~10자, 중복 안 됨). 부를 때마다 다르다. */
+fun freshNickname(): String = "별" + (1..6).map { ('a'..'z').random() }.joinToString("")

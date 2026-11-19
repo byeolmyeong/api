@@ -67,6 +67,8 @@ class AdminCorsIntegrationTest {
 		val health = http(port, "GET", "/health", null, null, "Origin", ADMIN_ORIGIN)
 		assertEquals(null, health.allowOrigin())
 		assertEquals(APP_ORIGIN, http(port, "GET", "/health", null, null, "Origin", APP_ORIGIN).allowOrigin())
-		assertEquals(403, preflight("/charts", APP_ORIGIN, "PATCH").statusCode(), "앱의 경로에는 PATCH 를 열지 않는다")
+		// 앱의 경로도 PATCH 를 연다(PATCH /account, 결정 025). 관리 화면의 주소는 여전히 앱의 경로를 부를 수 없다.
+		assertEquals(APP_ORIGIN, preflight("/account", APP_ORIGIN, "PATCH").allowOrigin())
+		assertEquals(403, preflight("/account", ADMIN_ORIGIN, "PATCH").statusCode())
 	}
 }

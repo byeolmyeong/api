@@ -121,14 +121,25 @@ class LoginService(
 		return apple.exchange(code, clientId, redirectUri?.takeIf { it.isNotBlank() })?.let { AppleToken(clientId, it) }
 	}
 
-	/**
-	 * 가입. 순서: 가입권(401) → 출생 정보 검증(400, 가입권은 남는다) → 만 14세(403, 가입권을 지운다) →
-	 * 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 세션. 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나다.
-	 * 세션 토큰을 돌려준다.
-	 */
-	fun signup(signupToken: String?, birth: BirthRequest): String {
+	/** 가입 전에 닉네임을 쓸 수 있는지(결정 025). 유효한 가입권이 있어야 한다(401). 규칙에 어긋나면 400. */
+	fun nicknameAvailable(signupToken: String?, nickname: String?): Boolean {
 		val hash = signupToken?.takeIf { it.isNotBlank() }?.let(auth::hash) ?: throw SignupExpiredException()
 		if (!tickets.isValid(hash)) throw SignupExpiredException()
+		val name = normalizeNickname(nickname) ?: throw BadRequestException("INVALID_NICKNAME")
+		return !accounts.nicknameTaken(name)
+	}
+
+	/**
+	 * 가입. 순서: 가입권(401) → 닉네임 규칙(400) → 출생 정보 검증(400, 가입권은 남는다) → 만 14세(403, 가입권을 지운다) →
+	 * 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 닉네임 · 세션. 닉네임을 다른 계정이 쓰면 트랜잭션을 되돌리고 409(가입권은 남는다).
+	 * 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나다.
+	 * 세션 토큰을 돌려준다.
+	 */
+	fun signup(signupToken: String?, birth: BirthRequest, nickname: String?, marketingConsent: Boolean): String {
+		val hash = signupToken?.takeIf { it.isNotBlank() }?.let(auth::hash) ?: throw SignupExpiredException()
+		if (!tickets.isValid(hash)) throw SignupExpiredException()
+		// 닉네임이 틀리면 가입권을 쓰지 않고 돌려보낸다(고쳐서 다시 보낸다, 결정 025).
+		val name = normalizeNickname(nickname) ?: throw BadRequestException("INVALID_NICKNAME")
 		val parsed = birthParser.parse(birth)
 		if (!isAtLeast14(parsed.date, koreaToday())) {
 			// 계정을 만들지 않으므로 받아 둔 애플 토큰도 철회한다. 철회가 터져도 403 으로 답한다.
@@ -145,7 +156,10 @@ class LoginService(
 				val existing = accounts.find(provider, subject)
 				val accountId = existing ?: accounts.findOrCreate(provider, subject)
 				ticket.identity.email?.let { accounts.updateEmail(accountId, it) }
-				if (existing == null) birthProfiles.save(accountId, profile)
+				if (existing == null) {
+					birthProfiles.save(accountId, profile)
+					accounts.setNicknameAndConsent(accountId, name, if (marketingConsent) Instant.now() else null)
+				}
 				ticket.appleToken?.let { appleTokens.save(accountId, it) }
 				Triple(accountId, auth.issueSession(accountId), existing == null)
 			},

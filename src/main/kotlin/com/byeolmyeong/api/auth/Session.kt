@@ -40,6 +40,7 @@ private val PUBLIC_ENDPOINTS = listOf(
 	"POST" to "/auth/dev",
 	"POST" to "/auth/login",
 	"POST" to "/auth/signup",
+	"POST" to "/auth/nickname-check",
 	"POST" to "/auth/apple/notifications",
 )
 

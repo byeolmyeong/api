@@ -3,7 +3,7 @@ type: decision
 tags: [로그인, 소셜 로그인, 가입, 만 14세, 세션, 쿠키, 계정 삭제, 애플, 카카오, 구글]
 status: active
 last_reviewed: 2026-11-18
-superseded_by:
+superseded_by: 024-require-email (이메일), 025-nickname-marketing-consent (이름·닉네임)
 ---
 # 021. 소셜 로그인은 가입권을 거쳐 출생 정보와 함께 가입하고, 웹은 쿠키 세션을 쓴다
 
@@ -21,7 +21,7 @@ superseded_by:
    - 가입 뒤에도 출생 정보를 만 14세 미만 날짜로 고칠 수 없다(`PUT /profile` 403 `UNDER_AGE`, 있던 것은 그대로). 같은 판정 함수다(소유자 결정 2026-11-19 — 독립 리뷰가 "가입 때만 본다" 를 짚었다).
 2. **공급자 토큰은 서버가 직접 확인한다.** ID 토큰의 서명(공급자 JWKS)·발급자(iss)·대상(aud, 우리 앱의 클라이언트 ID 목록)·만료(exp). 틀리면 401 `INVALID_ID_TOKEN`, 공급자 키를 받지 못하면 502 `PROVIDER_UNAVAILABLE`. 라이브러리는 `com.nimbusds:nimbus-jose-jwt` 하나만 더한다(Spring Security 의 웹 쪽은 들이지 않는다 — 결정 014 와 같은 이유). 공급자별 iss·JWKS 주소는 구현 태스크(S4)가 공식 문서로 확인해 아래 "공급자 값" 에 적는다.
    - 카카오 웹은 앱이 인가 코드를 받고 서버가 REST API 키 + 클라이언트 시크릿으로 교환해 ID 토큰을 얻는다(카카오 문서: 토큰 요청은 서비스 서버가 한다). 돌아올 주소는 등록한 목록(`KAKAO_REDIRECT_URIS`)에 있어야 한다. 카카오 앱(네이티브 SDK)은 ID 토큰을 바로 보낸다.
-   - 계정에는 공급자와 공급자의 사용자 식별자(`sub`)만 둔다. 이메일·이름은 받지 않는다(V2). → **결정 024 가 대체**: 가입할 때 공급자가 확인한 이메일을 필수로 받는다(2026-11-19).
+   - 계정에는 공급자와 공급자의 사용자 식별자(`sub`)만 둔다. 이메일·이름은 받지 않는다(V2). → **결정 024 가 대체**: 가입할 때 공급자가 확인한 이메일을 필수로 받는다(2026-11-19). 이름(닉네임)은 **결정 025 가 대체**: 가입 화면에서 받는다(2026-11-19).
 3. **세션은 마지막 사용 후 90일 지나면 끝난다.** 마지막 사용 시각은 하루에 한 번만 고쳐 쓴다. `DELETE /auth/session` 은 그 세션만 지운다(로그아웃은 이 기기만). `GET /auth/session` 은 세션이 살아 있는지 답한다(웹이 쿠키 세션을 확인할 때).
 4. **웹은 httpOnly 쿠키 세션을 쓴다.** 로그인·가입·개발용 로그인 요청 본문에 `cookie: true` 가 있으면 토큰을 본문에 넣지 않고 쿠키 `bm_session`(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 속성 없음)으로만 준다. 세션 검사는 `Authorization: Bearer` 가 없을 때 이 쿠키를 읽는다. 쿠키로 인증된 GET 이 아닌 요청은 `Origin` 이 앱 허용 주소(`ALLOWED_ORIGINS`)에 있어야 하고 아니면 403 `FORBIDDEN_ORIGIN`. 앱 경로의 CORS 는 자격 증명(쿠키)을 허용한다. 관리자 API 는 쿠키를 받지 않는다(관리 화면은 sessionStorage, 결정 014).
    - 로컬 http 개발을 위해 `Secure` 만 설정으로 끈다(`SESSION_COOKIE_SECURE=false`).
