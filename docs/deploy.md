@@ -21,7 +21,7 @@ last_reviewed: 2026-11-18
 | DB 백업 | 매일 04:00 + 배포 직전 → VM 7개 + Object Storage 30일 | 없음(버려도 되는 데이터) |
 | 개발용 로그인 | 끔 | 켬(실제 출생 정보는 넣지 않는다) |
 
-흐름: 작업 브랜치 → PR → `develop`(스테이징에서 확인) → `develop` → `main` PR → `main`(운영). 두 브랜치 모두 직접 push 하지 않는다(`.claude/hooks/guard.sh` 가 막는다). GitHub 무료 요금제라 보호 규칙이 없으니 **CI 가 통과했는지 보고 합친다**.
+흐름: 작업 브랜치 → PR(`gh pr create --base develop`) → `develop`(스테이징에서 확인) → `develop` → `main` PR → `main`(운영). 두 브랜치 모두 직접 push 하지 않는다(`.claude/hooks/guard.sh` 가 막는다). GitHub 무료 요금제라 보호 규칙이 없으니 **CI 가 통과했는지 보고 합친다**.
 
 VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`backup.sh`·`restore.sh`·`.env`(서버 컨테이너가 봄)·`db.env`(Postgres 만)·`backup.env`(운영, 백업 스크립트만)·`app.jar`·`app.jar.good`(마지막으로 /health 200 을 받은 jar)·`backups/`. 컨테이너는 `api`(서버)·`postgres`·`caddy`(HTTPS).
 
@@ -90,11 +90,12 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - 운영 VM 만: 백업 업로드 URL 은 `.env` 가 아니라 `backup.env` 에 둔다(서버 컨테이너가 보지 않게). `cp ~/backup.env.example /opt/byeolmyeong/backup.env && chmod 600 /opt/byeolmyeong/backup.env && nano /opt/byeolmyeong/backup.env`
 
 ### 10. GitHub (저장소 Settings → Secrets and variables → Actions)
-- `develop` 브랜치가 없으면 `main` 에서 만든다(GitHub 화면의 Branches → New branch, 또는 `git push origin origin/main:refs/heads/develop`).
+- `develop` 브랜치가 없으면 소유자가 GitHub 화면에서 `main` 으로부터 만든다(Branches → New branch). Claude 는 보호 브랜치로 push 하지 않는다(`guard.sh`).
+- 배포 워크플로(`workflow_run`)는 **저장소 기본 브랜치에 있는 `deploy.yml`** 로 돈다. 그래서 이 파일이 기본 브랜치에 들어가기 전에는 배포가 일어나지 않고, 기본 브랜치가 `main` 이면 스테이징 배포도 `main` 의 워크플로로 돈다. 기본 브랜치를 `develop` 으로 두면 PR 의 기본 대상도 `develop` 이 되어 실수로 운영에 바로 합치는 일이 줄어든다(Settings → General → Default branch).
 - Secrets: `STAGING_SSH_HOST`·`PROD_SSH_HOST`(VM 공인 IP), `STAGING_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-staging` 파일 내용)·`PROD_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-prod`), `STAGING_SSH_KNOWN_HOSTS`·`PROD_SSH_KNOWN_HOSTS`(`ssh-keyscan -t ed25519 <IP>` 의 출력 한 줄). 명령으로 넣으면 값이 화면에 나오지 않는다: `gh secret set STAGING_SSH_KEY < ~/.ssh/byeolmyeong-deploy-staging`.
 - 등록한 뒤 이 맥의 배포용 **개인 키는 지운다**: `rm ~/.ssh/byeolmyeong-deploy-staging ~/.ssh/byeolmyeong-deploy-prod`(`.pub` 은 남긴다). 다시 필요하면 새로 만들어 VM 의 authorized_keys 와 GitHub 비밀값을 함께 바꾼다.
 - Variables: `STAGING_BASE_URL` = `https://api-staging.byeolmyeong.com`, `PROD_BASE_URL` = `https://api.byeolmyeong.com`.
-- Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-18-pre-deploy-hardening.md`)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
+- Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-18-pre-deploy-hardening.md`, 작성 예정)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
 
 ### 11. 버셀 (앱·관리 화면 저장소의 일)
 - 브랜치: 버셀의 운영 브랜치(Production Branch)는 `main`. `develop` 브랜치에 스테이징 도메인(`staging.byeolmyeong.com`·`admin-staging.byeolmyeong.com`)을 붙인다(Settings → Domains → 도메인의 Git Branch 를 `develop` 으로). 앱·관리 화면 저장소에도 `develop` 브랜치가 있어야 한다.
@@ -117,7 +118,7 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 | 상태 | `docker compose ps` (셋 다 Up) · `curl -s https://<서버 주소>/health` |
 | 로그 | `docker compose logs --tail 200 api` (`caddy`·`postgres` 도 같다) |
 | `.env` 를 바꾼 뒤 | `docker compose up -d --force-recreate api` (다시 만들어야 새 값을 읽는다) |
-| DB 비밀번호 바꾸기 | DB 에서 먼저 `docker compose exec postgres psql -U postgres -c "alter role <DB 사용자> password '<새 값>'"` → `.env` 의 `DATABASE_PASSWORD` 를 바꾸고 → 위 명령(`.env` 만 바꾸면 Postgres 는 처음 값을 그대로 쓴다) |
+| DB 비밀번호 바꾸기 | `docker compose exec postgres psql -U postgres` 로 들어가 `\password <DB 사용자>` (새 값이 셸 기록·프로세스 목록에 남지 않는다) → `.env` 의 `DATABASE_PASSWORD` 를 같은 값으로 → `docker compose up -d --force-recreate postgres api` (Postgres 의 상태 검사도 이 값으로 접속한다. `.env` 만 바꾸면 Postgres 는 처음 값을 그대로 쓴다) |
 | 첫 관리자 만들기(운영) | `.env` 의 `ADMIN_BOOTSTRAP_*` 주석을 풀고 값 → 위 명령 → 관리 화면 로그인 확인 → 다시 주석 → 위 명령 |
 | 백업 확인(주 1회) | `tail -n 3 backups/backup.log` 에 `event=backup_done kind=daily`, 버킷에 오늘 덤프. 실패 알림은 없다. 덤프 이름은 매일 `byeolmyeong-daily-<시각>.dump`, 배포 직전 `byeolmyeong-predeploy-<시각>.dump` 이고 VM 에는 종류마다 7개 남는다 |
 | 손으로 백업 | `./backup.sh` (매일 백업과 같은 종류) |
