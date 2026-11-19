@@ -3,6 +3,7 @@ package com.byeolmyeong.api.auth
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.jdbc.core.JdbcTemplate
@@ -26,42 +27,108 @@ private const val TOKEN_BYTES = 32
 class AuthService(
 	private val accounts: AccountRepository,
 	private val sessions: SessionRepository,
+	private val appleTokens: AppleTokenRepository,
+	private val apple: AppleSignIn,
+	private val kakao: KakaoOAuth,
 	private val events: ApplicationEventPublisher,
 	@Value("\${byeolmyeong.auth.dev-enabled}") private val devEnabled: Boolean,
+	@Value("\${byeolmyeong.auth.session-days}") private val sessionDays: Int,
 ) {
 	private val random = SecureRandom()
+	private val log = LoggerFactory.getLogger(javaClass)
 
 	/** 개발용 로그인(결정 005). 꺼져 있으면 null. 켜져 있으면 개발용 계정을 찾거나 만들고 새 세션 토큰을 준다. */
 	fun devLogin(): String? {
 		if (!devEnabled) return null
 		val accountId = accounts.findOrCreate(DEV_PROVIDER, DEV_USER)
-		val token = issue(accountId)
+		val token = issueSession(accountId)
 		events.publishEvent(AuditEvent(AuditAction.USER_LOGIN, AuditActor.user(accountId)))
 		return token
 	}
 
-	/** 토큰의 주인. 토큰이 없는 것이거나 계정이 지워졌으면 null. */
-	fun ownerOf(token: String): UUID? = sessions.findAccountId(hash(token))
+	/** 토큰의 주인. 토큰이 없는 것이거나 계정이 지워졌거나 마지막 사용 후 [sessionDays]일이 지났으면 null(결정 021). */
+	fun ownerOf(token: String): UUID? = sessions.use(hash(token), sessionDays)
 
-	/** 계정과 그 사람의 모든 행(세션·출생 정보·뒤에 생기는 글)을 지운다. 감사 기록만 남는다. */
+	/** 로그아웃. 이 세션만 지운다(다른 기기의 세션은 그대로). */
+	fun logout(token: String) {
+		sessions.delete(hash(token))
+	}
+
+	/**
+	 * 계정과 그 사람의 모든 행(세션·출생 정보·뒤에 생기는 글)을 지운다. 감사 기록만 남는다.
+	 * 지우기 전에 공급자 연결을 정리한다(결정 021): 애플은 refresh token 철회, 카카오는 연결 끊기.
+	 * 실패해도 계정은 지운다 — 사용자는 지웠다고 믿는다(클라이언트가 로그를 남긴다).
+	 */
 	fun deleteAccount(ownerId: UUID) {
+		cleanUpProvider("apple_revoke_failed") { appleTokens.find(ownerId)?.let { apple.revoke(it.refreshToken, it.clientId) } }
+		cleanUpProvider("kakao_unlink_failed") {
+			accounts.identity(ownerId)?.takeIf { it.provider == Provider.KAKAO }?.let { kakao.unlink(it.subject) }
+		}
 		accounts.delete(ownerId)
 		// 감사 기록은 계정과 함께 지워지지 않는다(결정 015). 지운 뒤에도 "이 계정이 지워졌다" 가 남는다.
 		events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
 	}
 
-	private fun issue(accountId: UUID): String {
-		val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(TOKEN_BYTES).also(random::nextBytes))
+	/**
+	 * 애플 서버 알림(결정 021). 사용자가 애플 쪽에서 이 앱의 사용을 멈췄으면(`consent-revoked`) 그 계정의 세션을 모두 지우고,
+	 * 애플 계정을 지웠으면(`account-deleted`, 문서에 따라 `account-delete`) 계정을 지운다. 모르는 사용자 · 다른 종류는 아무것도 하지 않는다.
+	 * 같은 알림이 여러 번 와도 결과가 같다.
+	 */
+	fun appleNotification(payload: String) {
+		val event = apple.notification(payload)
+		log.info("event=apple_notification type={}", event.type)
+		val accountId = accounts.find(Provider.APPLE.name, event.subject) ?: return
+		when (event.type) {
+			// 알림보다 먼저 생긴 세션만 지운다 — 같은 알림이 늦게 다시 와도 그 뒤에 로그인한 세션은 남는다.
+			"consent-revoked" -> sessions.deleteAll(accountId, createdBefore = event.eventTime)
+			"account-deleted", "account-delete" -> {
+				// 애플 계정이 없어졌으니 철회는 부르지 않는다. 사용자가 아니라 서버가 지운 것이다.
+				accounts.delete(accountId)
+				events.publishEvent(
+					AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.SYSTEM, "ACCOUNT", accountId.toString(), detail = mapOf("reason" to "apple-account-deleted")),
+				)
+			}
+		}
+	}
+
+	/** 탈퇴 때 공급자 쪽 정리. 예상 밖 예외가 나도 계정 삭제는 계속한다(사용자는 지웠다고 믿는다). */
+	private inline fun cleanUpProvider(event: String, block: () -> Unit) {
+		try {
+			block()
+		} catch (e: Exception) {
+			log.warn("event={} reason={}", event, e.javaClass.simpleName)
+		}
+	}
+
+	/** 새 세션을 만들고 토큰 원문을 돌려준다(DB 에는 해시만). 개발용 로그인과 소셜 로그인 · 가입(`LoginService`)이 쓴다. */
+	fun issueSession(accountId: UUID): String {
+		val token = newToken()
 		sessions.insert(hash(token), accountId)
 		return token
 	}
 
-	private fun hash(token: String): String =
+	/** 추측할 수 없는 토큰(32바이트, URL 에 안전한 Base64). 세션 토큰과 가입권이 쓴다. */
+	fun newToken(): String = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(TOKEN_BYTES).also(random::nextBytes))
+
+	/** 토큰을 DB 에 둘 때의 모양(SHA-256 16진수). */
+	fun hash(token: String): String =
 		HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.toByteArray()))
 }
 
 @Repository
 class AccountRepository(private val jdbc: JdbcTemplate) {
+
+	/** 계정의 공급자와 공급자의 사용자 식별자. 없으면 null. */
+	fun identity(id: UUID): ProviderIdentity? = jdbc.query(
+		"select provider, provider_user_id from accounts where id = ?",
+		{ rs, _ -> ProviderIdentity(Provider.valueOf(rs.getString("provider")), rs.getString("provider_user_id")) },
+		id,
+	).firstOrNull()
+
+	/** 공급자·사용자의 계정. 없으면 null. */
+	fun find(provider: String, providerUserId: String): UUID? = jdbc.queryForList(
+		"select id from accounts where provider = ? and provider_user_id = ?", UUID::class.java, provider, providerUserId,
+	).firstOrNull()
 
 	/** 같은 공급자·사용자의 계정은 하나다. 동시에 불러도 하나만 생긴다. */
 	fun findOrCreate(provider: String, providerUserId: String): UUID {
@@ -88,6 +155,37 @@ class SessionRepository(private val jdbc: JdbcTemplate) {
 		jdbc.update("insert into sessions (token_hash, account_id) values (?, ?)", tokenHash, accountId)
 	}
 
-	fun findAccountId(tokenHash: String): UUID? =
-		jdbc.queryForList("select account_id from sessions where token_hash = ?", UUID::class.java, tokenHash).firstOrNull()
+	/**
+	 * 살아 있는 세션의 계정. 마지막 사용 후 [days]일이 지났으면 그 행을 지우고 null.
+	 * 마지막 사용이 하루 넘게 지났을 때만 지금으로 고쳐 쓴다(요청마다 쓰지 않게).
+	 */
+	fun use(tokenHash: String, days: Int): UUID? {
+		val row = jdbc.query(
+			"""
+			select account_id,
+			       last_used_at < now() - make_interval(days => ?) as expired,
+			       last_used_at < now() - interval '1 day' as stale
+			from sessions where token_hash = ?
+			""".trimIndent(),
+			{ rs, _ -> Triple(rs.getObject("account_id", UUID::class.java), rs.getBoolean("expired"), rs.getBoolean("stale")) },
+			days, tokenHash,
+		).firstOrNull() ?: return null
+		val (accountId, expired, stale) = row
+		if (expired) {
+			delete(tokenHash)
+			return null
+		}
+		if (stale) jdbc.update("update sessions set last_used_at = now() where token_hash = ?", tokenHash)
+		return accountId
+	}
+
+	fun delete(tokenHash: String) {
+		jdbc.update("delete from sessions where token_hash = ?", tokenHash)
+	}
+
+	/** 그 계정의 세션을 지운다. [createdBefore] 가 있으면 그보다 먼저 생긴 것만. */
+	fun deleteAll(accountId: UUID, createdBefore: java.time.Instant? = null) {
+		if (createdBefore == null) jdbc.update("delete from sessions where account_id = ?", accountId)
+		else jdbc.update("delete from sessions where account_id = ? and created_at < ?", accountId, java.sql.Timestamp.from(createdBefore))
+	}
 }
