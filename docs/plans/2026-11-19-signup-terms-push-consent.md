@@ -44,7 +44,7 @@ last_reviewed: 2026-11-19
 
 ## 태스크
 
-### 1. adr-terms-push · 상태: 대기
+### 1. adr-terms-push · 상태: 완료
 - 읽을 것: 결정 021 · 024 · 025(서버 세션 브랜치), 이 계획 "내 결정"
 - 할 것: `docs/decisions/026-terms-push-avatar.md`(번호는 develop 과 원격 브랜치를 모두 훑어 빈 것 — 지금 develop 은 025 까지). 약관 버전 · 푸시 동의 · 프로필.
 - 주는 것: 결정 번호
@@ -93,4 +93,4 @@ last_reviewed: 2026-11-19
 - 되돌리기: 칸은 더하기만이라 코드만 되돌리면 된다.
 
 ## 실행 기록
-(아직 없음)
+- 1: 결정 026 `docs/decisions/026-terms-push-avatar.md`(약관 버전 · 푸시 동의 · 프로필 · 광고성 푸시는 푸시 + 마케팅 동의 둘 다 · 야간 없음). develop · 원격 브랜치 모두 026 · V21 없음 확인. `ls docs/decisions | cut -c1-3 | sort | uniq -d` → 빈 출력(26개 번호 중복 0).
