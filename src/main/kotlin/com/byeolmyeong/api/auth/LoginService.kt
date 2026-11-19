@@ -133,7 +133,8 @@ class LoginService(
 	/**
 	 * 가입. 순서: 가입권(401) → 약관 · 처리방침 버전(400) → 닉네임 규칙(400) → 프로필(400) → 출생 정보 검증(400) — 여기까지 가입권은 남는다 —
 	 * → 만 14세(403, 가입권을 지운다) → 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 닉네임 · 프로필 · 동의 · 세션.
-	 * 닉네임을 다른 계정이 쓰면 트랜잭션을 되돌리고 409(가입권은 남는다). 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나다.
+	 * 닉네임을 다른 계정이 쓰면 트랜잭션을 되돌리고 409(가입권은 남는다). 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나이고,
+	 * 계정을 채우는 것(출생 정보 · 닉네임 · 약관 · 동의 · 프로필 · 가입 감사 기록)은 계정을 실제로 만든 요청 하나뿐이다.
 	 * 동의 시각은 서버 시각이다(결정 026). 세션 토큰을 돌려준다.
 	 */
 	fun signup(
@@ -165,19 +166,19 @@ class LoginService(
 			tx.execute {
 				val ticket = tickets.consume(hash) ?: throw SignupExpiredException()
 				val (provider, subject) = ticket.identity.provider.name to ticket.identity.subject
-				// 남은 가입권으로 다시 와도 이미 있는 계정의 출생 정보는 바꾸지 않는다(세션만 준다).
-				val existing = accounts.find(provider, subject)
-				val accountId = existing ?: accounts.findOrCreate(provider, subject)
+				// 새 계정인지는 넣기의 결과로 판정한다. 남은 가입권으로 다시 오거나, 같은 사람의 다른 가입권이 동시에 와서 먼저 만들었으면
+				// 이미 있는 계정의 출생 정보 · 닉네임 · 약관 시각 · 동의 · 프로필을 바꾸지 않고 세션만 준다(결정 026 · 독립 리뷰).
+				val createdId = accounts.create(provider, subject)
+				val accountId = createdId ?: checkNotNull(accounts.find(provider, subject))
 				ticket.identity.email?.let { accounts.updateEmail(accountId, it) }
-				// 남은 가입권으로 다시 온 있는 계정의 약관 시각 · 동의 · 프로필도 덮어쓰지 않는다(결정 026).
-				if (existing == null) {
+				if (createdId != null) {
 					birthProfiles.save(accountId, profile)
 					val now = Instant.now()
 					accounts.setNicknameAndConsent(accountId, name, now.takeIf { marketingConsent })
 					accounts.setTermsPushAvatar(accountId, legal.terms, legal.privacy, now, now.takeIf { pushConsent }, picture)
 				}
 				ticket.appleToken?.let { appleTokens.save(accountId, it) }
-				Triple(accountId, auth.issueSession(accountId), existing == null)
+				Triple(accountId, auth.issueSession(accountId), createdId != null)
 			},
 		)
 		events.publishEvent(AuditEvent(AuditAction.USER_LOGIN, AuditActor.user(accountId)))

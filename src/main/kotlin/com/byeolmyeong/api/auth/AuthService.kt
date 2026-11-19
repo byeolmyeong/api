@@ -248,6 +248,16 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 		"select id from accounts where provider = ? and provider_user_id = ?", UUID::class.java, provider, providerUserId,
 	).firstOrNull()
 
+	/**
+	 * 새 계정을 넣고 그 id 를 준다. 같은 공급자·사용자의 계정이 이미 있으면 넣지 않고 null — 다른 트랜잭션이 넣고 아직 커밋하지 않았으면
+	 * 그 결과를 기다렸다가 판정한다. 그래서 동시에 불러도 id 를 받는 쪽은 하나다.
+	 */
+	fun create(provider: String, providerUserId: String): UUID? = jdbc.query(
+		"insert into accounts (id, provider, provider_user_id) values (?, ?, ?) on conflict (provider, provider_user_id) do nothing returning id",
+		{ rs, _ -> rs.getObject("id", UUID::class.java) },
+		UUID.randomUUID(), provider, providerUserId,
+	).firstOrNull()
+
 	/** 같은 공급자·사용자의 계정은 하나다. 동시에 불러도 하나만 생긴다. */
 	fun findOrCreate(provider: String, providerUserId: String): UUID {
 		jdbc.update(

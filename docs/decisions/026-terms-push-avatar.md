@@ -18,7 +18,7 @@ superseded_by:
 ## 결정
 1. **계정 칸**(V21, 더하기만, 모두 null 허용 — 옛 계정 때문에. 있던 행은 채우지 않는다): `terms_version` · `terms_agreed_at` · `privacy_version` · `privacy_agreed_at` · `push_consented_at`(null = 동의 안 함) · `avatar smallint`(1~8 check, null = 옛 계정).
 2. **약관 버전은 서버 설정 한 곳**: `byeolmyeong.legal.terms-version` · `byeolmyeong.legal.privacy-version`(지금 둘 다 `2026-11-19`). 비어 있으면 서버가 시작하지 않는다 — 비면 모든 가입이 막히므로 배포의 상태 확인에서 바로 드러나게 한다.
-3. **가입**(`POST /auth/signup`)은 `termsVersion` · `privacyVersion` 이 서버의 지금 버전과 **둘 다 글자 그대로 같을 때만** 받는다. 없거나 다르면 400 `TERMS_REQUIRED` 이고 가입권은 쓰지 않는다(앱이 약관 단계로 돌아가 같은 가입권으로 다시 보낸다). 동의 시각은 서버 시각이다 — 앱이 보낸 시각은 받지 않는다. 새 계정에만 저장한다: 남은 가입권으로 다시 와서 계정이 이미 있으면 약관 칸을 덮어쓰지 않는다.
+3. **가입**(`POST /auth/signup`)은 `termsVersion` · `privacyVersion` 이 서버의 지금 버전과 **둘 다 글자 그대로 같을 때만** 받는다. 없거나 다르면 400 `TERMS_REQUIRED` 이고 가입권은 쓰지 않는다(앱이 약관 단계로 돌아가 같은 가입권으로 다시 보낸다). 동의 시각은 서버 시각이다 — 앱이 보낸 시각은 받지 않는다. 새 계정에만 저장한다: 남은 가입권으로 다시 와서 계정이 이미 있으면 약관 칸을 덮어쓰지 않는다. 같은 사람의 가입권 두 장이 동시에 와도 계정을 실제로 만든 요청 하나만 저장한다(새 계정인지는 계정 넣기의 결과로 판정한다 — 독립 리뷰).
 4. **판정 순서**: 가입권(401 `SIGNUP_EXPIRED`) → 약관(400 `TERMS_REQUIRED`) → 닉네임(400 `INVALID_NICKNAME`) → 프로필(400 `INVALID_AVATAR`) → 출생 정보(400) → 만 14세(403 `UNDER_AGE`, 가입권을 지운다). 닉네임 중복(409 `NICKNAME_TAKEN`)은 마지막 트랜잭션 안에서 본다. 400 · 409 는 모두 가입권을 남긴다.
 5. **푸시 수신 동의**: 가입의 `pushConsent`(선택, 기본 false) — 켜면 그때의 서버 시각, 아니면 null. `PATCH /account { pushConsent? }` 로 바꾸고, 같은 값이면 일시를 바꾸지 않는다. `GET /account` 에 `pushConsent` · `pushConsentAt`. 운영체제 알림 권한 · 기기 토큰은 이 결정에 없다(푸시 기능 계획).
 6. **광고성 푸시 규칙**(지금은 발송이 없다 — 발송 계획이 코드로 지킨다): 광고성 푸시는 푸시 수신 동의(`push_consented_at`)와 마케팅 수신 동의(결정 025 의 `marketing_consented_at`)가 **둘 다** 있을 때만 보낸다. 한국 시간 21~08시에는 광고성 푸시를 보내지 않는다(그래서 야간 동의 칸이 없다). 푸시 동의만 있으면 서비스 알림만 보낸다.

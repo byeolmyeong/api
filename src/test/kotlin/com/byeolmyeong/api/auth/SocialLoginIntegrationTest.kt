@@ -32,6 +32,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.Date
 import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -77,6 +78,9 @@ class SocialLoginIntegrationTest {
 
 	@Autowired
 	private lateinit var jdbc: JdbcTemplate
+
+	@Autowired
+	private lateinit var dataSource: javax.sql.DataSource
 
 	@TestBean(name = "googleKeys", methodName = "testKeys")
 	private lateinit var googleKeys: JWKSource<SecurityContext>
@@ -153,6 +157,9 @@ class SocialLoginIntegrationTest {
 
 	private fun auditCount(action: String): Int =
 		jdbc.queryForObject("select count(*) from audit_logs where action = ?", Int::class.java, action)!!
+
+	private fun auditCount(action: String, owner: String): Int =
+		jdbc.queryForObject("select count(*) from audit_logs where action = ? and actor_id = ?", Int::class.java, action, owner)!!
 
 	private fun accountColumn(sub: String, column: String): Any? =
 		jdbc.queryForList("select $column from accounts where provider = 'GOOGLE' and provider_user_id = ?", sub).single()[column]
@@ -394,15 +401,59 @@ class SocialLoginIntegrationTest {
 	}
 
 	@Test
-	fun `같은 사람이 가입권 두 장으로 동시에 가입해도 계정과 출생 정보는 하나다`() {
-		val tickets = listOf(signupToken("twin"), signupToken("twin"))
-		val pool = Executors.newFixedThreadPool(2)
-		val codes = pool.invokeAll(tickets.map { t -> Callable { signup(t, adult()).statusCode() } }).map { it.get() }
-		pool.shutdown()
+	fun `같은 사람이 가입권 두 장으로 동시에 가입해도 계정 · 출생 정보 · 가입 감사 기록은 하나다`() {
+		// 두 요청을 한꺼번에 놓아 정말 겹치게 한다. 한 번만으로는 겹치지 않을 수 있어 여러 번 돌린다(독립 리뷰 재현: 30회 중 30회).
+		repeat(10) { round ->
+			val sub = "twin-$round"
+			val tickets = listOf(signupToken(sub), signupToken(sub))
+			val start = CountDownLatch(1)
+			val pool = Executors.newFixedThreadPool(2)
+			val futures = tickets.mapIndexed { k, t -> pool.submit(Callable { start.await(); signup(t, adult(), avatar = k + 1).statusCode() }) }
+			start.countDown()
+			val codes = futures.map { it.get() }
+			pool.shutdown()
 
-		assertEquals(listOf(201, 201), codes)
-		assertEquals(1, count("accounts"))
-		assertEquals(1, count("profiles"))
+			assertEquals(listOf(201, 201), codes, "round $round")
+			val owner = accountColumn(sub, "id").toString()
+			assertEquals(1, count("profiles where account_id = '$owner'"), "round $round")
+			assertEquals(1, auditCount("TERMS_AGREED", owner), "round $round: 약관 동의는 계정을 만든 요청만 남긴다")
+			assertEquals(1, auditCount("PROFILE_SAVED", owner), "round $round")
+		}
+		assertEquals(10, count("accounts"))
+	}
+
+	@Test
+	fun `먼저 온 요청이 계정을 만드는 사이에 같은 사람의 다른 가입권이 와도 처음 값(닉네임 · 약관 시각 · 프로필)을 덮어쓰지 않는다`() {
+		val ticket = signupToken("racer")
+		val first = freshNickname()
+		// 먼저 온 요청이 계정을 넣고 아직 커밋하지 않은 때를 만든다. 뒤 요청은 계정을 못 보고 같은 계정을 넣으려다 기다린다.
+		dataSource.connection.use { conn ->
+			conn.autoCommit = false
+			conn.prepareStatement(
+				"""
+				insert into accounts (id, provider, provider_user_id, nickname, terms_version, terms_agreed_at, privacy_version, privacy_agreed_at, avatar)
+				values (gen_random_uuid(), 'GOOGLE', 'racer', ?, '$TERMS', '2026-11-19T00:00:00Z', '$TERMS', '2026-11-19T00:00:00Z', 2)
+				""".trimIndent(),
+			).use { it.setString(1, first); it.executeUpdate() }
+			val pool = Executors.newSingleThreadExecutor()
+			val late = pool.submit(Callable { signup(ticket, adult(), avatar = 7, extra = ",\"pushConsent\":true") })
+			val deadline = System.nanoTime() + 10_000_000_000
+			while (jdbc.queryForObject("select count(*) from pg_stat_activity where wait_event_type = 'Lock'", Int::class.java)!! == 0) {
+				check(System.nanoTime() < deadline) { "뒤 요청이 계정 잠금을 기다리지 않았다" }
+				Thread.sleep(20)
+			}
+			conn.commit()
+			assertEquals(201, late.get().statusCode(), "세션만 준다")
+			pool.shutdown()
+		}
+
+		val row = jdbc.queryForMap("select id::text as id, nickname, terms_agreed_at, push_consented_at, avatar from accounts where provider_user_id = 'racer'")
+		assertEquals(first, row["nickname"])
+		assertEquals(Instant.parse("2026-11-19T00:00:00Z"), (row["terms_agreed_at"] as java.sql.Timestamp).toInstant())
+		assertNull(row["push_consented_at"])
+		assertEquals(2, (row["avatar"] as Number).toInt())
+		assertEquals(0, count("profiles where account_id = '${row["id"]}'"), "출생 정보도 쓰지 않는다")
+		assertEquals(0, auditCount("TERMS_AGREED", row["id"].toString()))
 	}
 
 	@Test

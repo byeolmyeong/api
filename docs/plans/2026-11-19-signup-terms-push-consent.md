@@ -99,3 +99,6 @@ last_reviewed: 2026-11-19
 - 4: `GET /account` 에 `pushConsent` · `pushConsentAt` · `avatar`, `PATCH /account { pushConsent?, avatar? }`(같은 값이면 일시 그대로, 바뀔 때만 `PUSH_CONSENT_CHANGED`, 프로필 범위 밖이면 400 `INVALID_AVATAR` 이고 같이 보낸 칸도 그대로). 빨강 `AccountApiIntegrationTest tests 11 fail 3` → 초록 `tests 11 fail 0`.
 - 5: 테스트만(계정 행 삭제로 지워지는 기존 동작). 탈퇴 뒤 약관 · 푸시 · 프로필 칸 0건, `TERMS_AGREED` 1건 그대로(결정 015). 빨강은 삭제를 잠깐 막아(커밋 안 함) `tests 1 fail 1`("그 계정의 칸이 남지 않는다")로 확인 → 되돌려 `SocialLoginIntegrationTest tests 35 fail 0`.
 - 전체: `./gradlew build` → BUILD SUCCESSFUL in 2m 47s, 테스트 551개(82 클래스) · 실패 0 · 오류 0. 6(앱에 알리기)은 이 세션에서 하지 않고 소유자가 전한다.
+
+### 2026-11-19 독립 리뷰 반영
+- 리뷰 1(동시 가입): 같은 사람의 가입권 두 장이 동시에 오면 둘 다 "새 계정"으로 보고 약관 · 푸시 · 프로필 · 닉네임 · 출생 정보를 덮어쓰고 `TERMS_AGREED` 가 두 번 남았다 → 새 계정인지를 `insert … on conflict do nothing returning id` 결과로 판정(`AccountRepository.create`). 테스트: 기존 동시 가입 테스트를 latch 로 10회 + 계정마다 `TERMS_AGREED` · `PROFILE_SAVED` 1건, 첫 요청이 커밋하기 전에 뒤 요청을 끼워 넣는 결정적 테스트(처음 값 그대로 · 출생 정보 0 · 감사 기록 0). 빨강 `SocialLoginIntegrationTest tests 36 fail 2`(round 0 에서 `TERMS_AGREED` 2건, 닉네임 덮어씀) → 초록 가입 36 · 애플 11 fail 0. 결정 026 3번 · 아키텍처 가입 설명에 동시 요청 한 줄.
