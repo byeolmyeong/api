@@ -122,7 +122,8 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 | DB 까지 되돌려야 할 때(운영) | ① `./restore.sh backups/byeolmyeong-predeploy-<시각>.dump --into-live` — 한 트랜잭션 안에서 public 스키마를 비우고 덤프를 넣으므로 새 마이그레이션이 만든 표도 남지 않는다. 끝나면 서버는 **멈춘 채로** 둔다(지금 jar 로 뜨면 그 마이그레이션이 다시 적용된다). ② Actions → `deploy` → Run workflow → 대상 `prod`·배포 전 커밋 → 그 jar 로 서버가 뜬다. 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
 | 상태 | `docker compose ps` (셋 다 Up) · `curl -s https://<서버 주소>/health` |
 | 로그 | `docker compose logs --tail 200 api` (`caddy`·`postgres` 도 같다) |
-| `.env` 를 바꾼 뒤 | `docker compose up -d --force-recreate api` (다시 만들어야 새 값을 읽는다) |
+| `.env` 를 바꾼 뒤 | `docker compose up -d --force-recreate api` (다시 만들어야 새 값을 읽는다). E2.1.Micro 에서 서버가 뜨는 데 약 1분(58초, 2026-11-19 스테이징) — 그동안 Caddy 가 502 를 준다. 앱 세션·소유자가 시험 중이면 먼저 알린다 |
+| 배포가 어디로 갔는지 볼 때 | `gh run list --workflow deploy.yml` 의 브랜치·커밋은 늘 기본 브랜치(`develop`)로 보인다(`workflow_run` 은 기본 브랜치에서 돈다). 운영인지 스테이징인지는 실행 요약의 "올릴 곳"이나 `resolve` 로그의 `RUN_SHA` 로 본다 |
 | 서버가 계속 다시 시작한다 | `docker compose logs --tail 50 api` 에 `event=startup_refused reason=dev_login_outside_local_staging` 이면 개발용 로그인(`AUTH_DEV_ENABLED=true`)이 켜졌는데 `DEPLOY_ENV` 가 `staging` 이 아니다(결정 022). 운영이면 `AUTH_DEV_ENABLED` 를 지우고, 스테이징이면 `DEPLOY_ENV=staging` → 위 명령 |
 | DB 비밀번호 바꾸기 | `docker compose exec postgres psql -U postgres` 로 들어가 `\password <DB 사용자>` (새 값이 셸 기록·프로세스 목록에 남지 않는다) → `.env` 의 `DATABASE_PASSWORD` 를 같은 값으로 → `docker compose up -d --force-recreate postgres api` (Postgres 의 상태 검사도 이 값으로 접속한다. `.env` 만 바꾸면 Postgres 는 처음 값을 그대로 쓴다) |
 | 첫 관리자 만들기(운영) | `.env` 의 `ADMIN_BOOTSTRAP_*` 주석을 풀고 값 → 위 명령 → 관리 화면 로그인 확인 → 다시 주석 → 위 명령 |
