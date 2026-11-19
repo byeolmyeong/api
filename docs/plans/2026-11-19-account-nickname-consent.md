@@ -20,7 +20,7 @@ last_reviewed: 2026-11-19
 - 처리방침·약관 개정 공개됨(랜딩 1dffda4): 닉네임(필수), 마케팅 동의 여부·동의/철회 일시(선택), 보유는 탈퇴까지(동의 기록은 철회 또는 탈퇴까지).
 
 ## 내 결정 (묻지 않고 고른 기본값)
-- 닉네임은 앞뒤 공백을 뗀 뒤 **유니코드 코드 포인트** 1~20개(이모지 하나 = 1). 줄바꿈·제어 문자(Cc·Zl·Zp)는 거절. 중복 허용. 틀리면 400 `INVALID_NICKNAME`. 저장은 앞뒤 공백을 뗀 값.
+- 닉네임은 앞뒤 공백을 뗀 뒤 **한글(가~힣) · 영문만 2~10자**, 숫자 · 공백 · 기호 · 이모지 안 됨, **중복 안 됨**(영문 대소문자는 같은 이름, `lower(nickname)` 유일 색인). 틀리면 400 `INVALID_NICKNAME`, 겹치면 409 `NICKNAME_TAKEN`. 가입 전 확인 `POST /auth/nickname-check`. 저장은 앞뒤 공백을 뗀 값. (소유자 2026-11-19 — 첫 안 "1~20자 · 중복 허용" 을 바꿈)
 - 마케팅 동의는 `accounts.marketing_consented_at`(null = 동의 안 함). 같은 값으로 다시 보내면 일시를 바꾸지 않는다. 바뀔 때만 감사 기록(동의/철회, 값 없이).
 - `PATCH /account` 는 보낸 칸만 바꾼다(빈 본문이면 그대로 돌려준다).
 - 옛 계정(닉네임 없음)은 `GET /account` 에서 null. 로그인은 막지 않는다.
@@ -87,3 +87,9 @@ last_reviewed: 2026-11-19
 - 5: `AccountApiIntegrationTest tests 7 fail 0`. 기존 동작(계정 행 삭제)을 지키는 테스트라 빨강 없음.
 - 6: 앱 세션에 계약 전달(2026-11-19).
 
+### 2026-11-19 소유자 결정 반영(다른 세션이 이어받음)
+- 결정: 닉네임 규칙을 한글 · 영문 2~10자 · 중복 금지로 바꾸고 가입 전 확인 경로를 더했다 — 소유자가 시안 검토 중 정함 — 틀리면 비용: 앱 닉네임 단계와 어긋남(앱 계획 `2026-11-19-onboarding-design.md` 태스크 7 과 같은 규칙).
+- 결정: V20 이 아직 develop 에 없어서 새 마이그레이션 대신 V20 에 유일 색인을 더했다 — 틀리면 비용: 이 브랜치를 로컬 DB 에 이미 돌린 개발자는 Flyway 체크섬이 어긋난다(로컬 DB 를 지우면 된다).
+- 빨강: `./gradlew test --tests …SocialLogin… …AccountApi… …SessionPublicEndpoints… …AuthRateLimit…` → 39 tests completed, 7 failed(새 규칙 · 409 · 확인 경로).
+- 초록: `./gradlew test --tests 'com.byeolmyeong.api.auth.*' --tests '*ArchitectureTest*'` → BUILD SUCCESSFUL.
+- 전체: `./gradlew build` → BUILD SUCCESSFUL in 2m 37s, 테스트 537개 · 실패 0.
