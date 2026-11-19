@@ -228,24 +228,27 @@ class SocialLoginIntegrationTest {
 		val first = signupToken("again")
 		val leftover = signupToken("again")
 		assertEquals(201, signup(first, adult()).statusCode())
+		// 감사 기록은 테스트 사이에 지우지 않으므로(결정 015) 앞뒤 개수를 비교한다.
+		val saved = { jdbc.queryForObject("select count(*) from audit_logs where action = 'PROFILE_SAVED'", Int::class.java) }
+		val savedBefore = saved()
 
 		val second = signup(leftover, adult().minusYears(5))
 		assertEquals(201, second.statusCode(), "세션은 준다")
 		assertEquals(adult(), jdbc.queryForObject("select birth_date from profiles", java.sql.Date::class.java)!!.toLocalDate())
-		assertEquals(1, jdbc.queryForObject("select count(*) from audit_logs where action = 'PROFILE_SAVED'", Int::class.java))
+		assertEquals(savedBefore, saved())
 	}
 
 	@Test
-	fun `가입하면 토큰의 이메일을 다듬어 계정에 둔다`() {
+	fun `가입하면 토큰의 이메일을 받은 그대로 계정에 둔다`() {
 		val ticket = json(login("""{"provider":"GOOGLE","idToken":"${google("mail1", email = "Mail1@Example.com")}"}""").body())["signupToken"].asString()
 		assertEquals(201, signup(ticket, adult()).statusCode())
-		assertEquals("mail1@example.com", jdbc.queryForObject("select email from accounts", String::class.java))
+		assertEquals("Mail1@Example.com", jdbc.queryForObject("select email from accounts", String::class.java))
 	}
 
 	@Test
-	fun `처음 온 사람의 토큰에 이메일이 없으면 403 EMAIL_REQUIRED 이고 가입권을 만들지 않는다`() {
+	fun `처음 온 사람의 토큰에 이메일이 없으면 400 EMAIL_REQUIRED 이고 가입권을 만들지 않는다`() {
 		val response = login("""{"provider":"GOOGLE","idToken":"${google("nomail", email = null)}"}""")
-		assertEquals(403, response.statusCode())
+		assertEquals(400, response.statusCode())
 		assertEquals("""{"error":"EMAIL_REQUIRED"}""", response.body())
 		assertEquals(0, count("signup_tickets"))
 		assertEquals(0, count("accounts"))

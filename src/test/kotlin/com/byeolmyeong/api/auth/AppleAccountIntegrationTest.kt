@@ -34,6 +34,7 @@ private fun appleIdToken(sub: String): String = SignedJWT(
 	JWSHeader.Builder(JWSAlgorithm.RS256).keyID("apple").build(),
 	JWTClaimsSet.Builder().issuer("https://appleid.apple.com").audience(BUNDLE).subject(sub)
 		.claim("email", "$sub@privaterelay.appleid.com")
+		.claim("email_verified", "true")
 		.issueTime(Date()).expirationTime(Date.from(Instant.now().plusSeconds(600))).build(),
 ).apply { sign(RSASSASigner(APPLE_TEST_KEY)) }.serialize()
 

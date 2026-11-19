@@ -36,7 +36,7 @@ class ProviderTokenVerifierTest {
 		expiresAt: Instant = Instant.now().plusSeconds(600),
 		signingKey: RSAKey = key,
 		email: String? = null,
-		emailVerified: Boolean? = null,
+		emailVerified: Any? = null,
 	): String {
 		val claims = JWTClaimsSet.Builder()
 			.issuer(iss)
@@ -69,14 +69,19 @@ class ProviderTokenVerifierTest {
 	}
 
 	@Test
-	fun `토큰의 이메일을 다듬어 꺼낸다 — 구글은 확인된 이메일만`() {
-		assertEquals("user@example.com", verifier(Provider.KAKAO).verify(token("https://kauth.kakao.com", email = "  User@Example.COM ")).email)
-		assertEquals("abc@privaterelay.appleid.com", verifier(Provider.APPLE).verify(token("https://appleid.apple.com", email = "abc@privaterelay.appleid.com")).email)
+	fun `토큰의 이메일을 받은 그대로 꺼낸다 — 구글 · 애플은 확인된 이메일만`() {
+		assertEquals("User@Example.COM", verifier(Provider.KAKAO).verify(token("https://kauth.kakao.com", email = "User@Example.COM")).email)
+		val apple = "https://appleid.apple.com"
+		assertEquals("abc@privaterelay.appleid.com", verifier(Provider.APPLE).verify(token(apple, email = "abc@privaterelay.appleid.com", emailVerified = true)).email)
+		assertEquals("Abc@Example.com", verifier(Provider.APPLE).verify(token(apple, email = "Abc@Example.com", emailVerified = "true")).email)
+		assertEquals(null, verifier(Provider.APPLE).verify(token(apple, email = "abc@example.com", emailVerified = false)).email)
+		assertEquals(null, verifier(Provider.APPLE).verify(token(apple, email = "abc@example.com", emailVerified = "false")).email)
+		assertEquals(null, verifier(Provider.APPLE).verify(token(apple, email = "abc@example.com")).email)
 		assertEquals("g@gmail.com", verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", email = "g@gmail.com", emailVerified = true)).email)
 		assertEquals(null, verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", email = "g@gmail.com", emailVerified = false)).email)
 		assertEquals(null, verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", email = "g@gmail.com")).email)
 		assertEquals(null, verifier(Provider.KAKAO).verify(token("https://kauth.kakao.com")).email)
-		for (bad in listOf("no-at-sign", "a@b@c", "@example.com", "user@", "x".repeat(310) + "@example.com")) {
+		for (bad in listOf("", "   ", "no-at-sign", "a@b@c", "@example.com", "user@", "x".repeat(310) + "@example.com")) {
 			assertEquals(null, verifier(Provider.KAKAO).verify(token("https://kauth.kakao.com", email = bad)).email, bad)
 		}
 	}

@@ -57,12 +57,12 @@ private const val GOOGLE_KEYS = "https://www.googleapis.com/oauth2/v3/certs"
 private const val APPLE_KEYS = "https://appleid.apple.com/auth/keys"
 private const val KAKAO_KEYS = "https://kauth.kakao.com/.well-known/jwks.json"
 
-/** 이메일을 저장할 모양으로: 앞뒤 공백을 떼고 소문자, 320자 이하, `@` 가 하나이고 앞뒤가 비지 않아야 한다. 아니면 null. */
+/** 공급자가 준 이메일을 받은 그대로 돌려준다(공백 · 대소문자를 바꾸지 않는다). 비었거나 320자를 넘거나 `@` 가 하나가 아니거나 그 앞뒤가 비면 null. */
 fun normalizeEmail(raw: String?): String? {
-	val email = raw?.trim()?.lowercase() ?: return null
-	val parts = email.split('@')
-	if (email.length > 320 || parts.size != 2 || parts[0].isEmpty() || parts[1].isEmpty()) return null
-	return email
+	if (raw.isNullOrBlank()) return null
+	val parts = raw.split('@')
+	if (raw.length > 320 || parts.size != 2 || parts[0].isBlank() || parts[1].isBlank()) return null
+	return raw
 }
 
 /** [provider] 의 발급자로 확인하는 검증기. [audiences] 는 우리 앱의 클라이언트 ID 목록이고 빈 값은 버린다(비면 아무것도 통과하지 않는다). */
@@ -105,11 +105,16 @@ private class JwksTokenVerifier(
 		return ProviderIdentity(provider, subject, audience, emailOf(claims))
 	}
 
-	/** 구글은 확인된 이메일만 받는다(`email_verified`). 애플 · 카카오는 공급자가 확인한 값으로 본다(결정 024). */
+	/**
+	 * 구글 · 애플은 확인된 이메일만 받는다(`email_verified` 가 참 — 애플은 문자열 `"true"` 로도 온다).
+	 * 카카오 ID 토큰에는 확인 여부 클레임이 없어 공급자가 준 값으로 본다(결정 024).
+	 */
 	private fun emailOf(claims: JWTClaimsSet): String? {
-		if (provider == Provider.GOOGLE && claims.getClaim("email_verified") != true) return null
+		if (provider != Provider.KAKAO && !isTrue(claims.getClaim("email_verified"))) return null
 		return normalizeEmail(claims.getClaim("email") as? String)
 	}
+
+	private fun isTrue(value: Any?): Boolean = value == true || value == "true"
 }
 
 /**
