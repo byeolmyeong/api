@@ -49,7 +49,7 @@ last_reviewed: 2026-11-18
 - GitHub 비밀값은 저장소 단위로 둔다(무료 요금제 비공개 저장소는 환경별 비밀값·승인 규칙을 못 쓴다). 운영 배포의 "사람이 한 번 확인"은 태그를 다는 행위로 한다.
 
 ## 범위 밖
-- "배포 전 확인" 3건: 별도 계획 `docs/plans/2026-11-18-pre-deploy-hardening.md`(이 계획 승인 뒤 작성).
+- "배포 전 확인" 3건: 별도 계획 `docs/plans/2026-11-19-pre-deploy-hardening.md`(이 계획 승인 뒤 작성).
 - 버셀 프로젝트 설정(앱·관리 화면 저장소의 일). 이 계획은 서버가 허용할 주소(`ALLOWED_ORIGINS`·`ADMIN_ALLOWED_ORIGINS`)만 정한다.
 - 가동 감시·알림(백업 실패 알림 포함), 무중단 배포, 서버 여러 대, 관리형 DB, 소셜 로그인.
 
@@ -138,7 +138,7 @@ last_reviewed: 2026-11-18
 - 실행 패턴: 혼자 (SSH 명령마다 사람 확인)
 - 결과 요약: E2.1.Micro 두 대(byeolmyeong-staging·-prod, Ubuntu 24.04 Minimal) 생성·초기 설정 두 번(멱등), 재부팅 확인, .env·db.env(비밀번호는 VM 안에서 생성, 출력 안 함), 운영 backup.env·버킷·30일 규칙, GitHub 비밀값 6·변수 2, 맥의 배포용 개인 키 삭제. IP 는 문서에 적지 않는다(GitHub 비밀값·VM 에만).
 
-### 8. first-deploy-staging · 상태: 대기 (`2026-11-18-pre-deploy-hardening` 계획이 끝나야 시작)
+### 8. first-deploy-staging · 상태: 대기 (`2026-11-19-pre-deploy-hardening` 계획이 끝나야 시작)
 - 읽을 것: docs/deploy.md (나), `.github/workflows/deploy.yml`
 - 할 것: `DEPLOY_ENABLED=true` 를 넣은 뒤 이 브랜치를 `develop` 으로 PR → CI 통과 확인 → 소유자가 합친다 → `deploy` 워크플로가 스테이징에 배포. 되돌리기 연습: 시작하자마자 끝나는 버림용 브랜치를 `workflow_dispatch`(staging) 로 배포해 직전 jar 로 돌아오는지 보고 브랜치를 지운다.
 - 주는 것: 스테이징 주소가 살아 있음. 버셀 스테이징이 붙을 수 있다.

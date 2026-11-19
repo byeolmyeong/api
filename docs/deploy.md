@@ -97,7 +97,7 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - Secrets: `STAGING_SSH_HOST`·`PROD_SSH_HOST`(VM 공인 IP), `STAGING_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-staging` 파일 내용)·`PROD_SSH_KEY`(`~/.ssh/byeolmyeong-deploy-prod`), `STAGING_SSH_KNOWN_HOSTS`·`PROD_SSH_KNOWN_HOSTS`(`ssh-keyscan -t ed25519 <IP>` 의 출력 한 줄). 명령으로 넣으면 값이 화면에 나오지 않는다: `gh secret set STAGING_SSH_KEY < ~/.ssh/byeolmyeong-deploy-staging`.
 - 등록한 뒤 이 맥의 배포용 **개인 키는 지운다**: `rm ~/.ssh/byeolmyeong-deploy-staging ~/.ssh/byeolmyeong-deploy-prod`(`.pub` 은 남긴다). 다시 필요하면 새로 만들어 VM 의 authorized_keys 와 GitHub 비밀값을 함께 바꾼다.
 - Variables: `STAGING_BASE_URL` = `https://api-staging.byeolmyeong.com`, `PROD_BASE_URL` = `https://api.byeolmyeong.com`.
-- Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-18-pre-deploy-hardening.md`, 작성 예정)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
+- Variables: `DEPLOY_ENABLED` = `true` 는 **"배포 전 확인" 계획(`docs/plans/2026-11-19-pre-deploy-hardening.md`)이 끝난 뒤에** 넣는다. 없거나 `true` 가 아니면 배포 워크플로는 건너뜀으로 끝난다(결정 020 #7).
 
 ### 11. 버셀 (앱·관리 화면 저장소의 일)
 - 브랜치: 버셀의 운영 브랜치(Production Branch)는 `main`. `develop` 브랜치에 스테이징 도메인(`staging.byeolmyeong.com`·`admin-staging.byeolmyeong.com`)을 붙인다(Settings → Domains → 도메인의 Git Branch 를 `develop` 으로). 앱·관리 화면 저장소에도 `develop` 브랜치가 있어야 한다.
