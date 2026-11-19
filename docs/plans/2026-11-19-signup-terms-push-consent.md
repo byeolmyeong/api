@@ -63,7 +63,7 @@ last_reviewed: 2026-11-19
 - 하지 말 것: 앱이 보낸 시각을 저장하지 않는다. 이유: 동의 시각은 서버가 증명한다.
 - 검증: 빨강 → 초록. 버전 없음 · 옛 버전 → 400 `TERMS_REQUIRED` 이고 가입권 남음(같은 가입권으로 다시 보내 201), 맞으면 네 칸이 채워짐, `pushConsent` true 면 일시 · false/없음이면 null, 감사 기록에 버전만
 
-### 4. account-push · 상태: 대기
+### 4. account-push · 상태: 완료
 - 읽을 것: 025 의 `GET/PATCH /account`
 - 할 것: 응답에 `pushConsent: boolean` · `pushConsentAt: string | null` · `avatar: number | null`, `PATCH /account { pushConsent?, avatar? }`. 같은 값이면 일시 그대로, 바뀔 때만 `PUSH_CONSENT_CHANGED`. 계약 표 같은 커밋.
 - 검증: 빨강 → 초록. 켜고 끄면 일시가 생기고 사라짐, 같은 값이면 그대로, 세션 없으면 401
@@ -96,3 +96,4 @@ last_reviewed: 2026-11-19
 - 1: 결정 026 `docs/decisions/026-terms-push-avatar.md`(약관 버전 · 푸시 동의 · 프로필 · 광고성 푸시는 푸시 + 마케팅 동의 둘 다 · 야간 없음). develop · 원격 브랜치 모두 026 · V21 없음 확인. `ls docs/decisions | cut -c1-3 | sort | uniq -d` → 빈 출력(26개 번호 중복 0).
 - 2: `V21__terms_push_avatar.sql`(여섯 칸, null 허용, `avatar` 1~8 check, backfill 없음) · 테스트 `TermsPushAvatarMigrationIntegrationTest`(깨끗한 DB + 같은 DB 의 다른 스키마에서 V19 · V20 까지 돌린 뒤 올리기). 빨강 `tests 2 fail 2`(칸 없음) → 초록 `tests 2 fail 0`. 아키텍처 "데이터" 의 `accounts` 칸 갱신.
 - 3: `POST /auth/signup` 에 `avatar`(필수 1~8) · `termsVersion` · `privacyVersion`(필수, 설정과 같아야) · `pushConsent`(선택). 판정 순서 가입권 → 약관 → 닉네임 → 프로필 → 출생 정보 → 만 14세. 새 계정에만 저장, `TERMS_AGREED`(버전만). 설정이 비면 시작 실패(`LegalVersions`). 빨강 `SocialLoginIntegrationTest tests 34 fail 7` · `LegalVersionsStartupTest tests 1 fail 1` → 초록 가입 34 · 애플 11 · 시작 1 · 속도 제한 1 · 공개 경로 3 모두 fail 0. 기존 가입 요청(소셜 · 애플)에 약관 버전 · 프로필을 더함.
+- 4: `GET /account` 에 `pushConsent` · `pushConsentAt` · `avatar`, `PATCH /account { pushConsent?, avatar? }`(같은 값이면 일시 그대로, 바뀔 때만 `PUSH_CONSENT_CHANGED`, 프로필 범위 밖이면 400 `INVALID_AVATAR` 이고 같이 보낸 칸도 그대로). 빨강 `AccountApiIntegrationTest tests 11 fail 3` → 초록 `tests 11 fail 0`.

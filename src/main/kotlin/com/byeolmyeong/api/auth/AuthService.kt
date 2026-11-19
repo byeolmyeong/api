@@ -66,15 +66,21 @@ class AuthService(
 	fun account(ownerId: UUID): AccountResponse = checkNotNull(accounts.account(ownerId)) { "세션의 계정이 없다" }
 
 	/**
-	 * 보낸 칸만 바꾼다(결정 025). 닉네임이 틀리면 400 `INVALID_NICKNAME`, 다른 계정이 쓰면 409 `NICKNAME_TAKEN` — 둘 다 아무것도 바꾸지 않는다.
-	 * 동의가 바뀔 때만 감사 기록(동의/철회만, 닉네임·이메일 없이).
+	 * 보낸 칸만 바꾼다(결정 025 · 026). 닉네임이 틀리면 400 `INVALID_NICKNAME`, 프로필이 1~8 밖이면 400 `INVALID_AVATAR`,
+	 * 닉네임을 다른 계정이 쓰면 409 `NICKNAME_TAKEN` — 모두 아무것도 바꾸지 않는다.
+	 * 동의(마케팅 · 푸시)가 바뀔 때만 감사 기록(동의/철회만, 닉네임·이메일 없이). 프로필 바꾸기는 남기지 않는다.
 	 */
-	fun updateAccount(ownerId: UUID, nickname: String?, marketingConsent: Boolean?): AccountResponse {
+	fun updateAccount(ownerId: UUID, nickname: String?, marketingConsent: Boolean?, pushConsent: Boolean?, avatar: Int?): AccountResponse {
 		val name = nickname?.let { normalizeNickname(it) ?: throw BadRequestException("INVALID_NICKNAME") }
+		val picture = avatar?.let(::requireAvatar)
 		tx.execute {
 			name?.let { accounts.updateNickname(ownerId, it) }
+			picture?.let { accounts.updateAvatar(ownerId, it) }
 			if (marketingConsent != null && accounts.setMarketingConsent(ownerId, marketingConsent)) {
 				events.publishEvent(AuditEvent(AuditAction.MARKETING_CONSENT_CHANGED, AuditActor.user(ownerId), detail = mapOf("consent" to marketingConsent.toString())))
+			}
+			if (pushConsent != null && accounts.setPushConsent(ownerId, pushConsent)) {
+				events.publishEvent(AuditEvent(AuditAction.PUSH_CONSENT_CHANGED, AuditActor.user(ownerId), detail = mapOf("consent" to pushConsent.toString())))
 			}
 		}
 		return account(ownerId)
@@ -139,12 +145,16 @@ class AuthService(
 @Repository
 class AccountRepository(private val jdbc: JdbcTemplate) {
 
-	/** 계정 화면의 값(결정 025). 없으면 null. 닉네임·이메일은 로그에 남기지 않는다. */
+	/** 계정 화면의 값(결정 025 · 026). 없으면 null. 닉네임·이메일은 로그에 남기지 않는다. */
 	fun account(id: UUID): AccountResponse? = jdbc.query(
-		"select nickname, email, provider, marketing_consented_at from accounts where id = ?",
+		"select nickname, email, provider, marketing_consented_at, push_consented_at, avatar from accounts where id = ?",
 		{ rs, _ ->
 			val consentedAt = rs.getTimestamp("marketing_consented_at")?.toInstant()
-			AccountResponse(rs.getString("nickname"), rs.getString("email"), rs.getString("provider"), consentedAt != null, consentedAt)
+			val pushAt = rs.getTimestamp("push_consented_at")?.toInstant()
+			AccountResponse(
+				rs.getString("nickname"), rs.getString("email"), rs.getString("provider"), consentedAt != null, consentedAt,
+				pushAt != null, pushAt, (rs.getObject("avatar") as Number?)?.toInt(),
+			)
 		},
 		id,
 	).firstOrNull()
@@ -181,6 +191,19 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 		} else {
 			jdbc.update("update accounts set marketing_consented_at = null where id = ? and marketing_consented_at is not null", id) > 0
 		}
+
+	/** 푸시 수신 동의를 켜면 지금, 끄면 null(결정 026). 이미 그 값이면 바꾸지 않고 false(일시가 그대로 남는다). */
+	fun setPushConsent(id: UUID, consent: Boolean): Boolean =
+		if (consent) {
+			jdbc.update("update accounts set push_consented_at = now() where id = ? and push_consented_at is null", id) > 0
+		} else {
+			jdbc.update("update accounts set push_consented_at = null where id = ? and push_consented_at is not null", id) > 0
+		}
+
+	/** 프로필 번호(1~8, 결정 026)를 바꾼다. */
+	fun updateAvatar(id: UUID, avatar: Int) {
+		jdbc.update("update accounts set avatar = ? where id = ?", avatar, id)
+	}
 
 	/** 계정의 공급자와 공급자의 사용자 식별자. 없으면 null. */
 	fun identity(id: UUID): ProviderIdentity? = jdbc.query(

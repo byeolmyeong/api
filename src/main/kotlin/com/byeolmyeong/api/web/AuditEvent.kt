@@ -20,6 +20,8 @@ enum class AuditAction {
 	MARKETING_CONSENT_CHANGED,
 	// 가입으로 계정이 생기며 약관 · 처리방침에 동의함(결정 026). detail 은 termsVersion · privacyVersion 만
 	TERMS_AGREED,
+	// 푸시 수신 동의를 켜거나 끔(결정 026). detail 은 consent=true|false 만
+	PUSH_CONSENT_CHANGED,
 }
 
 enum class AuditActorType { ADMIN, USER, SYSTEM }

@@ -101,8 +101,8 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /auth/session` · `DELETE /auth/session` | 세션 | 없음 | 204 · 204(이 세션만 지운다 · 쿠키도 지운다) |
 | `POST /auth/apple/notifications` | 없음(애플 서명) | `{ payload }` — 애플이 서명한 JWT | 200 · 애플 알림이 아니면 400 `INVALID_NOTIFICATION`(본문이 JSON 이 아니면 400 `INVALID_REQUEST`) · 점검 중에도 받는다 · 아래 "로그인과 가입" |
 | `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | 같은 형태 · `time` 이 `null` 이면 `placeId` 도 `null` · 저장한 적 없으면 `GET` 은 404 `NO_PROFILE` · `PUT` 의 400 은 `POST /charts` 와 같다 · 한국 날짜 기준 만 14세 미만 날짜면 `PUT` 은 403 `UNDER_AGE` 이고 있던 것은 그대로다(결정 021) |
-| `GET /account` | 세션 | 없음 | `{ nickname \| null, email \| null, provider: GOOGLE \| APPLE \| KAKAO \| DEV, marketingConsent: boolean, marketingConsentAt: ISO-8601 \| null }` · 옛 계정은 닉네임·이메일이 null(결정 025) |
-| `PATCH /account` | 세션 | `{ nickname?, marketingConsent? }` · 보낸 칸만 바꾼다 · 닉네임 규칙은 `POST /auth/signup` 과 같다 | `GET /account` 와 같은 모양 · 닉네임이 틀리면 400 `INVALID_NICKNAME`, 다른 계정이 쓰면 409 `NICKNAME_TAKEN`(둘 다 아무것도 바꾸지 않는다 · 내 닉네임의 대소문자만 바꾸는 건 된다) · 동의를 켜면 그때의 일시, 끄면 null, 같은 값이면 일시 그대로 · 웹 CORS 는 PATCH 를 허용한다(결정 025) |
+| `GET /account` | 세션 | 없음 | `{ nickname \| null, email \| null, provider: GOOGLE \| APPLE \| KAKAO \| DEV, marketingConsent: boolean, marketingConsentAt: ISO-8601 \| null, pushConsent: boolean, pushConsentAt: ISO-8601 \| null, avatar: 1~8 \| null }` · 옛 계정은 닉네임·이메일·프로필이 null(결정 025 · 026) |
+| `PATCH /account` | 세션 | `{ nickname?, marketingConsent?, pushConsent?, avatar? }` · 보낸 칸만 바꾼다(null 은 보내지 않은 것) · 닉네임 · 프로필 규칙은 `POST /auth/signup` 과 같다 | `GET /account` 와 같은 모양 · 닉네임이 틀리면 400 `INVALID_NICKNAME`, 프로필이 1~8 밖이면 400 `INVALID_AVATAR`, 닉네임을 다른 계정이 쓰면 409 `NICKNAME_TAKEN`(모두 같이 보낸 칸도 바꾸지 않는다 · 내 닉네임의 대소문자만 바꾸는 건 된다) · 동의(마케팅 · 푸시 각각)를 켜면 그때의 일시, 끄면 null, 같은 값이면 일시 그대로 · 웹 CORS 는 PATCH 를 허용한다(결정 025 · 026) |
 | `DELETE /account` | 세션 | 없음 | 204 · 카카오 계정은 연결 끊기, 애플 계정은 토큰 철회를 먼저 부른다(실패해도 지운다) · 웹의 쿠키도 지운다 |
 | `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트는 저장된 글을 바로 준다 · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `POST /reports` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "리포트 상태" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
@@ -389,6 +389,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `INQUIRY_SUBMITTED` | 문의를 보냈을 때 | `INQUIRY` id | `{ category }` |
   | `ACCOUNT_DELETED` | 계정을 지웠을 때 | 없음 | `null` |
   | `TERMS_AGREED` | 가입으로 계정이 생겼을 때 — 지금 약관 · 처리방침에 동의했다(결정 026). 남은 가입권으로 다시 온 있는 계정은 남지 않는다 | 없음 | `{ termsVersion, privacyVersion }` — 동의한 두 버전. 이메일 · 닉네임은 없다 |
+  | `PUSH_CONSENT_CHANGED` | `PATCH /account` 로 푸시 수신 동의를 켜거나 껐을 때(결정 026). 이미 그 값이었으면 남지 않는다. 가입 때의 동의는 남지 않는다(계정 칸에만) | 없음 | `{ consent: "true" \| "false" }` |
 
   - 저장된 글을 다시 받는 요청(같은 차트의 요약 해석·방향성 제시, 이미 쓰는 중이거나 완성된 리포트)은 남지 않는다. 그래서 `READING_GENERATED`·`DIRECTION_GENERATED`·`SYNASTRY_CREATED` 의 `SUCCESS`·`FAILURE` 수가 수치(`GET /admin/stats`)가 세지 못하던 "생성 실패" 를 보여 준다.
   - **계정을 지워도 그 사람의 행은 남는다**(문의·수치와 다르다). `ownerRef` 는 그대로이고, 그 계정의 문의는 지워져 `targetId` 의 문의는 404 가 된다.

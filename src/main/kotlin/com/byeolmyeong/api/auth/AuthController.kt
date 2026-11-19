@@ -36,13 +36,16 @@ data class LoginResponse(val status: String, val token: String? = null, val sign
 /** 애플 서버 알림의 본문. */
 data class AppleNotificationRequest(val payload: String?)
 
-/** `GET/PATCH /account` 의 응답(결정 025). 없는 값은 null. */
+/** `GET/PATCH /account` 의 응답(결정 025 · 026). 없는 값은 null. */
 data class AccountResponse(
 	val nickname: String?,
 	val email: String?,
 	val provider: String,
 	val marketingConsent: Boolean,
 	val marketingConsentAt: java.time.Instant?,
+	val pushConsent: Boolean,
+	val pushConsentAt: java.time.Instant?,
+	val avatar: Int?,
 )
 
 /** `POST /auth/nickname-check`(결정 025). */
@@ -50,8 +53,13 @@ data class NicknameCheckRequest(val signupToken: String? = null, val nickname: S
 
 data class NicknameCheckResponse(val available: Boolean)
 
-/** `PATCH /account`. 보낸 칸만 바꾼다. */
-data class AccountPatchRequest(val nickname: String? = null, val marketingConsent: Boolean? = null)
+/** `PATCH /account`. 보낸 칸만 바꾼다(결정 025 · 026). */
+data class AccountPatchRequest(
+	val nickname: String? = null,
+	val marketingConsent: Boolean? = null,
+	val pushConsent: Boolean? = null,
+	val avatar: Int? = null,
+)
 
 /**
  * `POST /auth/signup`. 출생 정보는 `PUT /profile` 과 같은 칸이다. 닉네임은 필수, 마케팅 수신 동의는 선택(결정 025).
@@ -142,10 +150,10 @@ class AuthController(
 	@GetMapping("/account")
 	fun account(): AccountResponse = auth.account(owner.id())
 
-	/** 닉네임·마케팅 수신 동의를 바꾼다(결정 025). 보낸 칸만. */
+	/** 닉네임·수신 동의(마케팅 · 푸시)·프로필을 바꾼다(결정 025 · 026). 보낸 칸만. */
 	@PatchMapping("/account")
 	fun updateAccount(@RequestBody request: AccountPatchRequest): AccountResponse =
-		auth.updateAccount(owner.id(), request.nickname, request.marketingConsent)
+		auth.updateAccount(owner.id(), request.nickname, request.marketingConsent, request.pushConsent, request.avatar)
 
 	/** 계정 삭제. 세션의 주인만 지운다. 웹의 쿠키도 지운다. */
 	@DeleteMapping("/account")
