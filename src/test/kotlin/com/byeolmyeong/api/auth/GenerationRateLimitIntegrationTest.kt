@@ -19,8 +19,9 @@ import kotlin.test.assertEquals
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 	properties = [
 		DEV_AUTH_ON,
-		"byeolmyeong.rate-limit.generation-per-minute=2",
-		"byeolmyeong.rate-limit.generation-per-hour=100",
+		// 고정 창이라 경계를 걸치면 세는 수가 처음부터 다시 간다. 분 창(1분마다 경계)이 아니라 시간 창으로 한도를 확인한다.
+		"byeolmyeong.rate-limit.generation-per-minute=100",
+		"byeolmyeong.rate-limit.generation-per-hour=2",
 	],
 )
 class GenerationRateLimitIntegrationTest {
