@@ -121,12 +121,6 @@ class LoginService(
 		return apple.exchange(code, clientId, redirectUri?.takeIf { it.isNotBlank() })?.let { AppleToken(clientId, it) }
 	}
 
-	/**
-	 * 가입. 순서: 가입권(401) → 닉네임 규칙(400) → 출생 정보 검증(400, 가입권은 남는다) → 만 14세(403, 가입권을 지운다) →
-	 * 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 닉네임 · 세션. 닉네임을 다른 계정이 쓰면 트랜잭션을 되돌리고 409(가입권은 남는다).
-	 * 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나다.
-	 * 세션 토큰을 돌려준다.
-	 */
 	/** 가입 전에 닉네임을 쓸 수 있는지(결정 025). 유효한 가입권이 있어야 한다(401). 규칙에 어긋나면 400. */
 	fun nicknameAvailable(signupToken: String?, nickname: String?): Boolean {
 		val hash = signupToken?.takeIf { it.isNotBlank() }?.let(auth::hash) ?: throw SignupExpiredException()
@@ -135,6 +129,12 @@ class LoginService(
 		return !accounts.nicknameTaken(name)
 	}
 
+	/**
+	 * 가입. 순서: 가입권(401) → 닉네임 규칙(400) → 출생 정보 검증(400, 가입권은 남는다) → 만 14세(403, 가입권을 지운다) →
+	 * 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 닉네임 · 세션. 닉네임을 다른 계정이 쓰면 트랜잭션을 되돌리고 409(가입권은 남는다).
+	 * 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나다.
+	 * 세션 토큰을 돌려준다.
+	 */
 	fun signup(signupToken: String?, birth: BirthRequest, nickname: String?, marketingConsent: Boolean): String {
 		val hash = signupToken?.takeIf { it.isNotBlank() }?.let(auth::hash) ?: throw SignupExpiredException()
 		if (!tickets.isValid(hash)) throw SignupExpiredException()

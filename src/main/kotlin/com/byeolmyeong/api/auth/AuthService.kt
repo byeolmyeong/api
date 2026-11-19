@@ -150,6 +150,7 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 	).firstOrNull()
 
 	fun updateNickname(id: UUID, nickname: String) {
+		if (nicknameTakenByOther(id, nickname)) throw NicknameTakenException()
 		nicknameUnique { jdbc.update("update accounts set nickname = ? where id = ?", nickname, id) }
 	}
 
@@ -157,7 +158,16 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 	fun nicknameTaken(nickname: String): Boolean =
 		jdbc.queryForObject("select exists(select 1 from accounts where lower(nickname) = lower(?))", Boolean::class.java, nickname) == true
 
-	/** 닉네임 유일 색인에 걸리면 409 로 바꾼다. 다른 제약 위반은 그대로 둔다. */
+	/** 다른 계정이 이 닉네임을 쓰는가. 내 행은 빼고 본다(내 닉네임의 대소문자만 바꾸는 건 된다). */
+	private fun nicknameTakenByOther(id: UUID, nickname: String): Boolean = jdbc.queryForObject(
+		"select exists(select 1 from accounts where lower(nickname) = lower(?) and id <> ?)", Boolean::class.java, nickname, id,
+	) == true
+
+	/**
+	 * 닉네임 유일 색인에 걸리면 409 로 바꾼다. 다른 제약 위반은 그대로 둔다.
+	 * 바꾸기 전에 [nicknameTakenByOther] 로 먼저 묻는다 — 색인 위반은 DB 서버 로그(DETAIL)에 닉네임 값을 남기므로,
+	 * 색인은 동시에 같은 이름이 들어오는 드문 경우만 막는다.
+	 */
 	private fun <T> nicknameUnique(block: () -> T): T = try {
 		block()
 	} catch (e: org.springframework.dao.DuplicateKeyException) {
@@ -186,6 +196,7 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 
 	/** 가입할 때 닉네임과 마케팅 수신 동의 일시(null = 동의 안 함)를 둔다(결정 025). 값은 로그에 남기지 않는다. */
 	fun setNicknameAndConsent(id: UUID, nickname: String, marketingConsentedAt: java.time.Instant?) {
+		if (nicknameTakenByOther(id, nickname)) throw NicknameTakenException()
 		nicknameUnique {
 			jdbc.update(
 				"update accounts set nickname = ?, marketing_consented_at = ? where id = ?",

@@ -45,12 +45,12 @@ data class AccountResponse(
 	val marketingConsentAt: java.time.Instant?,
 )
 
-/** `PATCH /account`. 보낸 칸만 바꾼다. */
 /** `POST /auth/nickname-check`(결정 025). */
 data class NicknameCheckRequest(val signupToken: String? = null, val nickname: String? = null)
 
 data class NicknameCheckResponse(val available: Boolean)
 
+/** `PATCH /account`. 보낸 칸만 바꾼다. */
 data class AccountPatchRequest(val nickname: String? = null, val marketingConsent: Boolean? = null)
 
 /** `POST /auth/signup`. 출생 정보는 `PUT /profile` 과 같은 칸이다. 닉네임은 필수, 마케팅 수신 동의는 선택(결정 025). */

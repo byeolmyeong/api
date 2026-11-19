@@ -184,6 +184,8 @@ class SocialLoginIntegrationTest {
 		assertEquals(400, check("""{"signupToken":"$ticket","nickname":"별1"}""").statusCode())
 		assertEquals("""{"error":"SIGNUP_EXPIRED"}""", check("""{"signupToken":"no-such","nickname":"Star"}""").body())
 		assertEquals(401, check("""{"nickname":"Star"}""").statusCode())
+		jdbc.update("update signup_tickets set expires_at = now() - interval '1 minute'")
+		assertEquals(401, check("""{"signupToken":"$ticket","nickname":"Moon"}""").statusCode(), "만료된 가입권")
 	}
 
 	@Test
@@ -287,6 +289,15 @@ class SocialLoginIntegrationTest {
 		assertEquals(listOf(201, 201), codes)
 		assertEquals(1, count("accounts"))
 		assertEquals(1, count("profiles"))
+	}
+
+	@Test
+	fun `남은 가입권으로 다시 와도 이미 있는 계정의 닉네임은 그대로이고, 자기 닉네임을 보내도 409 가 아니다`() {
+		val tickets = List(3) { signupToken("keep-nick") }
+		assertEquals(201, signup(tickets[0], adult(), nickname = "Star").statusCode())
+		assertEquals(201, signup(tickets[1], adult(), nickname = "Moon").statusCode(), "세션만 준다")
+		assertEquals("Star", accountColumn("keep-nick", "nickname"))
+		assertEquals(201, signup(tickets[2], adult(), nickname = "Star").statusCode())
 	}
 
 	@Test

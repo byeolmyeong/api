@@ -57,9 +57,10 @@ class AccountApiIntegrationTest {
 	fun `다른 사람이 쓰는 닉네임으로는 바꿀 수 없다 — 영문 대소문자도 같은 이름이고, 내 닉네임의 대소문자만 바꾸는 건 된다`() {
 		jdbc.update("insert into accounts (id, provider, provider_user_id, nickname) values (gen_random_uuid(), 'GOOGLE', 'other', 'Star')")
 		val token = devToken(port)
-		val taken = patch(token, """{"nickname":"star"}""")
+		val taken = patch(token, """{"nickname":"star","marketingConsent":true}""")
 		assertEquals(409, taken.statusCode())
 		assertEquals("""{"error":"NICKNAME_TAKEN"}""", taken.body())
+		assertEquals(false, json(get(token).body())["marketingConsent"].asBoolean(), "409 면 같이 보낸 동의도 바꾸지 않는다")
 		assertEquals(200, patch(token, """{"nickname":"Moon"}""").statusCode())
 		assertEquals("MOON", json(patch(token, """{"nickname":"MOON"}""").body())["nickname"].asString())
 	}
