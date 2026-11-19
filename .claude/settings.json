@@ -35,6 +35,8 @@
       "Bash(gcloud *)",
       "Bash(oci *)",
       "Bash(gh workflow run*)",
+      "Bash(gh run rerun*)",
+      "Bash(gh api*)",
       "Bash(gh secret set*)",
       "Bash(gh variable set*)",
       "Bash(ssh *)",
