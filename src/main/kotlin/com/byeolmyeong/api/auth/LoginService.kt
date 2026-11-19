@@ -60,6 +60,7 @@ class LoginService(
 	private val appleTokens: AppleTokenRepository,
 	private val birthProfiles: BirthProfileService,
 	private val birthParser: BirthRequestParser,
+	private val legal: LegalVersions,
 	private val tx: TransactionTemplate,
 	private val events: ApplicationEventPublisher,
 ) {
@@ -130,16 +131,28 @@ class LoginService(
 	}
 
 	/**
-	 * 가입. 순서: 가입권(401) → 닉네임 규칙(400) → 출생 정보 검증(400, 가입권은 남는다) → 만 14세(403, 가입권을 지운다) →
-	 * 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 닉네임 · 세션. 닉네임을 다른 계정이 쓰면 트랜잭션을 되돌리고 409(가입권은 남는다).
-	 * 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나다.
-	 * 세션 토큰을 돌려준다.
+	 * 가입. 순서: 가입권(401) → 약관 · 처리방침 버전(400) → 닉네임 규칙(400) → 프로필(400) → 출생 정보 검증(400) — 여기까지 가입권은 남는다 —
+	 * → 만 14세(403, 가입권을 지운다) → 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 닉네임 · 프로필 · 동의 · 세션.
+	 * 닉네임을 다른 계정이 쓰면 트랜잭션을 되돌리고 409(가입권은 남는다). 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나다.
+	 * 동의 시각은 서버 시각이다(결정 026). 세션 토큰을 돌려준다.
 	 */
-	fun signup(signupToken: String?, birth: BirthRequest, nickname: String?, marketingConsent: Boolean): String {
+	fun signup(
+		signupToken: String?,
+		birth: BirthRequest,
+		nickname: String?,
+		avatar: Int?,
+		termsVersion: String?,
+		privacyVersion: String?,
+		marketingConsent: Boolean,
+		pushConsent: Boolean,
+	): String {
 		val hash = signupToken?.takeIf { it.isNotBlank() }?.let(auth::hash) ?: throw SignupExpiredException()
 		if (!tickets.isValid(hash)) throw SignupExpiredException()
-		// 닉네임이 틀리면 가입권을 쓰지 않고 돌려보낸다(고쳐서 다시 보낸다, 결정 025).
+		// 지금 약관 · 처리방침에 동의하지 않았으면 가입권을 쓰지 않고 돌려보낸다(앱이 약관 단계로 돌아가 다시 보낸다, 결정 026).
+		if (!legal.agreed(termsVersion, privacyVersion)) throw BadRequestException("TERMS_REQUIRED")
+		// 닉네임 · 프로필이 틀려도 가입권을 쓰지 않고 돌려보낸다(고쳐서 다시 보낸다, 결정 025 · 026).
 		val name = normalizeNickname(nickname) ?: throw BadRequestException("INVALID_NICKNAME")
+		val picture = requireAvatar(avatar)
 		val parsed = birthParser.parse(birth)
 		if (!isAtLeast14(parsed.date, koreaToday())) {
 			// 계정을 만들지 않으므로 받아 둔 애플 토큰도 철회한다. 철회가 터져도 403 으로 답한다.
@@ -156,16 +169,25 @@ class LoginService(
 				val existing = accounts.find(provider, subject)
 				val accountId = existing ?: accounts.findOrCreate(provider, subject)
 				ticket.identity.email?.let { accounts.updateEmail(accountId, it) }
+				// 남은 가입권으로 다시 온 있는 계정의 약관 시각 · 동의 · 프로필도 덮어쓰지 않는다(결정 026).
 				if (existing == null) {
 					birthProfiles.save(accountId, profile)
-					accounts.setNicknameAndConsent(accountId, name, if (marketingConsent) Instant.now() else null)
+					val now = Instant.now()
+					accounts.setNicknameAndConsent(accountId, name, now.takeIf { marketingConsent })
+					accounts.setTermsPushAvatar(accountId, legal.terms, legal.privacy, now, now.takeIf { pushConsent }, picture)
 				}
 				ticket.appleToken?.let { appleTokens.save(accountId, it) }
 				Triple(accountId, auth.issueSession(accountId), existing == null)
 			},
 		)
 		events.publishEvent(AuditEvent(AuditAction.USER_LOGIN, AuditActor.user(accountId)))
-		if (created) events.publishEvent(AuditEvent(AuditAction.PROFILE_SAVED, AuditActor.user(accountId), detail = mapOf("change" to "CREATED")))
+		if (created) {
+			events.publishEvent(AuditEvent(AuditAction.PROFILE_SAVED, AuditActor.user(accountId), detail = mapOf("change" to "CREATED")))
+			// 동의한 판만 남긴다(결정 026). 이메일 · 닉네임은 넣지 않는다.
+			events.publishEvent(
+				AuditEvent(AuditAction.TERMS_AGREED, AuditActor.user(accountId), detail = mapOf("termsVersion" to legal.terms, "privacyVersion" to legal.privacy)),
+			)
+		}
 		return session
 	}
 }

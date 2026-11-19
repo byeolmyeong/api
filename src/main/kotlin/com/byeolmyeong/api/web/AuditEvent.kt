@@ -18,6 +18,8 @@ enum class AuditAction {
 	DIRECTION_GENERATED, SHARE_CREATED, SHARE_DELETED, INQUIRY_SUBMITTED, ACCOUNT_DELETED,
 	// 마케팅 수신 동의를 켜거나 끔(결정 025). detail 은 consent=true|false 만
 	MARKETING_CONSENT_CHANGED,
+	// 가입으로 계정이 생기며 약관 · 처리방침에 동의함(결정 026). detail 은 termsVersion · privacyVersion 만
+	TERMS_AGREED,
 }
 
 enum class AuditActorType { ADMIN, USER, SYSTEM }

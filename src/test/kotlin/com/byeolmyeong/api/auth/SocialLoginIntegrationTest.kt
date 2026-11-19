@@ -27,6 +27,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.convention.TestBean
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
+import java.net.http.HttpResponse
 import java.time.Instant
 import java.time.LocalDate
 import java.util.Date
@@ -42,6 +43,8 @@ private const val GOOGLE_AUD = "test-google-client"
 private const val KAKAO_AUD = "test-kakao-rest-key"
 private const val KAKAO_REDIRECT = "http://localhost:8081/auth/kakao"
 private const val PLACE = 1841277 // 서울(출생지 목록의 id)
+/** 지금 약관 · 처리방침 버전(결정 026, application.properties 의 byeolmyeong.legal.*). */
+private const val TERMS = "2026-11-19"
 private val TEST_KEY: RSAKey = RSAKeyGenerator(2048).keyID("test").generate()
 private val mapper = JsonMapper()
 
@@ -128,12 +131,28 @@ class SocialLoginIntegrationTest {
 		return node["signupToken"].asString()
 	}
 
-	/** 닉네임은 결정 025 로 필수다. [nickname] 이 null 이면 보내지 않는다. */
-	private fun signup(ticket: String, date: LocalDate, extra: String = "", nickname: String? = freshNickname()) =
-		http(
-			port, "POST", "/auth/signup",
-			"""{"signupToken":"$ticket","date":"$date","time":"14:30","placeId":$PLACE${nickname?.let { ",\"nickname\":${mapper.writeValueAsString(it)}" } ?: ""}$extra}""",
-		)
+	/**
+	 * 닉네임(결정 025) · 약관 · 처리방침 버전 · 프로필(결정 026)은 필수다. 값이 null 이면 그 칸을 보내지 않는다.
+	 * [date] 는 `LocalDate` 나 틀린 날짜 글자다.
+	 */
+	private fun signup(
+		ticket: String,
+		date: Any,
+		extra: String = "",
+		nickname: String? = freshNickname(),
+		terms: String? = TERMS,
+		privacy: String? = TERMS,
+		avatar: Int? = 3,
+	): HttpResponse<String> {
+		val fields = mapOf("nickname" to nickname, "termsVersion" to terms, "privacyVersion" to privacy, "avatar" to avatar)
+			.filterValues { it != null }.entries.joinToString("") { (key, value) -> ",\"$key\":${mapper.writeValueAsString(value)}" }
+		return http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"$date","time":"14:30","placeId":$PLACE$fields$extra}""")
+	}
+
+	private fun error(response: HttpResponse<String>) = response.statusCode() to response.body()
+
+	private fun auditCount(action: String): Int =
+		jdbc.queryForObject("select count(*) from audit_logs where action = ?", Int::class.java, action)!!
 
 	private fun accountColumn(sub: String, column: String): Any? =
 		jdbc.queryForList("select $column from accounts where provider = 'GOOGLE' and provider_user_id = ?", sub).single()[column]
@@ -196,6 +215,101 @@ class SocialLoginIntegrationTest {
 		assertNull(accountColumn("mk-off", "marketing_consented_at"))
 		assertEquals(201, signup(signupToken("mk-none"), adult()).statusCode())
 		assertNull(accountColumn("mk-none", "marketing_consented_at"))
+	}
+
+	@Test
+	fun `약관 버전이 없거나 지금 버전과 다르면 400 TERMS_REQUIRED 이고 가입권은 남는다 — 같은 가입권으로 다시 보내면 201(결정 026)`() {
+		val ticket = signupToken("terms-bad")
+		for ((terms, privacy) in listOf(null to null, null to TERMS, TERMS to null, "2026-01-01" to TERMS, TERMS to "2026-01-01", "" to "", " $TERMS" to TERMS)) {
+			val response = signup(ticket, adult(), terms = terms, privacy = privacy)
+			assertEquals(400 to """{"error":"TERMS_REQUIRED"}""", error(response), "terms=$terms privacy=$privacy")
+		}
+		assertEquals(0, count("accounts"), "계정을 만들지 않았다")
+		assertEquals(1, count("signup_tickets"), "가입권을 쓰지 않았다")
+		assertEquals(201, signup(ticket, adult()).statusCode(), "같은 가입권으로 다시 보낼 수 있다")
+	}
+
+	@Test
+	fun `지금 약관 버전이면 두 버전과 동의 시각(서버 시각)이 계정에 남는다 — 앱이 보낸 시각은 받지 않는다`() {
+		val before = Instant.now().minusMillis(1)
+		val response = signup(signupToken("terms-ok"), adult(), extra = ""","termsAgreedAt":"2000-01-01T00:00:00Z","privacyAgreedAt":"2000-01-01T00:00:00Z"""")
+		val after = Instant.now().plusMillis(1)
+
+		assertEquals(201, response.statusCode(), response.body())
+		assertEquals(TERMS, accountColumn("terms-ok", "terms_version"))
+		assertEquals(TERMS, accountColumn("terms-ok", "privacy_version"))
+		val termsAt = (accountColumn("terms-ok", "terms_agreed_at") as java.sql.Timestamp).toInstant()
+		assertTrue(termsAt.isAfter(before) && termsAt.isBefore(after), "서버 시각: $termsAt")
+		assertEquals(termsAt, (accountColumn("terms-ok", "privacy_agreed_at") as java.sql.Timestamp).toInstant(), "두 동의는 같은 때다")
+	}
+
+	@Test
+	fun `가입 때 푸시 동의를 켜면 일시가 남고, 끄거나 보내지 않으면 null 이다(결정 026)`() {
+		assertEquals(201, signup(signupToken("push-on"), adult(), extra = ",\"pushConsent\":true").statusCode())
+		assertNotNull(accountColumn("push-on", "push_consented_at"))
+		assertEquals(201, signup(signupToken("push-off"), adult(), extra = ",\"pushConsent\":false").statusCode())
+		assertNull(accountColumn("push-off", "push_consented_at"))
+		assertEquals(201, signup(signupToken("push-none"), adult()).statusCode())
+		assertNull(accountColumn("push-none", "push_consented_at"))
+	}
+
+	@Test
+	fun `프로필이 없거나 1~8 밖이면 400 INVALID_AVATAR 이고 가입권은 남는다 — 맞으면 번호를 둔다(결정 026)`() {
+		val ticket = signupToken("avatar-bad")
+		for (bad in listOf(null, 0, 9, -1)) {
+			assertEquals(400 to """{"error":"INVALID_AVATAR"}""", error(signup(ticket, adult(), avatar = bad)), "avatar=$bad")
+		}
+		assertEquals(0, count("accounts"), "계정을 만들지 않았다")
+		assertEquals(201, signup(ticket, adult(), avatar = 8).statusCode(), "같은 가입권으로 다시 보낼 수 있다")
+		assertEquals(8, (accountColumn("avatar-bad", "avatar") as Number).toInt())
+		assertEquals(201, signup(signupToken("avatar-one"), adult(), avatar = 1).statusCode())
+		assertEquals(1, (accountColumn("avatar-one", "avatar") as Number).toInt())
+	}
+
+	@Test
+	fun `판정 순서는 가입권 → 약관 → 닉네임 → 프로필 → 출생 정보 → 만 14세다(결정 026)`() {
+		val ticket = signupToken("order")
+		val kid = koreaToday().minusYears(10)
+		assertEquals(401 to """{"error":"SIGNUP_EXPIRED"}""", error(signup("no-such", kid, nickname = null, terms = null, avatar = null)))
+		assertEquals(400 to """{"error":"TERMS_REQUIRED"}""", error(signup(ticket, kid, nickname = null, terms = null, avatar = null)))
+		assertEquals(400 to """{"error":"INVALID_NICKNAME"}""", error(signup(ticket, "1990-13-45", nickname = null, avatar = null)))
+		assertEquals(400 to """{"error":"INVALID_AVATAR"}""", error(signup(ticket, "1990-13-45", avatar = null)))
+		assertEquals(400 to """{"error":"INVALID_DATE"}""", error(signup(ticket, "1990-13-45")))
+		assertEquals(1, count("signup_tickets"), "여기까지는 가입권을 쓰지 않았다")
+		assertEquals(403 to """{"error":"UNDER_AGE"}""", error(signup(ticket, kid)))
+		assertEquals(0, count("signup_tickets"))
+	}
+
+	@Test
+	fun `남은 가입권으로 다시 와도 이미 있는 계정의 약관 시각 · 푸시 동의 · 프로필은 그대로이고 TERMS_AGREED 는 한 번이다`() {
+		val tickets = List(2) { signupToken("keep-terms") }
+		assertEquals(201, signup(tickets[0], adult(), avatar = 2).statusCode())
+		val columns = "terms_version, terms_agreed_at, privacy_version, privacy_agreed_at, push_consented_at, avatar"
+		val saved = jdbc.queryForMap("select $columns from accounts")
+		assertEquals(TERMS, saved["terms_version"], "첫 가입이 약관을 남겼다")
+		// 감사 기록은 테스트 사이에 지우지 않으므로(결정 015) 앞뒤 개수를 비교한다.
+		val agreedBefore = auditCount("TERMS_AGREED")
+
+		assertEquals(201, signup(tickets[1], adult(), avatar = 7, extra = ",\"pushConsent\":true").statusCode(), "세션만 준다")
+		assertEquals(saved, jdbc.queryForMap("select $columns from accounts"))
+		assertEquals(agreedBefore, auditCount("TERMS_AGREED"))
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension::class)
+	fun `가입하면 감사 기록 TERMS_AGREED 에 두 버전만 남고, 감사 기록 · 로그에 이메일 · 닉네임이 없다`(output: CapturedOutput) {
+		val nickname = freshNickname()
+		assertEquals(201, signup(signupToken("terms-audit"), adult(), nickname = nickname).statusCode())
+
+		val owner = accountColumn("terms-audit", "id").toString()
+		val details = jdbc.queryForList("select detail::text from audit_logs where action = 'TERMS_AGREED' and actor_id = ?", String::class.java, owner)
+		assertEquals(1, details.size)
+		assertEquals(json("""{"termsVersion":"$TERMS","privacyVersion":"$TERMS"}"""), json(details.single()!!))
+		val all = jdbc.queryForList("select coalesce(detail::text, '') from audit_logs where actor_id = ?", String::class.java, owner).joinToString()
+		assertFalse(all.contains(nickname))
+		assertFalse(all.contains("terms-audit@example.com"))
+		assertFalse(output.all.contains(nickname))
+		assertFalse(output.all.contains("terms-audit@example.com"))
 	}
 
 	@Test
@@ -273,7 +387,7 @@ class SocialLoginIntegrationTest {
 	@Test
 	fun `출생 정보가 틀리면 400 이고 가입권은 다시 쓸 수 있다`() {
 		val ticket = signupToken("u5")
-		val bad = http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"1990-13-45","time":null,"placeId":null,"nickname":"${freshNickname()}"}""")
+		val bad = http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"1990-13-45","time":null,"placeId":null,"nickname":"${freshNickname()}","termsVersion":"$TERMS","privacyVersion":"$TERMS","avatar":1}""")
 		assertEquals(400, bad.statusCode())
 		assertEquals("""{"error":"INVALID_DATE"}""", bad.body())
 		assertEquals(201, signup(ticket, adult()).statusCode())

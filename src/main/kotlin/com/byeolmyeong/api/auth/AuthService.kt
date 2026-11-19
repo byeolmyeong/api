@@ -205,6 +205,21 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 		}
 	}
 
+	/**
+	 * 가입할 때 동의한 약관 · 처리방침 버전과 그 시각(서버 시각), 푸시 수신 동의 일시(null = 동의 안 함), 프로필 번호를 둔다(결정 026).
+	 * 값은 로그에 남기지 않는다.
+	 */
+	fun setTermsPushAvatar(id: UUID, termsVersion: String, privacyVersion: String, agreedAt: java.time.Instant, pushConsentedAt: java.time.Instant?, avatar: Int) {
+		val agreed = java.sql.Timestamp.from(agreedAt)
+		jdbc.update(
+			"""
+			update accounts set terms_version = ?, terms_agreed_at = ?, privacy_version = ?, privacy_agreed_at = ?, push_consented_at = ?, avatar = ?
+			where id = ?
+			""".trimIndent(),
+			termsVersion, agreed, privacyVersion, agreed, pushConsentedAt?.let { java.sql.Timestamp.from(it) }, avatar, id,
+		)
+	}
+
 	/** 공급자·사용자의 계정. 없으면 null. */
 	fun find(provider: String, providerUserId: String): UUID? = jdbc.queryForList(
 		"select id from accounts where provider = ? and provider_user_id = ?", UUID::class.java, provider, providerUserId,
