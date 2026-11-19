@@ -99,7 +99,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /auth/signup` | 없음 | `{ signupToken, date, time \| null, placeId \| null, cookie? }` · 출생 정보 규칙은 `PUT /profile` 과 같다 | 201 `{ token? }` · 만 14세 미만 403 `UNDER_AGE`(계정·출생 정보 0건) · 아래 "로그인과 가입" |
 | `GET /auth/session` · `DELETE /auth/session` | 세션 | 없음 | 204 · 204(이 세션만 지운다 · 쿠키도 지운다) |
 | `POST /auth/apple/notifications` | 없음(애플 서명) | `{ payload }` — 애플이 서명한 JWT | 200 · 애플 알림이 아니면 400 `INVALID_NOTIFICATION`(본문이 JSON 이 아니면 400 `INVALID_REQUEST`) · 점검 중에도 받는다 · 아래 "로그인과 가입" |
-| `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | 같은 형태 · `time` 이 `null` 이면 `placeId` 도 `null` · 저장한 적 없으면 `GET` 은 404 `NO_PROFILE` · `PUT` 의 400 은 `POST /charts` 와 같다 |
+| `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | 같은 형태 · `time` 이 `null` 이면 `placeId` 도 `null` · 저장한 적 없으면 `GET` 은 404 `NO_PROFILE` · `PUT` 의 400 은 `POST /charts` 와 같다 · 한국 날짜 기준 만 14세 미만 날짜면 `PUT` 은 403 `UNDER_AGE` 이고 있던 것은 그대로다(결정 021) |
 | `DELETE /account` | 세션 | 없음 | 204 · 카카오 계정은 연결 끊기, 애플 계정은 토큰 철회를 먼저 부른다(실패해도 지운다) · 웹의 쿠키도 지운다 |
 | `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트는 저장된 글을 바로 준다 |
 | `POST /reports` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "리포트 상태" |
