@@ -73,7 +73,8 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 4. 버킷 → Pre-Authenticated Requests → Create: 대상 Bucket, 접근 "Permit object writes", 만료는 1년쯤. 만든 URL(끝이 `/o/`)은 한 번만 보인다 → 운영 VM `backup.env` 의 `BACKUP_UPLOAD_URL`(9번). **만료일을 달력에 적는다**(만료되면 백업 업로드가 실패한다).
 
 ### 7. Anthropic
-- Console 에서 워크스페이스를 둘(운영·스테이징) 만들고 각각 API 키를 발급한다. **두 워크스페이스 모두 지출 한도를 건다**(스테이징은 낮게). 스테이징은 주소를 아는 누구나 개발용 계정으로 모델을 부를 수 있다(결정 020).
+- API 키 하나를 운영·스테이징이 같이 쓴다(결정 020 #6). 그 키(워크스페이스)에 **지출 한도를 꼭 건다** — 스테이징은 주소를 아는 누구나 개발용 계정으로 모델을 부를 수 있고, 그 비용이 같은 한도에서 빠진다.
+- 두 VM 의 `.env` 에 넣을 때는 맥의 터미널 앱에서 키를 화면에 보이지 않게 받아 넣는 방법을 쓴다(키가 셸 기록·명령줄에 남지 않게). 손으로 하려면 각 VM 에서 `nano /opt/byeolmyeong/.env` 의 `ANTHROPIC_API_KEY=` 뒤에 붙인다.
 
 ### 8. VM 초기 설정 (Claude 가 SSH 로)
 두 VM 의 IP 와 `~/.ssh/byeolmyeong-oci` 를 알려 주면 Claude 가 한다. 손으로 하려면 저장소 루트에서:

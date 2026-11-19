@@ -290,3 +290,9 @@ last_reviewed: 2026-11-18
   - 결정: 처음 URL 은 zsh 가 ssh 옵션 변수를 나누지 않아 넘기기에 실패했고 다시 볼 수 없어 지우고 새로 만들었다(값은 어디에도 출력되지 않았다) — 틀리면 비용: 없음.
 - GitHub: 비밀값 STAGING/PROD_SSH_HOST·_SSH_KEY·_SSH_KNOWN_HOSTS, 변수 STAGING_BASE_URL·PROD_BASE_URL. DEPLOY_ENABLED 는 넣지 않았다. 배포 키 확인: 두 키 모두 scp·원격 명령 됨, -R 포워딩 거부, 다른 환경 VM 은 Permission denied. 확인 뒤 맥의 배포용 개인 키를 지웠다(.pub 남김).
 - 호스트 키 지문: 스테이징 SHA256:ImwzkSQD0ahqfNNzg6I+NmGo6um/LqoKI8VilEhqwHM, 운영 SHA256:xgPBvBSVJknppPiw4Pd0QDE12jHNtK6OC4gjebeRGRI (소유자 ~/.ssh/known_hosts 에 넣음).
+
+### 소유자 결정 (2026-11-19) — 같은 키·같은 모델, DNS
+- "키를 동일하게 쓰자", "모델도 같은거 쓰고": 스테이징도 운영과 같은 Anthropic 키·같은 모델(기본 `claude-opus-5-5`). 인터뷰 때의 "스테이징 전용 키·Sonnet 5.5" 와 "내 결정" 의 스테이징 모델을 대체한다. 스테이징 VM `.env` 에서 `CLAUDE_MODEL` 줄을 지웠다(확인: 두 VM 모두 CLAUDE_MODEL 0줄). 결정 020 #6·런북 7번·.env 틀 반영.
+  - 위험: 스테이징은 누구나 개발용 로그인으로 모델을 부를 수 있어 그 비용이 같은 키의 한도에서 빠진다 → 키에 지출 한도, "배포 전 확인" 의 계정별 생성 속도 제한, 실제 사용자 전에 키 분리 재검토.
+- DNS 확인(소유자가 Cloudflare 에 넣음): 1.1.1.1·8.8.8.8·담당 네임서버(max/yolanda.ns.cloudflare.com) 모두 `api` → 운영 VM, `api-staging` → 스테이징 VM. VM IP 로 바로 나와 프록시는 꺼져 있다(Caddy 가 인증서를 직접 받는다).
+- 키 넣기 도구: 키를 화면에 안 보이게 받아 ssh 표준 입력으로 두 VM 의 `.env` 에 넣는 스크립트를 scratch 에 만들었다(가짜 키로 치환 로직 확인, shellcheck 0). 저장소에는 넣지 않았다(한 번 쓰는 도구).
