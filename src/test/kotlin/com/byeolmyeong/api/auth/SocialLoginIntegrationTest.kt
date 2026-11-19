@@ -42,15 +42,16 @@ private const val PLACE = 1841277 // 서울(출생지 목록의 id)
 private val TEST_KEY: RSAKey = RSAKeyGenerator(2048).keyID("test").generate()
 private val mapper = JsonMapper()
 
-/** 공급자 대신 테스트 키로 서명한 ID 토큰. */
-private fun idToken(iss: String, aud: String, sub: String, key: RSAKey = TEST_KEY): String =
+/** 공급자 대신 테스트 키로 서명한 ID 토큰. 이메일은 기본으로 `<sub>@example.com`(확인됨)이다(결정 024). */
+private fun idToken(iss: String, aud: String, sub: String, key: RSAKey = TEST_KEY, email: String? = "$sub@example.com"): String =
 	SignedJWT(
 		JWSHeader.Builder(JWSAlgorithm.RS256).keyID("test").build(),
 		JWTClaimsSet.Builder().issuer(iss).audience(aud).subject(sub)
+			.apply { if (email != null) claim("email", email).claim("email_verified", true) }
 			.issueTime(Date()).expirationTime(Date.from(Instant.now().plusSeconds(600))).build(),
 	).apply { sign(RSASSASigner(key)) }.serialize()
 
-private fun google(sub: String) = idToken("https://accounts.google.com", GOOGLE_AUD, sub)
+private fun google(sub: String, email: String? = "$sub@example.com") = idToken("https://accounts.google.com", GOOGLE_AUD, sub, email = email)
 
 // 소셜 로그인과 가입(결정 021). 공급자 키는 테스트 키로, 카카오 서버는 가짜로 바꿔 끼운다.
 @Import(TestcontainersConfiguration::class)
@@ -227,11 +228,51 @@ class SocialLoginIntegrationTest {
 		val first = signupToken("again")
 		val leftover = signupToken("again")
 		assertEquals(201, signup(first, adult()).statusCode())
+		// 감사 기록은 테스트 사이에 지우지 않으므로(결정 015) 앞뒤 개수를 비교한다.
+		val saved = { jdbc.queryForObject("select count(*) from audit_logs where action = 'PROFILE_SAVED'", Int::class.java) }
+		val savedBefore = saved()
 
 		val second = signup(leftover, adult().minusYears(5))
 		assertEquals(201, second.statusCode(), "세션은 준다")
 		assertEquals(adult(), jdbc.queryForObject("select birth_date from profiles", java.sql.Date::class.java)!!.toLocalDate())
-		assertEquals(1, jdbc.queryForObject("select count(*) from audit_logs where action = 'PROFILE_SAVED'", Int::class.java))
+		assertEquals(savedBefore, saved())
+	}
+
+	@Test
+	fun `가입하면 토큰의 이메일을 받은 그대로 계정에 둔다`() {
+		val ticket = json(login("""{"provider":"GOOGLE","idToken":"${google("mail1", email = "Mail1@Example.com")}"}""").body())["signupToken"].asString()
+		assertEquals(201, signup(ticket, adult()).statusCode())
+		assertEquals("Mail1@Example.com", jdbc.queryForObject("select email from accounts", String::class.java))
+	}
+
+	@Test
+	fun `처음 온 사람의 토큰에 이메일이 없으면 400 EMAIL_REQUIRED 이고 가입권을 만들지 않는다`() {
+		val response = login("""{"provider":"GOOGLE","idToken":"${google("nomail", email = null)}"}""")
+		assertEquals(400, response.statusCode())
+		assertEquals("""{"error":"EMAIL_REQUIRED"}""", response.body())
+		assertEquals(0, count("signup_tickets"))
+		assertEquals(0, count("accounts"))
+	}
+
+	@Test
+	fun `이미 있는 계정은 토큰에 이메일이 없어도 로그인되고, 있으면 새 이메일로 고쳐 둔다`() {
+		signup(signupToken("keep"), adult())
+		val noMail = login("""{"provider":"GOOGLE","idToken":"${google("keep", email = null)}"}""")
+		assertEquals("SIGNED_IN", json(noMail.body())["status"].asString())
+		assertEquals("keep@example.com", jdbc.queryForObject("select email from accounts", String::class.java))
+
+		login("""{"provider":"GOOGLE","idToken":"${google("keep", email = "new@example.com")}"}""")
+		assertEquals("new@example.com", jdbc.queryForObject("select email from accounts", String::class.java))
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension::class)
+	fun `이메일은 응답과 로그에 남기지 않는다`(output: CapturedOutput) {
+		val response = login("""{"provider":"GOOGLE","idToken":"${google("secret", email = "secret-mail@example.com")}"}""")
+		val created = signup(json(response.body())["signupToken"].asString(), adult())
+		assertFalse(response.body().contains("secret-mail"))
+		assertFalse(created.body().contains("secret-mail"))
+		assertFalse(output.all.contains("secret-mail@example.com"))
 	}
 
 	@Test

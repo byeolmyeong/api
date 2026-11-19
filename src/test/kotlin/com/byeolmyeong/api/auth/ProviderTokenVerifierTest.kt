@@ -35,12 +35,16 @@ class ProviderTokenVerifierTest {
 		sub: String? = "provider-user-1",
 		expiresAt: Instant = Instant.now().plusSeconds(600),
 		signingKey: RSAKey = key,
+		email: String? = null,
+		emailVerified: Any? = null,
 	): String {
 		val claims = JWTClaimsSet.Builder()
 			.issuer(iss)
 			.audience(aud)
 			.apply { if (azp != null) claim("azp", azp) }
 			.apply { if (sub != null) subject(sub) }
+			.apply { if (email != null) claim("email", email) }
+			.apply { if (emailVerified != null) claim("email_verified", emailVerified) }
 			.issueTime(Date.from(Instant.now().minusSeconds(10)))
 			.expirationTime(Date.from(expiresAt))
 			.build()
@@ -61,6 +65,24 @@ class ProviderTokenVerifierTest {
 			Provider.KAKAO to "https://kauth.kakao.com",
 		)) {
 			assertEquals(ProviderIdentity(provider, "provider-user-1", AUD), verifier(provider).verify(token(iss)), "$provider $iss")
+		}
+	}
+
+	@Test
+	fun `토큰의 이메일을 받은 그대로 꺼낸다 — 구글 · 애플은 확인된 이메일만`() {
+		assertEquals("User@Example.COM", verifier(Provider.KAKAO).verify(token("https://kauth.kakao.com", email = "User@Example.COM")).email)
+		val apple = "https://appleid.apple.com"
+		assertEquals("abc@privaterelay.appleid.com", verifier(Provider.APPLE).verify(token(apple, email = "abc@privaterelay.appleid.com", emailVerified = true)).email)
+		assertEquals("Abc@Example.com", verifier(Provider.APPLE).verify(token(apple, email = "Abc@Example.com", emailVerified = "true")).email)
+		assertEquals(null, verifier(Provider.APPLE).verify(token(apple, email = "abc@example.com", emailVerified = false)).email)
+		assertEquals(null, verifier(Provider.APPLE).verify(token(apple, email = "abc@example.com", emailVerified = "false")).email)
+		assertEquals(null, verifier(Provider.APPLE).verify(token(apple, email = "abc@example.com")).email)
+		assertEquals("g@gmail.com", verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", email = "g@gmail.com", emailVerified = true)).email)
+		assertEquals(null, verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", email = "g@gmail.com", emailVerified = false)).email)
+		assertEquals(null, verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", email = "g@gmail.com")).email)
+		assertEquals(null, verifier(Provider.KAKAO).verify(token("https://kauth.kakao.com")).email)
+		for (bad in listOf("", "   ", "no-at-sign", "a@b@c", "@example.com", "user@", "x".repeat(310) + "@example.com")) {
+			assertEquals(null, verifier(Provider.KAKAO).verify(token("https://kauth.kakao.com", email = bad)).email, bad)
 		}
 	}
 

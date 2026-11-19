@@ -125,6 +125,11 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 		id,
 	).firstOrNull()
 
+	/** 계정의 이메일을 고친다(결정 024). 값은 로그에 남기지 않는다. */
+	fun updateEmail(id: UUID, email: String) {
+		jdbc.update("update accounts set email = ? where id = ? and email is distinct from ?", email, id, email)
+	}
+
 	/** 공급자·사용자의 계정. 없으면 null. */
 	fun find(provider: String, providerUserId: String): UUID? = jdbc.queryForList(
 		"select id from accounts where provider = ? and provider_user_id = ?", UUID::class.java, provider, providerUserId,
