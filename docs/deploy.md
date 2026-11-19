@@ -85,7 +85,7 @@ Compute → Instances → Create instance 를 두 번(`byeolmyeong-staging`, `by
 - `ssh -i ~/.ssh/byeolmyeong-oci ubuntu@<IP>`
 - `cp ~/.env.example /opt/byeolmyeong/.env && chmod 600 /opt/byeolmyeong/.env && nano /opt/byeolmyeong/.env`
 - 이름과 환경별 값의 모양은 `deploy/.env.example` 의 주석에 있다. **값이 빈 줄(`이름=`)을 남기지 않는다** — 빈 값이 서버의 기본값을 덮는다. 값에 따옴표·`$`·공백을 쓰지 않는다.
-- 비밀번호는 VM 마다 새로 만든다: `openssl rand -hex 24`.
+- 비밀번호는 VM 마다 새로 만든다: `openssl rand -hex 24`. `DATABASE_USERNAME` 은 `postgres` 가 아닌 이름(예: `byeolmyeong_app`).
 - DB 최고 관리자 비밀번호는 `.env` 가 아니라 `db.env` 에 둔다(서버 컨테이너가 보지 않게): `cp ~/db.env.example /opt/byeolmyeong/db.env && chmod 600 /opt/byeolmyeong/db.env && nano /opt/byeolmyeong/db.env`
 - 운영 VM 만: 백업 업로드 URL 은 `.env` 가 아니라 `backup.env` 에 둔다(서버 컨테이너가 보지 않게). `cp ~/backup.env.example /opt/byeolmyeong/backup.env && chmod 600 /opt/byeolmyeong/backup.env && nano /opt/byeolmyeong/backup.env`
 
@@ -124,6 +124,8 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 | 복원 연습 | `./restore.sh backups/<파일>` → 표별 행 수(일회용 컨테이너·볼륨은 지워진다). 실제 DB 와 몇 표만 견준다: `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select count(*) from accounts"` |
 | 비상 복원 | `./restore.sh backups/<파일> --into-live` (확인 문구를 받고, 지금 DB 를 `backups/before-restore-*.dump` 로 먼저 남기고, 그동안 서버를 멈춘다. 한 트랜잭션이라 실패하면 DB 는 그대로다) |
 | 재부팅 뒤 | `docker compose ps` 로 셋 다 다시 떴는지 본다(`restart: unless-stopped`) |
+| 처음 초기화가 실패하면 | `docker compose ps` 에서 postgres 가 unhealthy, `docker compose logs postgres` 에 `initdb:` 안내가 있다. 데이터가 아직 없으니 `docker compose down && docker volume rm byeolmyeong_postgres-data` 후 `.env` 를 고치고 다시 띄운다. **데이터가 들어간 뒤에는 볼륨을 지우지 않는다** |
+| 서버가 일반 계정으로 붙는지 확인 | `docker compose exec postgres psql -U postgres -tAc "select rolsuper from pg_roles where rolname = '<DB 사용자>'"` → `f`. `t` 이거나 오류면 예전 방식(서버 계정 = 최고 관리자)으로 만든 볼륨이다. 운영 데이터가 없으면 위처럼 다시 만들고, 있으면 덤프 → 새 볼륨 → 복원으로 옮긴다 |
 
 - 운영 덤프는 운영 VM 밖으로 옮기지 않는다(출생 정보). VM 을 잃었을 때만 버킷에서 내려받아 새 VM 에 올리고, 옮긴 컴퓨터의 사본은 바로 지운다. `before-restore-*.dump` 는 자동으로 지워지지 않으니 필요 없어지면 지운다.
 - 스테이징 VM 이 회수되면 (가) 4·8·9 를 다시 하고 `develop` 합치기 한 번으로 올린다. 데이터는 버린다.
