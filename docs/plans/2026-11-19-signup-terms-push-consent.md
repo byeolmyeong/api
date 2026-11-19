@@ -68,7 +68,7 @@ last_reviewed: 2026-11-19
 - 할 것: 응답에 `pushConsent: boolean` · `pushConsentAt: string | null` · `avatar: number | null`, `PATCH /account { pushConsent?, avatar? }`. 같은 값이면 일시 그대로, 바뀔 때만 `PUSH_CONSENT_CHANGED`. 계약 표 같은 커밋.
 - 검증: 빨강 → 초록. 켜고 끄면 일시가 생기고 사라짐, 같은 값이면 그대로, 세션 없으면 401
 
-### 5. delete-account · 상태: 대기
+### 5. delete-account · 상태: 완료
 - 할 것: `DELETE /account` 뒤 그 계정의 약관 · 푸시 칸이 남지 않는지 테스트(계정 행과 함께 지워진다). 감사 기록은 결정 015 대로 남는다.
 - 검증: 탈퇴 뒤 해당 칸 0건
 
@@ -97,3 +97,4 @@ last_reviewed: 2026-11-19
 - 2: `V21__terms_push_avatar.sql`(여섯 칸, null 허용, `avatar` 1~8 check, backfill 없음) · 테스트 `TermsPushAvatarMigrationIntegrationTest`(깨끗한 DB + 같은 DB 의 다른 스키마에서 V19 · V20 까지 돌린 뒤 올리기). 빨강 `tests 2 fail 2`(칸 없음) → 초록 `tests 2 fail 0`. 아키텍처 "데이터" 의 `accounts` 칸 갱신.
 - 3: `POST /auth/signup` 에 `avatar`(필수 1~8) · `termsVersion` · `privacyVersion`(필수, 설정과 같아야) · `pushConsent`(선택). 판정 순서 가입권 → 약관 → 닉네임 → 프로필 → 출생 정보 → 만 14세. 새 계정에만 저장, `TERMS_AGREED`(버전만). 설정이 비면 시작 실패(`LegalVersions`). 빨강 `SocialLoginIntegrationTest tests 34 fail 7` · `LegalVersionsStartupTest tests 1 fail 1` → 초록 가입 34 · 애플 11 · 시작 1 · 속도 제한 1 · 공개 경로 3 모두 fail 0. 기존 가입 요청(소셜 · 애플)에 약관 버전 · 프로필을 더함.
 - 4: `GET /account` 에 `pushConsent` · `pushConsentAt` · `avatar`, `PATCH /account { pushConsent?, avatar? }`(같은 값이면 일시 그대로, 바뀔 때만 `PUSH_CONSENT_CHANGED`, 프로필 범위 밖이면 400 `INVALID_AVATAR` 이고 같이 보낸 칸도 그대로). 빨강 `AccountApiIntegrationTest tests 11 fail 3` → 초록 `tests 11 fail 0`.
+- 5: 테스트만(계정 행 삭제로 지워지는 기존 동작). 탈퇴 뒤 약관 · 푸시 · 프로필 칸 0건, `TERMS_AGREED` 1건 그대로(결정 015). 빨강은 삭제를 잠깐 막아(커밋 안 함) `tests 1 fail 1`("그 계정의 칸이 남지 않는다")로 확인 → 되돌려 `SocialLoginIntegrationTest tests 35 fail 0`.

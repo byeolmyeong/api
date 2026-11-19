@@ -526,6 +526,27 @@ class SocialLoginIntegrationTest {
 	}
 
 	@Test
+	fun `탈퇴하면 약관 · 푸시 동의 · 프로필 칸이 계정과 함께 지워지고 감사 기록 TERMS_AGREED 는 남는다(결정 026 · 015)`() {
+		val created = signup(signupToken("bye-terms"), adult(), extra = ",\"pushConsent\":true")
+		assertEquals(201, created.statusCode())
+		val owner = accountColumn("bye-terms", "id").toString()
+		val agreed = { jdbc.queryForObject("select count(*) from audit_logs where action = 'TERMS_AGREED' and actor_id = ?", Int::class.java, owner) }
+		assertEquals(1, agreed())
+
+		assertEquals(204, http(port, "DELETE", "/account", token = json(created.body())["token"].asString()).statusCode())
+
+		val left = jdbc.queryForObject(
+			"""
+			select count(*) from accounts where id = ?::uuid or terms_version is not null or terms_agreed_at is not null
+			or privacy_version is not null or privacy_agreed_at is not null or push_consented_at is not null or avatar is not null
+			""".trimIndent(),
+			Int::class.java, owner,
+		)
+		assertEquals(0, left, "그 계정의 칸이 남지 않는다")
+		assertEquals(1, agreed(), "감사 기록은 계정과 함께 지워지지 않는다")
+	}
+
+	@Test
 	fun `구글 계정을 지울 때는 카카오를 부르지 않는다`() {
 		val token = json(signup(signupToken("g9"), adult()).body())["token"].asString()
 		assertEquals(204, http(port, "DELETE", "/account", token = token).statusCode())
