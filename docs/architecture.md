@@ -21,7 +21,7 @@ last_reviewed: 2026-11-12
 - `chart` — 계산. 순수 함수만 둔다(입력: UTC 시각·위경도 → 출력: 차트·변곡점 구간·궁합 점수). DB·HTTP·AI·Spring 을 모른다. 이유: 계산 정확도가 제품의 신뢰이고 기준값 테스트로 혼자 검증돼야 한다.
 - `birth` — 출생지 목록과 시각 변환(`java.time` 의 시간대 이력), 그리고 저장된 출생 정보를 읽고 쓰는 한 곳(`BirthProfileService`). 저장된 출생 정보에서 차트 입력과 "같은 차트" 를 가리는 해시(`ChartInput`)를 얻는 곳도 여기다. 해석·리포트·궁합이 모두 소유자의 출생 정보를 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다.
 - `web` — HTTP 공통: 오류 응답 모양(`ErrorResponse`·`BadRequestException`·`NotFoundException`), 출생 정보 요청 검증(`BirthRequestParser`), 요청 속도 제한, CORS(앱의 주소와 관리 화면의 주소를 경로로 나눈다), 지금의 `POST /charts` 컨트롤러. 감사 기록을 남겨 달라는 이벤트의 타입(`AuditEvent`·`AuditAction`·`AuditActor`)과 관리자에게 사용자를 가리키는 말(`ownerRef`)도 여기 둔다 — 기능 패키지와 `auth` 가 모두 써야 하는데 둘 다 쓸 수 있는 곳이 여기뿐이다(결정 015). 앱 버전을 읽고 견주는 순수 함수(`parseAppVersion`, 결정 016)도 여기 있다 — 최소 버전을 넣는 `admin` 과 요청의 버전을 보는 `appconfig` 가 같이 쓴다. `auth` 를 모른다.
-- `auth` — 세션 발급·검증, 세션 검사(`SessionInterceptor`: 로그인 전에 쓰는 경로 목록에 없으면 모두 세션 필요. `GET /faqs`·`GET /app-config` 는 GET 만 열고, `/admin/**` 는 보지 않는다 — 관리자 세션 검사가 맡는다), 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 계정 삭제(`DELETE /account` — 지우기 전에 카카오 연결 끊기·애플 토큰 철회), 구글·애플·카카오 토큰 검증·가입권·만 14세 판정·쿠키 세션·세션 만료·애플 서버 알림(결정 021).
+- `auth` — 세션 발급·검증, 세션 검사(`SessionInterceptor`: 로그인 전에 쓰는 곳을 "메서드 + 경로"(`PUBLIC_ENDPOINTS`)로 정하고, 거기 없는 요청은 모두 세션 필요 — 같은 경로라도 열지 않은 메서드는 세션이 있어야 한다. HEAD 는 GET 과 같이 연다. `/admin/**` 는 보지 않는다 — 관리자 세션 검사가 맡는다), 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 계정 삭제(`DELETE /account` — 지우기 전에 카카오 연결 끊기·애플 토큰 철회), 구글·애플·카카오 토큰 검증·가입권·만 14세 판정·쿠키 세션·세션 만료·애플 서버 알림(결정 021).
 - `profile` — 내 출생 정보 저장·조회의 HTTP 입구(`GET`·`PUT /profile`). 저장 자체는 `birth.BirthProfileService` 가 한다.
 - `generation` — 글 생성 공통: 공급자를 가리는 인터페이스 `TextGenerator`(지시문·차트 글·JSON 구조를 받아 JSON 을 돌려준다)와 그 Claude 구현, 계산한 것을 프롬프트 글로 옮기는 것(차트 `chartFacts`, 시기 한 줄 `timelineFact`, 두 차트 사이의 연결 `synastryFactsText`), 근거에 쓰는 말(`Basis.kt`). 해석·리포트·궁합 글·방향성 제시가 같이 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다. `chart` 만 안다(소유자·저장·HTTP 를 모른다).
 - `reading` — 요약 해석 생성·저장. 요약 해석에만 있는 것(지시문, 돌려받을 구조, 문단·강점·보완점 개수 검증)을 갖고, 생성은 `generation.TextGenerator` 로 한다.
@@ -94,25 +94,25 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /faqs` | 없음 | 없음 | `[{ id, question, answer }]` 공개한 것만 순서대로 · 하나도 없으면 `[]` · 아래 "자주 묻는 질문" |
 | `GET /app-config` | 없음 | 없음 | 200 `{ ios: PlatformConfig, android: PlatformConfig, maintenance: { active, message } }` · 아래 "앱 설정과 강제 업데이트" |
 | `POST /charts` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | `Chart` |
-| `POST /auth/dev` | 없음 | 없음 · 또는 `{ cookie: true }` | `{ token }` · `cookie` 면 본문 `{}` 와 쿠키 · 개발 설정에서만, 운영 404 (결정 005) |
+| `POST /auth/dev` | 없음 | 없음 · 또는 `{ cookie: true }` | `{ token }` · `cookie` 면 본문 `{}` 와 쿠키 · 개발 설정에서만, 꺼져 있으면 404 (결정 005). 켜는 것은 `DEPLOY_ENV` 가 local·staging 일 때만 — 그 밖에서 켜면 서버가 시작하지 않는다(결정 022) |
 | `POST /auth/login` | 없음 | `{ provider: GOOGLE \| APPLE \| KAKAO, idToken?, code?, redirectUri?, authorizationCode?, cookie? }` · `idToken` 이나 (`code` + `redirectUri`) 중 하나 — `code` 는 KAKAO 웹만 · `authorizationCode` 는 APPLE 만(웹은 그 로그인의 `redirectUri` 를 함께) | 200 `{ status: SIGNED_IN, token? }`(계정이 있다 · `cookie` 면 `token` 없이 쿠키) · 200 `{ status: SIGNUP_REQUIRED, signupToken, expiresAt }`(계정이 없다 · 30분 · 1회용) · 아래 "로그인과 가입" |
 | `POST /auth/signup` | 없음 | `{ signupToken, date, time \| null, placeId \| null, cookie? }` · 출생 정보 규칙은 `PUT /profile` 과 같다 | 201 `{ token? }` · 만 14세 미만 403 `UNDER_AGE`(계정·출생 정보 0건) · 아래 "로그인과 가입" |
 | `GET /auth/session` · `DELETE /auth/session` | 세션 | 없음 | 204 · 204(이 세션만 지운다 · 쿠키도 지운다) |
 | `POST /auth/apple/notifications` | 없음(애플 서명) | `{ payload }` — 애플이 서명한 JWT | 200 · 애플 알림이 아니면 400 `INVALID_NOTIFICATION`(본문이 JSON 이 아니면 400 `INVALID_REQUEST`) · 점검 중에도 받는다 · 아래 "로그인과 가입" |
 | `GET /profile` · `PUT /profile` | 세션 | `{ date, time \| null, placeId \| null }` · `placeId` 는 `time` 이 있을 때만 필수 | 같은 형태 · `time` 이 `null` 이면 `placeId` 도 `null` · 저장한 적 없으면 `GET` 은 404 `NO_PROFILE` · `PUT` 의 400 은 `POST /charts` 와 같다 · 한국 날짜 기준 만 14세 미만 날짜면 `PUT` 은 403 `UNDER_AGE` 이고 있던 것은 그대로다(결정 021) |
 | `DELETE /account` | 세션 | 없음 | 204 · 카카오 계정은 연결 끊기, 애플 계정은 토큰 철회를 먼저 부른다(실패해도 지운다) · 웹의 쿠키도 지운다 |
-| `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트는 저장된 글을 바로 준다 |
-| `POST /reports` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "리포트 상태" |
+| `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트는 저장된 글을 바로 준다 · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
+| `POST /reports` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "리포트 상태" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `GET /reports/me` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report? }` · 지금 프로필의 차트 기준 · `report` 는 `DONE` 일 때만(`sections` 와 `timing` 이 언제나 함께 온다) · 저장한 출생 정보가 없으면 `NONE` |
-| `POST /synastry/direct` | 세션 | `{ name, relation: LOVE \| FRIEND \| WORK \| FAMILY, date, time \| null, placeId? }` (상대의 출생 정보) | 200 `Synastry` + `overlay` · 아래 "궁합(직접 입력)" |
+| `POST /synastry/direct` | 세션 | `{ name, relation: LOVE \| FRIEND \| WORK \| FAMILY, date, time \| null, placeId? }` (상대의 출생 정보) | 200 `Synastry` + `overlay` · 아래 "궁합(직접 입력)" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `POST /synastry/invites` | 세션 | `{ name }` | `{ inviteId, expiresAt }` |
 | `GET /invites/{inviteId}` | 없음 | 없음 | `{ inviterName, status }` |
 | `POST /invites/{inviteId}/accept` | 세션 | `{ name }` | `Synastry` |
 | `GET /synastry` · `GET /synastry/{id}` | 세션 | 없음 | `[Synastry]` 새것부터 · `Synastry` · 둘 다 `overlay` 없음 · 남의 것·없는 것 404 `NOT_FOUND` |
 | `GET /synastry/ranking?relation=` | 세션 | 관계 유형(필수) | `[{ id, name, score, scoreLabel?, keywords[3] }]` 점수가 높은 순(같으면 먼저 만든 것), 인원 제한 없음 · 유형이 없거나 틀리면 400 `INVALID_RELATION` |
 | `DELETE /synastry/{id}` | 세션 | 없음 | 204 · 남의 것·없는 것·UUID 가 아닌 값 404 `NOT_FOUND` · 아래 "궁합 지우기" |
-| `POST /directions` | 세션 | `{ topic: LOVE }` · `{ topic: FUTURE }` (둘 다 프로필의 출생 정보를 쓴다) · `{ topic: SYNASTRY, synastryId, date?, time? \| null, placeId? }` (`date`·`time`·`placeId` 는 **상대의** 출생 정보이고 그 궁합의 글을 처음 만들 때만 필요하다) | 200 `Direction` · `topic` 이 없거나 받는 값이 아니면 400 `INVALID_TOPIC` · 본문이 JSON 이 아니면 400 `INVALID_REQUEST` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 만든 글이 있으면 바로 준다 · `SYNASTRY` 에만 있는 오류와 주제별 규칙은 아래 "방향성 제시" |
-| `POST /synastry/{id}/report` | 세션 | `{ date, time \| null, placeId? }` (상대의 출생 정보를 다시 보낸다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 아래 "궁합 리포트" |
+| `POST /directions` | 세션 | `{ topic: LOVE }` · `{ topic: FUTURE }` (둘 다 프로필의 출생 정보를 쓴다) · `{ topic: SYNASTRY, synastryId, date?, time? \| null, placeId? }` (`date`·`time`·`placeId` 는 **상대의** 출생 정보이고 그 궁합의 글을 처음 만들 때만 필요하다) | 200 `Direction` · `topic` 이 없거나 받는 값이 아니면 400 `INVALID_TOPIC` · 본문이 JSON 이 아니면 400 `INVALID_REQUEST` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 만든 글이 있으면 바로 준다 · `SYNASTRY` 에만 있는 오류와 주제별 규칙은 아래 "방향성 제시" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
+| `POST /synastry/{id}/report` | 세션 | `{ date, time \| null, placeId? }` (상대의 출생 정보를 다시 보낸다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 아래 "궁합 리포트" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `GET /synastry/{id}/report` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report? }` · `report` 는 `DONE` 일 때만 · 남의 것·없는 것 404 `NOT_FOUND` |
 | `POST /inquiries` | 세션 | `{ category: ACCOUNT \| READING \| SYNASTRY \| BUG \| OTHER, body, replyEmail? \| null }` | 201 `{ id }` · 아래 "문의하기" |
 | `POST /shares` | 세션 | `{ kind: READING }` · `{ kind: SCORE, synastryId, myName }` · `{ kind: RANKING, relation, showNames? }` · `{ kind: NEXT_TURN }` | 200 `{ shareId, card }` · `card` 는 `ShareCard` · 공유할 글이 없거나 남의 것이면 404 `NOT_FOUND` · 아래 "공유" |
@@ -135,7 +135,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - 시각이 `null`(모름)이면 `timeKnown: false` 이고 `house`·`houses`·`angles` 키와 `FORTUNE`·`VERTEX` 점이 없다(값이 `null` 인 키를 보내지 않는다).
 - `POST /charts`·`PUT /profile` 요청: `date` 는 `YYYY-MM-DD`, `time` 은 `HH:mm` 또는 `null`, `placeId` 는 `GET /places` 의 `id`(정수).
 - 태어난 시각을 모르면 태어난 곳을 받지 않는다(결정 007): `time` 이 `null`(또는 키 없음)이면 `placeId` 는 없어도 되고, 보내도 읽지 않으며(목록에 없는 id 여도 400 이 아니다) 저장하지 않는다. 그때 `GET`·`PUT /profile` 의 응답은 `placeId: null` 이다. `time` 이 있으면 `placeId` 는 필수이고 없거나 `null` 이거나 목록에 없으면 400 `UNKNOWN_PLACE` 다. 시각을 모르는 날의 기준 시각은 한국 표준시 정오다.
-- 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`·`UNKNOWN_PLACE`. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
+- 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`(형식은 `HH:mm` 만 — 초가 붙으면 안 된다, 날짜가 오늘(한국 시각)이면 아직 오지 않은 시각)·`UNKNOWN_PLACE`. 출생 정보를 받는 다른 경로(`PUT /profile`·`POST /synastry/direct` 등)의 `INVALID_TIME` 도 같다. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
 - `GET /places?q=`: 검색어를 공백으로 나눈 낱말이 이름에 모두 든 곳을 20개까지. `q` 가 없으면 전체 목록(229곳)을 준다. 앱의 출생지 고르기 화면이 쓴다. `name` 은 `시·도 시·군·구` 꼴이고 세종만 `세종특별자치시` 한 낱말이다.
 - `Reading` = `{ headline, sections[{ title, body, basis[] }], strengths[], cautions[], shareId }`. `shareId` 는 **더 쓰지 않는다**(결정 012): 공유 주소가 아니고 `GET /shared/{그 값}` 은 404 다. 공유는 `POST /shares` 로 만든다. 앱이 읽지 않게 되면 응답에서 뺀다 [확인 필요].
 - 궁합 지우기 `DELETE /synastry/{id}` (2026-11-12 구현, 결정 019): 소유자만 지운다. 204(본문 없음). 남의 것·없는 것·이미 지운 것·UUID 가 아닌 값은 모두 404 `NOT_FOUND` 다. 되돌릴 수 없다.
@@ -502,9 +502,9 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 
 ## 요청 속도 제한 (남용 방지, 서버에서만 판정한다)
 - 리포트·궁합·방향성 제시에 기능 횟수 제한은 없다(앱 결정 011). 같은 차트·같은 두 사람의 글은 한 번만 만든다(방향성 제시의 미래 주제는 지금의 시기가 같은 동안 한 번, 궁합 주제는 궁합마다 한 번).
-- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다)·`GET /faqs`(주소별, `faqs-per-minute` 120)·`GET /app-config`(주소별, `app-config-per-minute` 120)·`GET /shared/{shareId}`(주소별 `shared-per-minute`, 식별자를 마구 넣어 보는 것을 늦춘다)·`POST /auth/login` + `POST /auth/signup`(합쳐 주소별 `auth-per-minute` 30 — 카카오 웹 코드는 확인 전에 카카오를 부른다, 결정 021). 주소는 연결의 상대 주소(`remoteAddr`)라 프록시 뒤에서는 전달 헤더 설정이 있어야 주소별이 된다.
+- 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다)·`GET /faqs`(주소별, `faqs-per-minute` 120)·`GET /app-config`(주소별, `app-config-per-minute` 120)·`GET /shared/{shareId}`(주소별 `shared-per-minute`, 식별자를 마구 넣어 보는 것을 늦춘다)·`POST /auth/login` + `POST /auth/signup`(합쳐 주소별 `auth-per-minute` 30 — 카카오 웹 코드는 확인 전에 카카오를 부른다, 결정 021). 주소는 연결의 상대 주소(`remoteAddr`)라 프록시 뒤에서는 전달 헤더 설정이 있어야 주소별이 된다 — 배포 VM 은 Caddy 뒤라 `SERVER_FORWARD_HEADERS_STRATEGY=native` 를 준다(`deploy/compose.yaml`, 결정 020).
 - 관리자 로그인(`POST /admin/auth/login`)은 10분에 주소별 `byeolmyeong.rate-limit.admin-login-per-ip`(20)번·아이디별 `admin-login-per-id`(5)번까지다. `admin.AdminAuthService` 가 같은 `web.RateLimiter` 를 쓴다(결정 014).
-- 계정별 제한은 `POST /inquiries` 하나뿐이다: 소유자 id 별로 한 시간에 `byeolmyeong.rate-limit.inquiries-per-hour`(5)건, 같은 `web.RateLimiter`(고정 창, 서버 메모리)를 `inquiry.InquiryService` 가 쓴다(결정 013). 다른 엔드포인트의 계정별 제한은 미뤄져 있다(계획 "배포 전 확인" 1번).
+- 계정별 제한은 둘이다. ① `POST /inquiries`: 소유자 id 별로 한 시간에 `byeolmyeong.rate-limit.inquiries-per-hour`(5)건, 같은 `web.RateLimiter`(고정 창, 서버 메모리)를 `inquiry.InquiryService` 가 쓴다(결정 013). ② 생성 기능(결정 022): 모델을 부르는 `POST /readings`·`POST /reports`·`POST /directions`·`POST /synastry/direct`·`POST /synastry/{id}/report` 를 한 계정이 합쳐서 분당 `generation-per-minute`(5)·시간당 `generation-per-hour`(30)번까지, 넘으면 429 `RATE_LIMITED`. 모델을 실제로 부르는 요청만 센다(결정 023): 각 서비스가 저장본이 없음을 확인하고 생성을 시작하기 직전에 `web.GenerationQuota` 로 소유자 id 를 한 번 센다(재시도·여러 영역도 한 번). 저장본을 돌려준 요청·404 는 세지 않는다. 리포트·궁합 리포트는 자리를 잡은 뒤 세고, 넘으면 그 자리를 실패로 돌린다. 기능 횟수 제한이 아니라 남용을 막는 속도 제한이다(결정 003).
 - 광고 시청 판정은 1.1.0 에 더한다(앱 결정 015).
 
 ## 외부 시스템

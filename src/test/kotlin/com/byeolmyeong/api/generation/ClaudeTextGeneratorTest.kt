@@ -149,6 +149,21 @@ class ClaudeTextGeneratorTest {
 	}
 
 	@Test
+	fun `응답의 필드를 읽다 SDK 예외가 나도 실패로 알린다`() {
+		// 꼭 있어야 하는 usage 가 없다. SDK 는 그 필드를 읽을 때 예외를 던진다(배포 전 확인 6).
+		responseBody = mapper.writeValueAsString(
+			mapOf(
+				"id" to "msg_1", "type" to "message", "role" to "assistant", "model" to "test-model",
+				"content" to listOf(mapOf("type" to "text", "text" to "{}")), "stop_reason" to "end_turn", "stop_sequence" to null,
+			),
+		)
+
+		val e = assertFailsWith<GenerationException> { generator().generate(request) }
+
+		assertEquals("SDK", e.reason)
+	}
+
+	@Test
 	fun `429 는 한 번만 부르고 실패로 알린다`() {
 		status = 429
 		responseBody = """{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}"""

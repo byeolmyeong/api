@@ -27,9 +27,7 @@ import tools.jackson.databind.json.JsonMapper
 import java.security.MessageDigest
 import java.util.HexFormat
 import java.util.UUID
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -140,6 +138,50 @@ class ReadingApiIntegrationTest {
 		assertTrue(json["shareId"].asString().length >= 22, "공유 식별자는 무작위 16바이트 이상")
 	}
 
+	/** 같은 계정이 동시에 두 번 부른다. 두 요청이 생성기 안에서 겹치도록 생성기를 느리게 한다. */
+	private fun readTwiceAtOnce(token: String): List<java.net.http.HttpResponse<String>> {
+		val start = java.util.concurrent.CountDownLatch(1)
+		val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+		try {
+			val futures = (1..2).map { pool.submit<java.net.http.HttpResponse<String>> { start.await(); read(token) } }
+			start.countDown()
+			return futures.map { it.get(60, java.util.concurrent.TimeUnit.SECONDS) }
+		} finally {
+			pool.shutdownNow()
+		}
+	}
+
+	@Test
+	fun `같은 계정이 같은 요약 해석을 동시에 두 번 부르면 모델은 한 번만 불리고 둘 다 같은 글을 받는다`() {
+		val token = tokenWithProfile(KNOWN)
+		generator.respond = { prompt, call -> Thread.sleep(1500); validDraft(prompt, call) }
+
+		val (first, second) = readTwiceAtOnce(token)
+
+		assertEquals(200, first.statusCode(), first.body())
+		assertEquals(200, second.statusCode(), second.body())
+		assertEquals(first.body(), second.body())
+		assertEquals(1, generator.prompts.size, "뒤의 요청은 진행 중인 생성을 기다린다(결정 022)")
+		assertEquals(1, rows())
+	}
+
+	@Test
+	fun `동시에 기다리던 요청도 같은 실패를 받고, 그 뒤 요청은 다시 생성한다`() {
+		val token = tokenWithProfile(KNOWN)
+		generator.respond = { _, _ -> Thread.sleep(500); null }
+
+		val (first, second) = readTwiceAtOnce(token)
+
+		assertEquals(502, first.statusCode())
+		assertEquals(502, second.statusCode())
+		val attemptsOfOneGeneration = generator.prompts.size
+		assertTrue(attemptsOfOneGeneration in 1..3, "한 번의 생성만 돌았다(시도 $attemptsOfOneGeneration 번)")
+
+		generator.respond = ::validDraft
+		assertEquals(200, read(token).statusCode(), "실패한 생성의 진행 표시는 지워져 다시 만든다")
+		assertEquals(attemptsOfOneGeneration + 1, generator.prompts.size)
+	}
+
 	@Test
 	fun `출생 정보를 바꾸면 새 차트의 글을 만들고 되돌리면 예전 글이 나온다`() {
 		val token = tokenWithProfile(KNOWN)
@@ -156,29 +198,6 @@ class ReadingApiIntegrationTest {
 		http(port, "PUT", "/profile", KNOWN, token)
 		assertEquals(original, read(token).body())
 		assertEquals(2, generator.prompts.size, "다시 생성하지 않는다")
-	}
-
-	@Test
-	fun `동시에 온 두 요청은 한 행만 남기고 같은 글을 받는다`() {
-		val token = tokenWithProfile(KNOWN)
-		// 두 요청이 모두 "저장본 없음"을 본 뒤 생성에 들어오게 붙잡는다
-		val bothGenerating = CyclicBarrier(2)
-		generator.respond = { prompt, call ->
-			bothGenerating.await(10, TimeUnit.SECONDS)
-			validDraft(prompt, call)
-		}
-
-		val a = CompletableFuture.supplyAsync { read(token) }
-		val b = CompletableFuture.supplyAsync { read(token) }
-		val first = a.get(20, TimeUnit.SECONDS)
-		val second = b.get(20, TimeUnit.SECONDS)
-
-		assertEquals(200, first.statusCode(), first.body())
-		assertEquals(200, second.statusCode(), second.body())
-		assertEquals(2, generator.prompts.size, "둘 다 생성했다(글은 서로 다르다)")
-		assertEquals(1, rows())
-		assertEquals(first.body(), second.body())
-		assertEquals(first.body(), read(token).body(), "둘 다 저장된 글을 받았다")
 	}
 
 	@Test

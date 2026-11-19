@@ -25,6 +25,10 @@ class ErrorResponses {
 	fun notFound(e: NotFoundException): ResponseEntity<ErrorResponse> =
 		ResponseEntity.status(404).body(ErrorResponse(e.code))
 
+	@ExceptionHandler(GenerationRateLimitedException::class)
+	fun generationRateLimited(): ResponseEntity<ErrorResponse> =
+		ResponseEntity.status(429).body(ErrorResponse("RATE_LIMITED"))
+
 	// 본문이 JSON 이 아니거나 타입이 틀린 경우. 기본 처리기는 입력 조각이 든 메시지를 경고 로그로 남기므로 여기서 받는다.
 	@ExceptionHandler(HttpMessageNotReadableException::class)
 	fun unreadable(): ResponseEntity<ErrorResponse> =

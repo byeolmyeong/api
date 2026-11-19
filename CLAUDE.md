@@ -12,10 +12,11 @@
 - 지금 할 일 → docs/plans/2026-11-10-api-mvp.md
 - 코드 어디서 시작할지 모를 때 → docs/codebase-map.md (`/agent-codebase bootstrap` 이 만든다)
 - "왜 이렇게 됐나"가 궁금할 때 → docs/decisions/ ADR 번호순. 바뀌면 새 번호로 대체. 종합된 답은 docs/synthesis/.
+- 배포·서버 운영(스테이징·운영 VM, 백업·복원)을 할 때 → docs/deploy.md (결정 020)
 
 ## 디렉터리 (이름이 곧 지시)
 - `src/main/kotlin/` 서버 코드 · `src/main/resources/` 설정·프롬프트·DB 마이그레이션 · `src/test/kotlin/` 검증. 패키지 뿌리 `com.byeolmyeong.api`
-- `docs/` agent가 참고할 문서 · `docs/raw/` 원본(던지는 곳, 고치지 않음) · `.claude/` 설정·규칙·스킬·에이전트·훅 · `build/` 생성물(커밋 안 함)
+- `docs/` agent가 참고할 문서 · `docs/raw/` 원본(던지는 곳, 고치지 않음) · `deploy/` 스테이징·운영 VM 의 compose·스크립트 · `.claude/` 설정·규칙·스킬·에이전트·훅 · `build/` 생성물(커밋 안 함)
 
 ## 스택
 Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · Claude API(글 생성, 결정 006). 버전은 docs/decisions/001-spring-boot-postgres.md
@@ -24,6 +25,7 @@ Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · Claude API(
 - 개발: `./gradlew bootRun` · 빌드·테스트: `./gradlew build` · 테스트만: `./gradlew test`
 - 테스트는 Docker 가 떠 있어야 한다(Testcontainers).
 - 로컬 DB: `docker compose up -d`(`.env` 의 `DATABASE_USERNAME`·`DATABASE_PASSWORD` 를 읽는다). 환경 변수 이름은 .env.example
+- 배포: `develop` 에 합쳐지고 CI 통과 → 스테이징, `main` 에 합쳐지고 CI 통과 → 운영(`.github/workflows/deploy.yml`, 저장소 변수 `DEPLOY_ENABLED=true` 일 때만). 배포물은 `./gradlew bootJar` 의 `build/libs/app.jar`
 
 ## 도구 (.claude/)
 - 스킬 `/plan-feature`(킷 제공): 한 커밋을 넘는 요청은 바로 만들지 않는다. `docs/plans/`에 계획 파일 → 승인 → 실행 → 검증.
@@ -41,6 +43,6 @@ Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · Claude API(
 - API 키는 환경 변수에만 둔다. 출생 정보는 로그에 남기지 않는다.
 - API 계약(경로·요청·응답)을 바꾸면 docs/architecture.md 의 계약 표를 같은 커밋에서 고치고, 앱 저장소에 맞춤 변경이 필요하다고 보고한다.
 - 결정이 바뀌면 코드보다 먼저 docs/decisions/에 새 ADR. 원본은 docs/raw/, 종합은 docs/synthesis/.
-- 커밋: 한국어 + Conventional Commits. 한 커밋 = 한 관심사. 작업 브랜치에서 한다.
+- 커밋: 한국어 + Conventional Commits. 한 커밋 = 한 관심사. 작업 브랜치에서 하고 PR 은 `develop` 으로(`gh pr create --base develop`, 스테이징). `develop` → `main` 은 운영 배포다.
 - 한 커밋을 넘는 일은 /plan-feature 로 계획을 승인받고 실행한다. 완료라고 말하기 전에 /verify 를 이번에 돌린다.
 - 이 파일은 80줄을 넘기지 않는다. 긴 설명은 docs/ 에 두고 여기서는 가리키기만 한다.
