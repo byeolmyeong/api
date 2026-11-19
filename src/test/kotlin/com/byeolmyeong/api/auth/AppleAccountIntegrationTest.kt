@@ -110,7 +110,7 @@ class AppleAccountIntegrationTest {
 
 	private fun signUp(sub: String, code: String?, date: String = "1995-05-05"): Int {
 		val ticket = mapper.readTree(login(sub, code).body())["signupToken"].asString()
-		return http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"$date","time":null,"placeId":null}""").statusCode()
+		return http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"$date","time":null,"placeId":null,"nickname":"별이"}""").statusCode()
 	}
 
 	private fun sessionToken(sub: String, code: String? = null): String = mapper.readTree(login(sub, code).body())["token"].asString()

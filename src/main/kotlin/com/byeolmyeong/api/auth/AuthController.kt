@@ -35,8 +35,16 @@ data class LoginResponse(val status: String, val token: String? = null, val sign
 /** 애플 서버 알림의 본문. */
 data class AppleNotificationRequest(val payload: String?)
 
-/** `POST /auth/signup`. 출생 정보는 `PUT /profile` 과 같은 칸이다. */
-data class SignupRequest(val signupToken: String?, val date: String?, val time: String?, val placeId: Int?, val cookie: Boolean?)
+/** `POST /auth/signup`. 출생 정보는 `PUT /profile` 과 같은 칸이다. 닉네임은 필수, 마케팅 수신 동의는 선택(결정 025). */
+data class SignupRequest(
+	val signupToken: String?,
+	val date: String?,
+	val time: String?,
+	val placeId: Int?,
+	val nickname: String? = null,
+	val marketingConsent: Boolean? = null,
+	val cookie: Boolean?,
+)
 
 @RestController
 class AuthController(
@@ -68,7 +76,7 @@ class AuthController(
 	/** 가입(결정 021). 만 14세 이상일 때만 계정·출생 정보·세션을 만든다. */
 	@PostMapping("/auth/signup")
 	fun signup(@RequestBody request: SignupRequest, response: HttpServletResponse): ResponseEntity<TokenResponse> {
-		val session = login.signup(request.signupToken, BirthRequest(request.date, request.time, request.placeId))
+		val session = login.signup(request.signupToken, BirthRequest(request.date, request.time, request.placeId), request.nickname, request.marketingConsent == true)
 		return ResponseEntity.status(HttpStatus.CREATED).body(deliver(session, request.cookie == true, response))
 	}
 

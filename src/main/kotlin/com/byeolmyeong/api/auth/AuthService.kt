@@ -130,6 +130,14 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 		jdbc.update("update accounts set email = ? where id = ? and email is distinct from ?", email, id, email)
 	}
 
+	/** 가입할 때 닉네임과 마케팅 수신 동의 일시(null = 동의 안 함)를 둔다(결정 025). 값은 로그에 남기지 않는다. */
+	fun setNicknameAndConsent(id: UUID, nickname: String, marketingConsentedAt: java.time.Instant?) {
+		jdbc.update(
+			"update accounts set nickname = ?, marketing_consented_at = ? where id = ?",
+			nickname, marketingConsentedAt?.let { java.sql.Timestamp.from(it) }, id,
+		)
+	}
+
 	/** 공급자·사용자의 계정. 없으면 null. */
 	fun find(provider: String, providerUserId: String): UUID? = jdbc.queryForList(
 		"select id from accounts where provider = ? and provider_user_id = ?", UUID::class.java, provider, providerUserId,
