@@ -41,3 +41,19 @@ private fun aspectBetween(first: PlanetPosition, second: PlanetPosition): Aspect
 		applying = (separation - type.angle) * separationSpeed < 0.0,
 	)
 }
+
+/** 상승점·중천. */
+enum class ChartAngle { ASC, MC }
+
+/** 천체와 상승점·중천 사이의 각도. [orb] 는 정확한 각도에서 벗어난 크기(도). */
+data class AngleAspect(val body: Body, val angle: ChartAngle, val type: AspectType, val orb: Double)
+
+/** [positions] 의 천체가 [houses] 의 상승점·중천과 이루는 각도. 허용 범위는 천체 사이와 같다([AspectType]). */
+fun computeAngleAspects(positions: List<PlanetPosition>, houses: Houses): List<AngleAspect> =
+	positions.flatMap { position ->
+		listOf(ChartAngle.ASC to houses.ascendant, ChartAngle.MC to houses.midheaven).mapNotNull { (angle, longitude) ->
+			val separation = abs(signedDifference(position.longitude, longitude))
+			AspectType.entries.firstOrNull { abs(separation - it.angle) <= it.maxOrb }
+				?.let { type -> AngleAspect(position.body, angle, type, abs(separation - type.angle)) }
+		}
+	}

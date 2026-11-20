@@ -93,13 +93,13 @@ class ShareApiIntegrationTest {
 		val body = mapOf(
 			"headline" to "조용히 깊어지는 사람",
 			"sections" to listOf("단단한 중심", "섬세한 마음", "부드러운 첫인상", "몰입하는 힘", "내려놓는 연습").map {
-				mapOf("title" to it, "body" to READING_BODY, "basis" to listOf(BASIS, "태양"))
+				mapOf("title" to it, "body" to READING_BODY, "reason" to mapOf("when" to "BIRTH", "items" to listOf(mapOf("kind" to "PLACEMENT", "body" to "SUN", "sign" to "PISCES"))))
 			},
 			"strengths" to listOf("강점비밀1", "강점비밀2", "강점비밀3"),
-			"cautions" to listOf("보완비밀1", "보완비밀2", "보완비밀3"),
+			"cautions" to listOf("보완비밀1", "보완비밀2"),
 		)
 		jdbc.update(
-			"insert into readings (id, owner_id, kind, chart_hash, body, share_id) values (?, ?, 'SUMMARY', ?, ?::jsonb, ?)",
+			"insert into readings (id, owner_id, kind, chart_hash, body, share_id) values (?, ?, 'SUMMARY_V2', ?, ?::jsonb, ?)",
 			UUID.randomUUID(), owner, hash, mapper.writeValueAsString(body), "old-${UUID.randomUUID()}",
 		)
 	}

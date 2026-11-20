@@ -54,7 +54,7 @@ last_reviewed: 2026-11-20
   - `{ "kind": "PLACEMENT", "body": Body | Angle, "sign": Sign, "house"?: 1..12 }`
   - `{ "kind": "CLUSTER", "house": 1..12, "bodies": [Body, …] }`(3개 이상)
   - `{ "kind": "ASPECT", "a": Body | Angle, "b": Body | Angle, "type": AspectType }`
-  - `{ "kind": "RULER", "body": Body, "ruler": Body }`
+  - `{ "kind": "RULER", "body": Body | "ASC", "ruler": Body }`(`ASC` 는 상승점의 별자리를 다스리는 별 — 결정 031 의 4, 시각을 알 때만)
   - `{ "kind": "TRANSIT", "mover": Body, "target"?: Body | Angle | "VERTEX", "type"?: AspectType, "house"?: 1..12 }`(target + type, 또는 house)
   - 시각을 모르면 `house` 키 · `CLUSTER` · `ASC` · `MC` · `VERTEX` · 하우스 통과가 나오지 않는다(값이 null 인 키를 보내지 않는다).
 - `Reason` = `{ "when": "BIRTH" | "NOW" | "DAY", "items": [BasisItem](1~2) }`. `TRANSIT` 은 `NOW` · `DAY` 에만, 나머지는 `BIRTH` 에만.
@@ -139,20 +139,20 @@ last_reviewed: 2026-11-20
 
 ### S① 근거 구조 · 요약 해석 v2 · "~기" (결정 031 · 030 의 4 · 037)
 
-#### 1. s1-basis-candidates · 상태: 대기
+#### 1. s1-basis-candidates · 상태: 완료
 - 읽을 것: 결정 031, `generation/Basis.kt` · `ChartFacts.kt`, `chart/Aspects.kt`
 - 할 것: `chart/Rulers.kt`(전통 지배성 — 별자리 → 다스리는 별), `generation` 에 `BasisItem` · `Reason` · `Star` 타입, `basisCandidates(chart)`(id → BasisItem 표, 순서 고정), id 를 `BasisItem` 으로 바꾸기, 그 영역 reason 들에서 `Star` 1~3 만들기. `chartFacts` 끝에 "[근거 후보]"(id · 짧은 설명 — 용어는 모델에게만) 블록.
 - 주는 것: 후보 id 꼴(`P-SUN` · `P-ASC` · `C-5` · `A-SATURN-SUN-SQUARE` · `R-MOON` · `T-…`)
 - 하지 말 것: 지점(교점 · 릴리스 · 행운점 · 버텍스)을 출생 근거 후보에 넣지 않는다. 이유: 시안 용어 사전에 없다(결정 031 의 4).
 - 검증: 단위 테스트 — 시각 모름 차트에 house · ASC · MC · CLUSTER 후보 0개, id 겹침 0, CLUSTER 는 3개 이상만, 염소자리 달 → `R-MOON` 의 ruler SATURN(빨강 먼저)
 
-#### 2. s1-advice-check · 상태: 대기
+#### 2. s1-advice-check · 상태: 완료
 - 읽을 것: 결정 037, `direction/Direction.kt` 의 `adviceProblem`
 - 할 것: 실천 검사를 `generation` 의 함수 하나로 옮기고 끝맺음을 "기" 로 넓힌다(금지 표현은 그대로). 궁합 방향성이 그 함수를 쓰게 한다. `writing-rules.md` 에 한 줄.
 - 하지 말 것: 금지 표현 목록을 줄이지 않는다.
 - 검증: "전하기" 통과 · "전해요" 실패 · "보기" 통과 · 지금 궁합 방향성 테스트 그대로 초록
 
-#### 3. s1-reading-v2 · 상태: 대기
+#### 3. s1-reading-v2 · 상태: 완료
 - 읽을 것: 결정 030 의 4 · 5, 031, `reading/*`, 계약 표 `POST /readings` · `Reading`
 - 할 것: 응답 구조의 문단 근거를 후보 id enum(1~2)으로, 보완점 2, `createdAt`(저장 행의 `created_at`), kind `SUMMARY_V2`, 옛 `basis[]` 는 reason 에서 낱말로 만들어 함께. 지시문 세 파일 고침. 계약 표 · "글 생성 규칙"(요약 해석의 모양 · 근거 대조 · 근거에 쓸 수 있는 말) 같은 커밋.
 - 주는 것: 앱 A② · A① 이 쓰는 `reason` · `createdAt`
@@ -303,3 +303,7 @@ last_reviewed: 2026-11-20
 
 ## 실행 기록
 - 0: 결정 029~038 · 대체 표시 · 이 계획(2026-11-20). develop · 원격 브랜치 모두 029~ · V22~ 없음 확인.
+- 1: 근거 후보 없음 → `chart/Rulers.kt`(전통 지배성) · `computeAngleAspects`(상승점 · 중천과의 각도) · `generation` 의 `BasisItem`(5종) · `Reason` · `Star` · `basisCandidates`(P · C · A · R, 순서 고정) · `starsOf` · `chartFacts(chart, candidates)` 끝 "[근거 후보]". `RulersTest` 1 · `AspectsTest` 7(새 2) · `BasisCandidatesTest` 13 · `ArchitectureTest` 10 초록(빨강: 컴파일 실패 먼저). 계획과 다른 점: `R-ASC` 를 두려고 `RULER.body` 를 `Body | Angle` 로 넓힘(결정 031 의 4 가 상승점을 넣는데 1 의 타입이 `Body` 라서) · `chartFacts` 는 후보를 받을 때만 "[근거 후보]", 아니면 옛 "[근거로 쓸 수 있는 말]"(리포트 · 방향성이 S⑦ 까지 낱말을 쓴다).
+- 2: 실천 검사가 `direction/Direction.kt` 안 · "보기" 끝맺음 → `generation/Advice.kt` 의 `adviceProblem(practiceTitles, texts)` 하나 · "기" 끝맺음(앞뒤 공백을 떼고, 마침표 · 느낌표면 실패, 금지 표현 목록 그대로). `direction` 은 어느 글을 보는지만 정하는 한 줄로 그 함수를 부른다. `writing-rules.md` 에 "실천은 '~기' 로 끝나는 한 줄"(40자 안팎). `AdviceTest` 4(전하기 통과 · 전해요 실패 · 보기 통과 · 단정 10꼴 실패) · `DirectionDraftTest` 5 · `DirectionFutureTest` 6 그대로 초록(빨강: 컴파일 실패 먼저). 계약 표 `Direction` 줄 · 글 생성 규칙의 방향성 줄 고침.
+- 3: 요약 해석 `SUMMARY` · 근거 낱말 enum · 보완점 3 · 만든 때 없음 → `SUMMARY_V2` · 근거는 후보 id enum 1~2(같은 id 둘 = `MALFORMED`, 후보 밖 = `BASIS_NOT_IN_CHART`) · 저장 때 `Reason(BIRTH)` 로 바꿔 둠 · 보완점 2 · `createdAt`(저장 행 `created_at`, UTC 초) · 옛 `basis[]` 는 `basisWords(reason)` 로 함께 · `shareId` 그대로. 공유 카드의 요약 해석도 `SUMMARY_V2` 를 읽는다. 지시문 `writing-rules.md`(근거 절: "[근거 후보]" 가 있으면 id, 없으면 낱말) · `reading-summary*.md` 셋(보완점 2 · 문단마다 먼저 고를 후보). 단위: `BasisTest` 6 · `ReadingDraftTest` 3 · `BasisCandidatesTest` 14(빨강: 본 코드만 되돌려 컴파일 실패 확인), Docker 없이 도는 단위 테스트 29클래스 176 초록. 통합(`ReadingApiIntegrationTest` — 응답 키 · reason 1~2 · cautions 2 · createdAt · 시각 모름에 house/ASC/MC/CLUSTER 없음 · 옛 `SUMMARY` 행만 있으면 새로 생성하고 옛 행 그대로)은 커밋 때 Docker 데몬이 응답하지 않아 아래 build 기록에서 돌린다. 계약 표 `Reading` · `Reason` · `BasisItem` · 용어 · 데이터 · 글 생성 규칙(근거 대조 · 요약 해석의 모양 · 근거 후보 · 근거에 쓸 수 있는 말) 같은 커밋.
+- 2026-11-20 소유자 "그대로 둬": 상승점의 다스리는 별(`R-ASC`, `RULER.body` = `Body | "ASC"`)을 근거로 쓰는 것을 승인. 시각을 모르면 나오지 않는다.

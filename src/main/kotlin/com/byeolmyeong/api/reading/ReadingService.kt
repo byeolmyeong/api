@@ -23,7 +23,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.UUID
 
-private const val SUMMARY = "SUMMARY"
+// 요약 해석 v2(결정 030 · 031 — 근거 구조 · 보완점 2 · 만든 때). 옛 "SUMMARY" 행은 읽지 않으므로 다음 요청이 새로 만든다(지우거나 고치지 않는다).
+private const val SUMMARY = "SUMMARY_V2"
 
 /** 처음 한 번 + 다시 생성 2번. */
 private const val MAX_ATTEMPTS = 3
@@ -90,14 +91,14 @@ class ReadingService(
 
 	private fun createSummary(ownerId: UUID, chart: Chart, chartHash: String): Reading {
 		// 감사 기록(결정 015): 새 글을 만든 요청만 남긴다. 저장본을 돌려준 요청·기다린 요청은 남기지 않는다.
-		val draft = try {
-			generate(chart)
+		val body = try {
+			readingBody(generate(chart), chart)
 		} catch (e: GenerationException) {
 			events.publishEvent(AuditEvent(AuditAction.READING_GENERATED, AuditActor.user(ownerId), success = false))
 			throw e
 		}
 		// 동시에 두 요청이 생성했으면 먼저 들어간 글만 남고, 둘 다 그 글을 돌려준다.
-		repository.insertIfAbsent(ownerId, SUMMARY, chartHash, draft, newShareId())
+		repository.insertIfAbsent(ownerId, SUMMARY, chartHash, body, newShareId())
 		events.publishEvent(AuditEvent(AuditAction.READING_GENERATED, AuditActor.user(ownerId)))
 		return checkNotNull(repository.find(ownerId, SUMMARY, chartHash)) { "방금 저장한 글이 없다" }
 	}
