@@ -102,6 +102,7 @@ last_reviewed: 2026-11-20
 - `V24__notifications.sql` — `notifications`(id · owner_id → accounts cascade · kind check 넷 · synastry_id uuid null · created_at · read_at null), 색인 (owner_id, created_at desc).
 - `V25__share_kinds.sql` — `shares.kind` 의 check 를 지우고 (READING · SCORE · RANKING · NEXT_TURN · NICKNAME · ME_AREA · DAY_SKY · NEXT_BIG) 로 다시 건다. 행은 바뀌지 않는다.
 - 요약 해석 v2 는 마이그레이션이 없다(`readings.kind = 'SUMMARY_V2'`).
+- 2026-11-20 번호 바뀜: 앱 상위 계획 `docs/plans/2026-11-20-sian-all-repos.md` 의 S⑧(문의 v2 · 최신 버전 — 결정 039 · 040, `answerDraft` 도 S11-6 에서 당겨 옴)이 develop 의 다음 번호 **V23**(`inquiry_answers`) · **V24**(`app_config_latest_version`)를 먼저 썼다. Flyway 는 번호가 거꾸로 들어오면 멈추므로 위 V23 · V24 · V25 는 이름 그대로 두고 번호만 **PR 을 열 때와 합치기 직전에 develop 의 가장 큰 번호 + 1** 로 쓴다.
 
 ## 프롬프트 (`src/main/resources/prompts/`)
 | 파일 | 무엇 | 묶음 |
