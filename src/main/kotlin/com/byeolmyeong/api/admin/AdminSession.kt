@@ -26,9 +26,13 @@ class CurrentAdmin(private val request: HttpServletRequest) {
 	fun token(): String = checkNotNull(request.getAttribute(TOKEN_ATTRIBUTE) as String?)
 }
 
+/** 임시 비밀번호로 들어온 관리자가 바꾸기 전에 쓸 수 있는 곳: "메서드 + 경로"(결정 043 의 5). */
+private val OPEN_BEFORE_CHANGE = setOf("PUT /admin/me/password", "POST /admin/auth/logout", "GET /admin/me")
+
 /**
  * 관리자 세션 검사. `/admin/` 아래는 로그인 말고 전부 `Authorization: Bearer <관리자 토큰>` 이 있어야 한다.
  * 없거나 틀리거나 끝났거나 꺼진 관리자면 401 `UNAUTHORIZED`. 앱 사용자의 세션 토큰은 여기서 통하지 않는다(테이블이 다르다).
+ * 임시 비밀번호로 들어온 관리자는 [OPEN_BEFORE_CHANGE] 말고는 403 `PASSWORD_CHANGE_REQUIRED`(없는 경로도).
  */
 @Component
 class AdminSessionInterceptor(private val auth: AdminAuthService) : HandlerInterceptor {
@@ -38,14 +42,19 @@ class AdminSessionInterceptor(private val auth: AdminAuthService) : HandlerInter
 		if (CorsUtils.isPreFlightRequest(request)) return true
 		val token = request.getHeader("Authorization")?.takeIf { it.startsWith(BEARER) }?.removePrefix(BEARER)
 		val admin = token?.let(auth::adminOf)
-		if (admin != null) {
-			request.setAttribute(ADMIN_ATTRIBUTE, admin)
-			request.setAttribute(TOKEN_ATTRIBUTE, token)
-			return true
+		if (admin == null) return reject(response, 401, "UNAUTHORIZED")
+		if (admin.mustChangePassword && "${request.method} ${request.requestURI}" !in OPEN_BEFORE_CHANGE) {
+			return reject(response, 403, "PASSWORD_CHANGE_REQUIRED")
 		}
-		response.status = 401
+		request.setAttribute(ADMIN_ATTRIBUTE, admin)
+		request.setAttribute(TOKEN_ATTRIBUTE, token)
+		return true
+	}
+
+	private fun reject(response: HttpServletResponse, status: Int, code: String): Boolean {
+		response.status = status
 		response.contentType = MediaType.APPLICATION_JSON_VALUE
-		response.writer.write("""{"error":"UNAUTHORIZED"}""")
+		response.writer.write("""{"error":"$code"}""")
 		return false
 	}
 }

@@ -39,7 +39,7 @@ class AdminPasswordResetApiIntegrationTest {
 		resetAdminData(jdbc)
 		token = adminToken(port)
 		rootId = jdbc.queryForObject("select id::text from admin_accounts where login_id = ?", String::class.java, ROOT_ID)!!
-		other = createAdmin(port, token, OTHER_ID, OLD_PASSWORD)
+		other = createAdmin(port, token, OTHER_ID, OLD_PASSWORD, jdbc)
 		jdbc.update("delete from audit_logs")
 	}
 

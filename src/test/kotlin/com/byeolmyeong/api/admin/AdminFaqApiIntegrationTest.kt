@@ -162,7 +162,7 @@ class AdminFaqApiIntegrationTest {
 	@Test
 	fun `FAQ 를 고치고 공개하고 내린다`() {
 		val id = created("처음 질문", published = false)
-		createAdmin(port, token, "ops-kim", "ops-kim-password", "운영 김")
+		createAdmin(port, token, "ops-kim", "ops-kim-password", jdbc)
 		val theirs = adminToken(port, "ops-kim", "ops-kim-password")
 
 		val published = patch(id, """{"published":true}""", theirs)
@@ -170,7 +170,7 @@ class AdminFaqApiIntegrationTest {
 		assertEquals(FAQ_KEYS, published.json().propertyNames().toSet())
 		assertEquals(true, published.json()["published"].asBoolean())
 		assertEquals("처음 질문", published.json()["question"].asString(), "보내지 않은 것은 그대로다")
-		assertEquals("운영 김", published.json()["updatedBy"]["name"].asString(), "고친 관리자를 적는다")
+		assertEquals("ops-kim", published.json()["updatedBy"]["name"].asString(), "고친 관리자를 적는다")
 		assertEquals(listOf("처음 질문"), questions(publicList()))
 
 		val edited = patch(id, """{"question":"  고친 질문  ","answer":"고친 답","updatedBy":"${UUID.randomUUID()}","sortOrder":99}""")
@@ -274,13 +274,13 @@ class AdminFaqApiIntegrationTest {
 
 	@Test
 	fun `꺼진 관리자가 고친 FAQ 도 그대로 보인다`() {
-		val other = createAdmin(port, token, "ops-kim", "ops-kim-password", "운영 김")
+		val other = createAdmin(port, token, "ops-kim", "ops-kim-password", jdbc)
 		val id = create("운영 김이 만든 질문", "답", true, adminToken(port, "ops-kim", "ops-kim-password")).json()["id"].asString()
 
 		assertEquals(200, http(port, "PATCH", "/admin/admins/$other", """{"active":false}""", token).statusCode())
 
 		val faq = adminList().single { it["id"].asString() == id }
-		assertEquals("운영 김", faq["updatedBy"]["name"].asString())
+		assertEquals("ops-kim", faq["updatedBy"]["name"].asString())
 		assertEquals(listOf("운영 김이 만든 질문"), questions(publicList()))
 	}
 }
