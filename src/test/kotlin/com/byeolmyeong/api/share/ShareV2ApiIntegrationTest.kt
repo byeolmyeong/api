@@ -139,6 +139,10 @@ class ShareV2ApiIntegrationTest {
 
 	private fun post(body: String): HttpResponse<String> = http(port, "POST", "/shares", body, token)
 
+	private fun preview(body: String, session: String? = token): HttpResponse<String> = http(port, "POST", "/shares/preview", body, session)
+
+	private fun count(sql: String): Int = jdbc.queryForObject(sql, Int::class.java)!!
+
 	private fun share(body: String): JsonNode {
 		val response = post(body)
 		assertEquals(200, response.statusCode(), response.body())
@@ -261,5 +265,32 @@ class ShareV2ApiIntegrationTest {
 		assertEquals(first, again)
 		assertNotEquals(first, other)
 		assertEquals(2, jdbc.queryForObject("select count(*) from shares where kind = 'ME_AREA'", Int::class.java))
+	}
+
+	@Test
+	fun `미리 받기는 만들기와 같은 카드만 주고 공유 행 · 감사 기록 · 식별자를 만들지 않는다`() {
+		insertReading()
+		insertDetail("ME", meReport())
+
+		val previewed = preview("""{"kind":"NICKNAME"}""")
+		assertEquals(200, previewed.statusCode(), previewed.body())
+		val body = mapper.readTree(previewed.body())
+		assertEquals(setOf("card"), keys(body))
+		val area = mapper.readTree(preview("""{"kind":"ME_AREA","area":"LOVE"}""").body())["card"]
+		assertEquals(0, count("select count(*) from shares"), "행을 만들지 않는다")
+		assertEquals(0, count("select count(*) from audit_logs where action = 'SHARE_CREATED'"), "감사 기록도 없다")
+
+		assertEquals(share("""{"kind":"NICKNAME"}""")["card"], body["card"], "만들 때와 같은 카드")
+		assertEquals(share("""{"kind":"ME_AREA","area":"LOVE"}""")["card"], area)
+		assertEquals(2, count("select count(*) from audit_logs where action = 'SHARE_CREATED'"), "만들기만 남는다")
+	}
+
+	@Test
+	fun `미리 받기도 400 · 404 규칙이 같고 세션이 필요하다`() {
+		assertError(404, "NOT_FOUND", preview("""{"kind":"NICKNAME"}"""), "요약 해석 없음")
+		assertError(400, "INVALID_KIND", preview("""{"kind":"NOPE"}"""))
+		assertError(400, "INVALID_AREA", preview("""{"kind":"ME_AREA","area":"MONEY"}"""))
+		assertError(400, "INVALID_DATE", preview("""{"kind":"DAY_SKY","date":"2026-1-5"}"""))
+		assertEquals(401, preview("""{"kind":"NICKNAME"}""", session = null).statusCode())
 	}
 }
