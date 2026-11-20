@@ -111,7 +111,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /reports` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "리포트 상태" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `GET /reports/me` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report? }` · 지금 프로필의 차트 기준 · `report` 는 `DONE` 일 때만(`sections` 와 `timing` 이 언제나 함께 온다) · 저장한 출생 정보가 없으면 `NONE` |
 | `POST /me-report` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "나 탭 풀이" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) · 402 `PURCHASE_REQUIRED` 는 예약(1.0.0 에는 나오지 않는다) |
-| `GET /me-report` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report?: MeReport }` · 지금 프로필의 차트 기준(출생 정보를 고치면 `NONE`) · `report` 는 `DONE` 일 때만 · 저장한 출생 정보가 없으면 `NONE` · 아래 "나 탭 풀이" |
+| `GET /me-report` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report?: MeReport }` · 지금 프로필의 차트 기준(출생 정보를 고치면 `NONE`) · `report` 는 `DONE` 일 때만 · 저장한 출생 정보가 없으면 `NONE` · `POST` 가 429 `RATE_LIMITED` 였으면 행이 `FAILED` 로 남아 `FAILED`(다시 `POST` 하면 새로 시작) · 아래 "나 탭 풀이" |
 | `POST /synastry/direct` | 세션 | `{ name, relation: LOVE \| FRIEND \| WORK \| FAMILY, date, time \| null, placeId? }` (상대의 출생 정보) | 200 `Synastry` + `overlay` · 아래 "궁합(직접 입력)" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `POST /synastry/invites` | 세션 | `{ name }` | `{ inviteId, expiresAt }` |
 | `GET /invites/{inviteId}` | 없음 | 없음 | `{ inviterName, status }` |
