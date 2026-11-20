@@ -13,6 +13,7 @@ import com.byeolmyeong.api.generation.WRITING_RULES
 import com.byeolmyeong.api.generation.chartFacts
 import com.byeolmyeong.api.generation.promptResource
 import com.byeolmyeong.api.generation.stringOrNull
+import com.byeolmyeong.api.generation.themeOf
 import com.byeolmyeong.api.generation.timelineFact
 import com.fasterxml.jackson.annotation.JsonInclude
 import tools.jackson.databind.JsonNode
