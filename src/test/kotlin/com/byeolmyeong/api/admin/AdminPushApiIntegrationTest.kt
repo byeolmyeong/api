@@ -21,6 +21,7 @@ import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import tools.jackson.databind.JsonNode
 
 private val SEOUL = ZoneId.of("Asia/Seoul")
 
@@ -98,6 +99,17 @@ class AdminPushApiIntegrationTest {
 		assertEquals("""{"error":"$code"}""", response.body(), what)
 	}
 
+	/** push 가 보내고 PushEventSent 로 성공 수를 채울 때까지 기다려 맨 위 내역을 돌려준다. */
+	private fun awaitSent(): JsonNode {
+		val deadline = System.currentTimeMillis() + 5_000
+		while (true) {
+			val row = get("/admin/push/events").json()["items"][0]
+			if (!row["succeeded"].isNull) return row
+			check(System.currentTimeMillis() < deadline) { "push 가 보낸 결과를 알리지 않는다" }
+			Thread.sleep(50)
+		}
+	}
+
 	@Test
 	fun `기기 표가 아직 없으면(푸시 묶음 전) 대상 수는 0 이다`() {
 		val response = get("/admin/push/audience")
@@ -130,12 +142,7 @@ class AdminPushApiIntegrationTest {
 		assertEquals("2026-11-20T05:00:00Z", row["sentAt"].asString())
 		assertEquals(ROOT_ID, row["sentBy"].asString())
 		// push(S⑩)가 커밋 뒤 대상(지금 0명)에게 보내고 PushEventSent 로 알리면 성공 · 실패 수가 채워진다(그 전에는 null — 보내는 중).
-		val until = System.currentTimeMillis() + 5_000
-		var done = row
-		while (done["succeeded"].isNull && System.currentTimeMillis() < until) {
-			Thread.sleep(50)
-			done = get("/admin/push/events").json()["items"][0]
-		}
+		val done = awaitSent()
 		assertEquals(listOf(0, 0), listOf(done["succeeded"].asInt(), done["failed"].asInt()), "대상이 없으면 0 · 0 으로 끝난다")
 
 		val audit = jdbc.queryForMap("select actor_type, target_type, target_id from audit_logs where action = 'PUSH_EVENT_SENT'")
@@ -147,6 +154,7 @@ class AdminPushApiIntegrationTest {
 	@Test
 	fun `push 가 다 보냈다고 알리면 내역의 성공 · 실패 수가 채워진다`() {
 		val id = UUID.fromString(send().json()["id"].asString())
+		awaitSent() // 실제 push 가 대상 0명으로 먼저 알린 뒤에 내야 늦게 온 쪽이 덮어쓰지 않는다
 
 		publisher.publishEvent(PushEventSent(id, 3, 2, 1))
 

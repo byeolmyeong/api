@@ -28,7 +28,18 @@ enum class Provider { DEV, GOOGLE, APPLE, KAKAO }
  * [audience] 는 토큰이 발급된 우리 클라이언트 ID(애플은 iOS 번들 ID 와 웹 Services ID 가 다르고, 토큰 교환·철회 때 같은 값을 써야 한다).
  * [email] 은 토큰의 `email`(구글은 `email_verified` 가 참일 때만)을 다듬은 값이고, 없거나 모양이 틀리면 null 이다. 로그에 남기지 않는다.
  */
-data class ProviderIdentity(val provider: Provider, val subject: String, val audience: String? = null, val email: String? = null)
+data class ProviderIdentity(
+	val provider: Provider,
+	val subject: String,
+	val audience: String? = null,
+	val email: String? = null,
+	/** 토큰의 `jti`(웹 구글 토큰 한 번만 — 결정 047). 저장 · 로그에 남기지 않는다. */
+	val tokenId: String? = null,
+	/** 토큰이 끝나는 때(`exp`). */
+	val expiresAt: java.time.Instant? = null,
+	/** 토큰을 발급받은 클라이언트(`azp`). 없으면 null. */
+	val authorizedParty: String? = null,
+)
 
 /** 공급자 ID 토큰이 틀렸다(서명·발급자·대상·만료·모양). 401 `INVALID_ID_TOKEN`. 토큰은 메시지에 넣지 않는다. */
 class InvalidIdTokenException : RuntimeException("INVALID_ID_TOKEN")
@@ -102,7 +113,13 @@ private class JwksTokenVerifier(
 		// 대상이 여럿이면 누구에게 발급했는지(azp)가 우리여야 한다(OpenID Connect Core 3.1.3.7).
 		if (claims.audience.size > 1 && claims.getStringClaim("azp") !in audiences) throw InvalidIdTokenException()
 		val subject = claims.subject?.takeIf { it.isNotBlank() } ?: throw InvalidIdTokenException()
-		return ProviderIdentity(provider, subject, audience, emailOf(claims))
+		return ProviderIdentity(
+			provider, subject, audience, emailOf(claims),
+			tokenId = claims.jwtid?.takeIf { it.isNotBlank() },
+			expiresAt = claims.expirationTime?.toInstant(),
+			// azp 가 문자열이 아니면 없는 것으로 본다(대상이 하나일 때는 위에서 보지 않는다).
+			authorizedParty = runCatching { claims.getStringClaim("azp") }.getOrNull(),
+		)
 	}
 
 	/**
