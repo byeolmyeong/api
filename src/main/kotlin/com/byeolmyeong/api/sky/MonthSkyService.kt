@@ -1,7 +1,6 @@
 package com.byeolmyeong.api.sky
 
 import com.byeolmyeong.api.birth.BirthProfileService
-import com.byeolmyeong.api.chart.computeIntervals
 import com.byeolmyeong.api.chart.notableDays
 import com.byeolmyeong.api.generation.dayCategory
 import com.byeolmyeong.api.generation.monthPhrases
@@ -19,7 +18,7 @@ private const val MINUTE_MILLIS = 60_000L
 class MonthRateLimitedException : RuntimeException("RATE_LIMITED")
 
 /**
- * 이번 달(결정 032). 요청 때마다 계산하고 저장하지 않는다 — 같은 차트 · 같은 달은 언제나 같은 값이다.
+ * 이번 달(결정 032). 요청 때마다 계산하고 저장하지 않는다 — 같은 차트 · 같은 달은 언제나 같은 값이다. 평생 시기 구간만 차트 해시마다 몇 분 기억한다([IntervalCache]).
  * 모델을 부르지 않고 생성 한도에 세지 않는다. 남용은 계정별 분당 요청 수로 막는다. 출생 정보 · 계산 결과를 로그에 남기지 않는다.
  */
 @Service
@@ -29,6 +28,7 @@ class MonthSkyService(
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val limiter = RateLimiter(perMinute, MINUTE_MILLIS, System::currentTimeMillis)
+	private val intervals = IntervalCache()
 
 	fun month(ownerId: UUID, month: YearMonth): MonthSky {
 		if (!limiter.tryAcquire(ownerId.toString())) {
@@ -41,7 +41,7 @@ class MonthSkyService(
 		return MonthSky(
 			month = month.toString(),
 			timeKnown = chart.timeKnown,
-			themes = monthThemes(computeIntervals(chart, birth.utc), month),
+			themes = monthThemes(intervals.intervals(birth.hash, chart, birth.utc), month),
 			days = days.zip(monthPhrases(days), ::monthDay),
 		)
 	}

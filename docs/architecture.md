@@ -57,7 +57,7 @@ src/main/kotlin/com/byeolmyeong/api/
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
   share/       ShareController · ShareService · ShareRepository · ShareCard(카드의 모양·이니셜·계절) · ShareCardRequested(이벤트 넷)
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
-  sky/         MonthSkyController · MonthSkyService(계정별 분당 한도) · MonthSky(모양 · 고를 달 · 이번 달 내내 고르기)
+  sky/         MonthSkyController · MonthSkyService(계정별 분당 한도) · MonthSky(모양 · 고를 달 · 이번 달 내내 고르기) · IntervalCache(차트 해시마다 평생 구간을 몇 분 기억)
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
 src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 ```
@@ -193,7 +193,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `POST`: 없거나 `FAILED` 면 생성을 시작하고 `WRITING`. 이미 `DONE` 이면 다시 만들지 않고 `DONE`. 쓰는 중이면 두 번째 생성을 시작하지 않고 `WRITING`. 뒤에서 일할 자리가 꽉 차 시작하지 못하면 `FAILED`(잠시 뒤 다시 `POST`).
   - 멈춘 생성(쓰는 도중 서버가 꺼진 경우): 생성을 맡은 서버는 살아 있는 동안 그 행에 살아 있다는 표시(`active_at`)를 15초마다 다시 적는다(줄에서 기다리는 것도). `WRITING` 인데 이 표시가 2분 넘게 끊겼으면 멈춘 것으로 본다: `GET` 은 `FAILED` 로 답하고, `POST` 는 다시 시작한다. 자리를 잡은 뒤 흐른 시간으로는 가리지 않는다 — 요청이 몰려 줄에서 오래 기다리는 리포트는 `WRITING` 그대로다.
   - 앱은 `POST` 뒤 `GET /reports/me` 를 몇 초 간격으로 다시 부른다. 실제 생성은 1분 안팎이다. 출생 정보를 고쳐 차트가 달라지면 `GET` 은 `NONE` 이 되고(예전 리포트는 남아 있어 되돌리면 다시 보인다) `POST` 로 새로 만든다.
-- 이번 달 `GET /timing/month` (2026-11-20 구현, 결정 032 · 규칙 · 문구의 원본 docs/drafts/2026-11-20-month-phrases.md — 소유자 "초안 그대로 써"). 시기 탭의 "이번 달". 요청 때마다 계산하고 저장하지 않는다 — 같은 차트 · 같은 달은 언제나 같은 본문이다.
+- 이번 달 `GET /timing/month` (2026-11-20 구현, 결정 032 · 규칙 · 문구의 원본 docs/drafts/2026-11-20-month-phrases.md — 소유자 "초안 그대로 써"). 시기 탭의 "이번 달". 요청 때마다 계산하고 저장하지 않는다 — 같은 차트 · 같은 달은 언제나 같은 본문이다. 평생 시기 구간(요청당 약 0.26초)만 서버 메모리에 차트 해시마다 10분 기억한다(최대 500개, 가장 오래 안 쓴 것부터 잊음 — 시기 탭이 석 달을 잇달아 부른다).
   - `MonthSky` = `{ month: "YYYY-MM", timeKnown, themes[0~2], days[0~3] }`. `month` 는 계산한 달(앱은 처음 받은 달로 앞뒤 한 달을 정한다).
   - `themes`("이번 달 내내") = `[{ area: PEOPLE | WORK | MONEY | SELF, title, from, to }]` — 그 사람의 시기 구간(변화 · 기회 · 운명적 만남) 가운데 그달의 날과 10일 이상 겹치는 것을 우선순위(변화 큰 > 변화 작은 > 운명적 만남 > 기회, 같으면 그달과 더 많이 겹치는 것, 그다음 늦게 시작한 것)로 제목이 겹치지 않게 둘까지. `title` 은 시기의 표 제목(`generation.TimingThemes` — 시기 풀이의 구간 이름과 같은 말, 결정 033). `from` · `to` 는 그 구간의 한국 날짜(그달 밖으로 이어질 수 있다).
   - `days`(눈여겨볼 날 = 달력의 점) = `[{ date, category: PEOPLE | WORK | MIND, text, reason }]`, 날짜 순. `text` 는 "~날" 로 끝나는 한 줄, `reason` = `{ when: "DAY", items: [{ kind: "TRANSIT", mover, target, type }] }`(1개).
