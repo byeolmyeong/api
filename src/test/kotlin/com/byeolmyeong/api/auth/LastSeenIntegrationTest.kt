@@ -59,7 +59,7 @@ class LastSeenIntegrationTest {
 
 		val seen = assertNotNull(lastSeen())
 		assertTrue(seen.toInstant().isAfter(Instant.now().minusSeconds(60)), "마지막 접속이 지금이 아니다: $seen")
-		assertEquals(listOf(mapOf<String, Any?>("day" to todayKst(), "hour" to hourKst().toShort())), days())
+		assertEquals(listOf(mapOf<String, Any?>("day" to todayKst(), "hour" to hourKst())), days())
 	}
 
 	@Test
@@ -97,7 +97,7 @@ class LastSeenIntegrationTest {
 
 		val rows = days()
 		assertEquals(2, rows.size)
-		assertEquals(7.toShort(), rows[0]["hour"], "어제 줄을 고치지 않는다")
+		assertEquals(7, rows[0]["hour"], "어제 줄을 고치지 않는다")
 		assertEquals(todayKst(), rows[1]["day"])
 	}
 
