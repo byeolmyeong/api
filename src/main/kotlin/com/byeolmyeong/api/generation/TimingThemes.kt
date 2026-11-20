@@ -1,6 +1,7 @@
-package com.byeolmyeong.api.report
+package com.byeolmyeong.api.generation
 
 import com.byeolmyeong.api.chart.Body
+import com.byeolmyeong.api.chart.ChangeSize
 import com.byeolmyeong.api.chart.Interval
 import com.byeolmyeong.api.chart.IntervalKind
 import com.byeolmyeong.api.chart.LifeArea
@@ -8,6 +9,7 @@ import com.byeolmyeong.api.chart.MilestoneKind
 import com.byeolmyeong.api.chart.TransitTarget
 
 // 시기의 표의 글. 모든 마디와 구간에 먼저 이 글을 붙이고, 모델에게 맡긴 줄만 모델의 글로 바꾼다(결정 008).
+// 리포트 · 시기 풀이(report)와 이번 달(sky)이 같이 쓰므로 여기 둔다 — 구간의 이름은 이 표 하나다(결정 032 · 033).
 // 글쓰기 규칙은 모델의 글과 같다: 점성술 용어·연도를 쓰지 않고, "이 시기의 주제"만 말하고, 무슨 일이 일어난다고 쓰지 않는다.
 // 기회·운명적 만남의 제목은 앱 저장소 release-1.0.0 F4 가 정한 말이다.
 
@@ -91,4 +93,14 @@ private fun opportunityTheme(target: TransitTarget, area: LifeArea): Theme = whe
 		"나를 넓혀 보기 좋은 시기",
 		"마음에 여유가 생기고 새로운 것에 눈이 가기 쉬운 때예요. 미뤄 둔 배움이나 경험을 하나 시작해 볼 만해요.",
 	)
+}
+
+/**
+ * 시기 구간의 우선순위(작을수록 앞): 변화(큰) 0 > 변화(작은) 1 > 운명적 만남 2 > 기회 3.
+ * "이번 달 내내"(결정 032)와 시기 풀이의 대표 구간 `mainId`(결정 033)가 같은 순서를 쓴다.
+ */
+fun intervalPriority(kind: IntervalKind, size: ChangeSize?): Int = when (kind) {
+	IntervalKind.CHANGE -> if (size == ChangeSize.BIG) 0 else 1
+	IntervalKind.FATED -> 2
+	IntervalKind.OPPORTUNITY -> 3
 }
