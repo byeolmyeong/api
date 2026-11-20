@@ -11,6 +11,8 @@ enum class AuditAction {
 	ADMIN_LOGIN, ADMIN_LOGOUT, ADMIN_PASSWORD_CHANGED, ADMIN_PASSWORD_RESET, ADMIN_CREATED, ADMIN_DEACTIVATED, ADMIN_REACTIVATED, ADMIN_BOOTSTRAPPED,
 	// 다른 관리자에게 임시 비밀번호를 다시 만들어 줌(결정 043 의 5). 비밀번호는 없다
 	ADMIN_PASSWORD_REISSUED,
+	// 사용자 정지 · 해제 · 탈퇴 대행(결정 043 의 1 · 044). 대상 USER id, 사유는 남기지 않는다(정지 사유는 account_suspensions)
+	USER_SUSPENDED, USER_UNSUSPENDED, USER_DELETED_BY_ADMIN,
 	INQUIRY_VIEWED, INQUIRY_UPDATED,
 	// 문의에 답을 저장함(결정 039). detail 은 first=true|false 만
 	INQUIRY_ANSWERED,
