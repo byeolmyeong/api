@@ -317,10 +317,16 @@ class AdminUsersRepository(private val jdbc: JdbcTemplate) {
 		)
 	}
 
-	/** 그 사람의 [kind](ME · TIMING) 가장 최근 생성의 상태(상세의 generations 와 같은 줄). 없으면 null. */
+	/**
+	 * 그 사람의 [kind](ME · TIMING) 가장 최근 생성의 상태(상세의 generations 와 같은 줄). 없으면 null.
+	 * 쓰는 중인데 살아 있다는 표시가 2분 넘게 끊긴 것은 멈춘 것이라 FAILED 로 본다(앱의 풀이 상태 · 상세와 같은 기준).
+	 */
 	fun latestReportStatus(id: UUID, kind: String): String? =
 		jdbc.query(
-			"select status from detail_reports where owner_id = ? and kind = ? order by started_at desc limit 1",
+			"""
+			select case when status = 'WRITING' and active_at < now() - interval '2 minutes' then 'FAILED' else status end as status
+			from detail_reports where owner_id = ? and kind = ? order by started_at desc limit 1
+			""",
 			{ rs, _ -> rs.getString("status") },
 			id, kind,
 		).firstOrNull()
