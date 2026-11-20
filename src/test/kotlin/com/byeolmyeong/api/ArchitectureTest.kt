@@ -63,7 +63,10 @@ class ArchitectureTest {
             "$ROOT.synastry.SynastryReportDone",
             // 관리자가 광고 푸시를 보냈다 · push 가 다 보냈다(결정 043 의 6) — push(S⑩)가 보내고 admin 이 내역을 채운다
             "$ROOT.admin.PushEventRequested",
-            "$ROOT.push.PushEventSent",
+            "$ROOT.admin.PushEventSent",
+            // 오늘의 하늘 아침 알림을 보낼 때가 됐다 — push 가 보낸다(결정 042 의 6)
+            "$ROOT.sky.TodaySkyDue",
+            "$ROOT.sky.TodaySkyDue\$Item",
         )
 
         /** 외부 공급자 SDK·HTTP 클라이언트. 이것을 쓰는 클래스는 우리 인터페이스 하나 뒤에 있어야 한다. */

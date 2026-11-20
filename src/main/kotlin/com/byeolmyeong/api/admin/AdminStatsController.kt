@@ -220,7 +220,8 @@ class AdminStatsRepository(private val jdbc: JdbcTemplate) {
 	fun countConsents(): Triple<Int, Int, Int> = jdbc.queryForObject(
 		"""
 		select count(push_consented_at) as push, count(marketing_consented_at) as marketing,
-			count(*) filter (where push_consented_at is not null and marketing_consented_at is not null and suspended_at is null) as reachable
+			count(*) filter (where push_consented_at is not null and marketing_consented_at is not null and suspended_at is null
+			                 and exists (select 1 from push_devices d where d.account_id = accounts.id)) as reachable
 		from accounts
 		""",
 	) { rs, _ -> Triple(rs.getInt("push"), rs.getInt("marketing"), rs.getInt("reachable")) }!!

@@ -187,6 +187,22 @@ class AdminUsersApiIntegrationTest {
 	}
 
 	@Test
+	fun `상세에 오늘의 하늘 알림과 등록 기기가 보이고 토큰은 없다`() {
+		val (id, _) = user("기기있음")
+		jdbc.update("update accounts set push_consented_at = now(), today_sky_time = '07:30' where id = ?", id)
+		jdbc.update("insert into push_devices (expo_token, account_id, platform, app_version) values ('ExponentPushToken[secret-token-1]', ?, 'IOS', '1.0.0')", id)
+
+		val response = get("/admin/users/$id")
+		val user = response.json()
+
+		assertEquals(mapOf("on" to "true", "time" to "07:30"), user["todaySky"].properties().toList().associate { it.key to it.value.asString() })
+		val device = user["devices"].toList().single()
+		assertEquals(setOf("platform", "appVersion", "lastSeenAt"), device.propertyNames().toSet())
+		assertEquals(listOf("IOS", "1.0.0"), listOf(device["platform"].asString(), device["appVersion"].asString()))
+		assertFalse("secret-token" in response.body(), "기기 토큰은 응답에 없다")
+	}
+
+	@Test
 	fun `없는 사용자는 404 이다`() {
 		assertError(404, "NOT_FOUND", get("/admin/users/${UUID.randomUUID()}"))
 		assertError(404, "NOT_FOUND", get("/admin/users/not-a-uuid"))

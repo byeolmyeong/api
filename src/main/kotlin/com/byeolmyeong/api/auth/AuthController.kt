@@ -36,7 +36,10 @@ data class LoginResponse(val status: String, val token: String? = null, val sign
 /** 애플 서버 알림의 본문. */
 data class AppleNotificationRequest(val payload: String?)
 
-/** `GET/PATCH /account` 의 응답(결정 025 · 027 · 028). 없는 값은 null. */
+/**
+ * `GET/PATCH /account` 의 응답(결정 025 · 027 · 028 · 042). 없는 값은 null.
+ * [todaySkyPush] 는 오늘의 하늘 알림이 실제로 켜졌는지(직접 정하지 않았으면 푸시 수신 동의), [todaySkyTime] 은 받는 한국 시각 `HH:mm`.
+ */
 data class AccountResponse(
 	val nickname: String?,
 	val email: String?,
@@ -48,6 +51,8 @@ data class AccountResponse(
 	val avatar: Int?,
 	/** 이용 정지(결정 044). 참이면 앱이 정지 화면(앱 결정 065 의 5)을 띄운다. 사유는 주지 않는다. */
 	val suspended: Boolean,
+	val todaySkyPush: Boolean,
+	val todaySkyTime: String,
 )
 
 /** `POST /auth/nickname-check`(결정 025). */
@@ -55,12 +60,14 @@ data class NicknameCheckRequest(val signupToken: String? = null, val nickname: S
 
 data class NicknameCheckResponse(val available: Boolean)
 
-/** `PATCH /account`. 보낸 칸만 바꾼다(결정 025 · 027 · 028). */
+/** `PATCH /account`. 보낸 칸만 바꾼다(결정 025 · 027 · 028 · 042). */
 data class AccountPatchRequest(
 	val nickname: String? = null,
 	val marketingConsent: Boolean? = null,
 	val pushConsent: Boolean? = null,
 	val avatar: Int? = null,
+	val todaySkyPush: Boolean? = null,
+	val todaySkyTime: String? = null,
 )
 
 /**
@@ -155,7 +162,7 @@ class AuthController(
 	/** 닉네임·수신 동의(마케팅 · 푸시)·프로필을 바꾼다(결정 025 · 027 · 028). 보낸 칸만. */
 	@PatchMapping("/account")
 	fun updateAccount(@RequestBody request: AccountPatchRequest): AccountResponse =
-		auth.updateAccount(owner.id(), request.nickname, request.marketingConsent, request.pushConsent, request.avatar)
+		auth.updateAccount(owner.id(), request)
 
 	/** 계정 삭제. 세션의 주인만 지운다. 웹의 쿠키도 지운다. */
 	@DeleteMapping("/account")

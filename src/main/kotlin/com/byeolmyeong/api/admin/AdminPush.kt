@@ -1,6 +1,5 @@
 package com.byeolmyeong.api.admin
 
-import com.byeolmyeong.api.push.PushEventSent
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.BadRequestException
 import org.slf4j.LoggerFactory

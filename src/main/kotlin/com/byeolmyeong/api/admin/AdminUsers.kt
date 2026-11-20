@@ -75,7 +75,13 @@ data class UserActivity(val at: String, val action: String)
 
 data class UserSuspension(val at: String, val by: AdminRef?, val reason: String)
 
-/** 사용자 상세(결정 043 의 1). 기기 · 오늘의 하늘 알림은 푸시 묶음(결정 042)이 더한다. */
+/** 오늘의 하늘 알림(결정 042 의 3 · 4): 실제로 받는지(푸시 수신 동의 + 직접 끄지 않음) · 받는 한국 시각 `HH:mm`. */
+data class UserTodaySky(val on: Boolean, val time: String)
+
+/** 등록 기기(결정 042 의 2). 토큰은 주지 않는다. */
+data class UserDevice(val platform: String, val appVersion: String?, val lastSeenAt: String)
+
+/** 사용자 상세(결정 043 의 1). */
 data class UserDetail(
 	val id: UUID,
 	val nickname: String?,
@@ -92,6 +98,8 @@ data class UserDetail(
 	val inquiries: List<UserInquiry>,
 	val recent: List<UserActivity>,
 	val suspension: UserSuspension?,
+	val todaySky: UserTodaySky,
+	val devices: List<UserDevice>,
 )
 
 /** 찾기 조건. 검증을 거친 값이다. [joinedFrom] · [joinedTo] 는 한국 날짜(끝 날짜 포함). */
@@ -319,7 +327,7 @@ class AdminUsersRepository(private val jdbc: JdbcTemplate) {
 		).firstOrNull() ?: UserBirth(false, false, false)
 		return UserDetail(
 			base.id, base.nickname, base.profileNo, base.emailMasked, base.provider, base.joinedAt, base.lastSeenAt, base.reports, base.status,
-			consents, birth, generations(id), inquiries(id), recent(id), suspension(id),
+			consents, birth, generations(id), inquiries(id), recent(id), suspension(id), todaySky(id), devices(id),
 		)
 	}
 
@@ -388,6 +396,18 @@ class AdminUsersRepository(private val jdbc: JdbcTemplate) {
 		},
 		id,
 	).firstOrNull()
+
+	private fun todaySky(id: UUID): UserTodaySky = jdbc.queryForObject(
+		"select push_consented_at is not null and coalesce(today_sky_push, true) as sky_on, to_char(today_sky_time, 'HH24:MI') as sky_time from accounts where id = ?",
+		{ rs, _ -> UserTodaySky(rs.getBoolean("sky_on"), rs.getString("sky_time")) },
+		id,
+	)!!
+
+	private fun devices(id: UUID): List<UserDevice> = jdbc.query(
+		"select platform, app_version, last_seen_at from push_devices where account_id = ? order by last_seen_at desc, expo_token",
+		{ rs, _ -> UserDevice(rs.getString("platform"), rs.getString("app_version"), rs.getObject("last_seen_at", OffsetDateTime::class.java).utcSeconds()) },
+		id,
+	)
 
 	/** 정지했으면 true(이미 정지면 false). */
 	fun suspend(id: UUID, adminId: UUID, reason: String): Boolean = jdbc.update(
