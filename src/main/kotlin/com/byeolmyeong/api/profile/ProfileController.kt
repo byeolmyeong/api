@@ -42,8 +42,11 @@ class ProfileController(
 		// 가입 뒤에도 만 14세 미만 날짜로는 바꿀 수 없다(가입과 같은 판정, 소유자 결정 2026-11-19 · 결정 021). 있던 것은 그대로다.
 		if (!isAtLeast14(birth.date, koreaToday())) throw UnderAgeException()
 		val profile = BirthProfile(birth.date, birth.time, birth.place?.id)
-		val existed = profiles.find(owner.id()) != null
+		val before = profiles.find(owner.id())
+		val existed = before != null
 		profiles.save(owner.id(), profile)
+		// 바뀌었으면 옛 출생 정보로 만든 저장분을 각 기능이 지운다(결정 041). 처음 저장 · 같은 값은 그대로.
+		if (before != null && before != profile) events.publishEvent(BirthProfileChanged(owner.id(), checkNotNull(profiles.chartInput(owner.id())).hash))
 		// 감사 기록에는 처음 저장인지 고친 것인지만 남긴다(값은 남기지 않는다. 결정 015).
 		events.publishEvent(AuditEvent(AuditAction.PROFILE_SAVED, AuditActor.user(owner.id()), detail = mapOf("change" to if (existed) "CHANGED" else "CREATED")))
 		return profile.toResponse()

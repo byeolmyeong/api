@@ -49,6 +49,8 @@ class ArchitectureTest {
             "$ROOT.admin.AppConfigChanged",
             // 관리자가 문의에 처음 답했다(결정 039 의 5) — 알림함(계획 S⑤) · 푸시(S⑩)가 듣는다
             "$ROOT.admin.InquiryAnswered",
+            // 출생 정보가 바뀌면 reading · report · sky 가 옛 차트의 저장분을 지운다(결정 041)
+            "$ROOT.profile.BirthProfileChanged",
         )
 
         /** 외부 공급자 SDK·HTTP 클라이언트. 이것을 쓰는 클래스는 우리 인터페이스 하나 뒤에 있어야 한다. */

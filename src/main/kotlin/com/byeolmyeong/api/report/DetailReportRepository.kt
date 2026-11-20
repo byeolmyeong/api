@@ -91,6 +91,11 @@ class DetailReportRepository(private val jdbc: JdbcTemplate, private val mapper:
 		mapper.writeValueAsString(body), run.ownerId, run.kind.name, run.chartHash, run.startedAt,
 	) == 1
 
+	/** 그 소유자의 풀이 가운데 [chartHash] 가 아닌 차트의 것을 지운다(종류 모두, 출생 정보 바꾸기 — 결정 041). */
+	fun deleteOtherCharts(ownerId: UUID, chartHash: String) {
+		jdbc.update("delete from detail_reports where owner_id = ? and chart_hash <> ?", ownerId, chartHash)
+	}
+
 	/** `FAILED` 로 바꾼다. 아직 그 생성의 자리일 때만(아니면 false). */
 	fun fail(run: DetailReportRun): Boolean = jdbc.update(
 		"""
