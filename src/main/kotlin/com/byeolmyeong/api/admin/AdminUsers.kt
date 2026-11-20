@@ -34,6 +34,9 @@ private val PAGE_SIZES = setOf(10, 20, 50, 100)
 private const val PAGE_SIZE_DEFAULT = 20
 private const val RANGE_DAYS_MAX = 366
 private const val REASON_MAX = 200
+// 재생성의 종류(결정 043 의 1). 자세한 풀이는 detail_reports 의 kind 로 옮긴다. 별명은 실패가 저장되지 않아 늘 409.
+private val REPORT_KINDS = mapOf("REPORT_ME" to "ME", "REPORT_TIMING" to "TIMING")
+private val GENERATION_KINDS = setOf("NICKNAME") + REPORT_KINDS.keys
 
 /**
  * 쓰는 중(`WRITING`)인데 살아 있다는 표시가 이만큼 끊기면 멈춘 것 — 앱의 풀이 상태와 같이 `FAILED` 로 보인다(`report.DetailReportService` 와 같은 2분).
@@ -151,6 +154,14 @@ class AdminUsersController(private val users: AdminUsersService, private val cur
 		return ResponseEntity.noContent().build()
 	}
 
+	@PostMapping("/admin/users/{id}/regenerate")
+	fun regenerate(@PathVariable id: String, @RequestBody body: JsonNode): ResponseEntity<Void> {
+		val userId = pathId(id)
+		val kind = body.requireObject().textOrNull("kind")?.takeIf { it in GENERATION_KINDS } ?: throw BadRequestException("INVALID_KIND")
+		users.regenerate(userId, kind)
+		return ResponseEntity.accepted().build()
+	}
+
 	private fun reason(body: JsonNode): String {
 		val reason = body.requireObject().textOrNull("reason")?.trim()
 		if (reason.isNullOrEmpty() || reason.codePointLength() > REASON_MAX || NUL in reason) throw BadRequestException("INVALID_REASON")
@@ -211,6 +222,19 @@ class AdminUsersService(
 		events.publishEvent(AccountDeletionRequested(id))
 		log.info("event=admin_user_deleted")
 		audit.record(AuditAction.USER_DELETED_BY_ADMIN, "USER", id)
+	}
+
+	/**
+	 * 가장 최근 생성이 실패(FAILED)한 나 탭 풀이 · 시기 풀이만 다시 시작한다. 아니면(별명 포함) 409 `NOT_FAILED`.
+	 * 다시 만드는 일은 `report` 가 한다(이벤트, 요청 스레드) — 사용자의 생성 한도에 걸리면 429 가 그대로 간다.
+	 */
+	fun regenerate(id: UUID, kind: String) {
+		if (!repository.exists(id)) throw NotFoundException("NOT_FOUND")
+		val report = REPORT_KINDS[kind]
+		if (report == null || repository.latestReportStatus(id, report) != "FAILED") throw AdminRejectedException(409, "NOT_FAILED")
+		events.publishEvent(GenerationRetryRequested(id, report))
+		log.info("event=admin_generation_retried kind={}", kind)
+		audit.record(AuditAction.GENERATION_RETRIED, "USER", id, mapOf("kind" to kind))
 	}
 }
 
@@ -298,6 +322,14 @@ class AdminUsersRepository(private val jdbc: JdbcTemplate) {
 			consents, birth, generations(id), inquiries(id), recent(id), suspension(id),
 		)
 	}
+
+	/** 그 사람의 [kind](ME · TIMING) 가장 최근 생성의 상태(상세의 generations 와 같은 줄). 없으면 null. */
+	fun latestReportStatus(id: UUID, kind: String): String? =
+		jdbc.query(
+			"select status from detail_reports where owner_id = ? and kind = ? order by started_at desc limit 1",
+			{ rs, _ -> rs.getString("status") },
+			id, kind,
+		).firstOrNull()
 
 	/** 별명(요약 해석) · 나 탭 풀이 · 시기 풀이의 지금 상태. 별명은 저장되는 실패가 없어 DONE · NONE 뿐이다. */
 	private fun generations(id: UUID): List<UserGeneration> {
