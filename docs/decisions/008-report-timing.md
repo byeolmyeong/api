@@ -3,7 +3,7 @@ type: decision
 tags: [시기, 변곡점, 마디, 구간, 심층 리포트, 글 생성, 타임라인]
 status: active
 last_reviewed: 2026-11-11
-superseded_by:
+superseded_by: 029-split-detail-reports.md (시기가 심층 리포트의 한 영역인 것만 — 시기 풀이로 따로) · 033-timing-report-v2.md (구간 제목을 모델이 쓰는 것만 — 서버 표 제목으로 고정). 나머지는 유효
 ---
 # 008. 리포트의 시기 영역: 계산은 생성할 때 한 번 저장하고, "지금"은 읽을 때 가리고, 모델의 글은 다가오는 10년에만 붙인다
 
