@@ -131,7 +131,8 @@ jobs:
           {
             echo "DEPLOY_HOST=$host"
             echo "BASE_URL=$base"
-            echo "SSH_OPTS=-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=20"
+            # 옛 색을 내리는 동안(최대 320초) 아무것도 출력하지 않아도 연결이 끊기지 않게 한다.
+            echo "SSH_OPTS=-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
           } >> "$GITHUB_ENV"
 
       - name: VM 확인 (블루 · 그린으로 옮긴 VM 인지)
@@ -148,7 +149,10 @@ jobs:
           # 결정 046 앞의 커밋(swap.sh 가 없음)을 올릴 때는 jar 만 올린다. 그 커밋의 compose.yaml · Caddyfile 은 블루 · 그린 VM 을 깬다.
           if [ -f deploy/swap.sh ]; then
             # shellcheck disable=SC2086 # SSH_OPTS 는 일부러 낱말로 나눈다.
-            scp $SSH_OPTS -r deploy/compose.yaml deploy/Caddyfile deploy/swap.sh deploy/backup.sh deploy/restore.sh deploy/initdb "ubuntu@$DEPLOY_HOST:/opt/byeolmyeong/"
+            scp $SSH_OPTS -r deploy/compose.yaml deploy/Caddyfile deploy/backup.sh deploy/restore.sh deploy/initdb "ubuntu@$DEPLOY_HOST:/opt/byeolmyeong/"
+            # swap.sh 는 다른 이름으로 올려 바꿔 놓는다(다음 단계). 손으로 돌리던 swap.sh 가 있으면 그 파일을 덮어쓰지 않는다.
+            # shellcheck disable=SC2086
+            scp $SSH_OPTS deploy/swap.sh "ubuntu@$DEPLOY_HOST:/opt/byeolmyeong/swap.sh.new"
           else
             echo "$TARGET: 결정 046 앞의 커밋이라 설정 파일은 올리지 않고 jar 만 바꾼다." >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -165,7 +169,11 @@ jobs:
           set -euo pipefail
           cd /opt/byeolmyeong
           [ -f .env ] || { echo ".env 가 없다(docs/deploy.md)." >&2; exit 1; }
+          # 새 파일로 바꿔 놓는다(mv). 돌고 있던 swap.sh 는 옛 파일을 끝까지 읽고, 이번 swap.sh 는 잠금에서 기다리지 않고 멈춘다.
+          if [ -f swap.sh.new ]; then mv -f swap.sh.new swap.sh; fi
           chmod +x swap.sh backup.sh restore.sh initdb/*.sh
+          # 서버 이미지(JRE)의 새 패치를 받아 둔다. 쉬는 색만 새로 만들어지므로 끊기지 않는다. 받기에 실패하면 있던 이미지로 한다.
+          docker compose pull --quiet api-blue || echo "event=jre_pull_failed (있던 이미지로 계속)"
           # 운영: jar 를 바꾸기 전에 DB 를 백업한다. 되돌리기는 jar 만 되돌리므로 마이그레이션 이전으로 돌아갈 곳을 남긴다. 실패하면 배포하지 않는다.
           # Postgres 는 띄우거나 다시 만들지 않는다(결정 046 의 6) — 떠 있지 않으면 멈춘다.
           if [ "$TARGET" = prod ]; then

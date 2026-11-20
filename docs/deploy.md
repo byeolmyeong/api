@@ -25,9 +25,9 @@ last_reviewed: 2026-11-18
 
 흐름: 작업 브랜치 → PR(`gh pr create --base develop`) → `develop`(스테이징에서 확인) → `develop` → `main` PR → `main`(운영). 두 브랜치 모두 직접 push 하지 않는다(`.claude/hooks/guard.sh` 가 막는다). GitHub 무료 요금제라 보호 규칙이 없으니 **CI 가 통과했는지 보고 합친다**.
 
-VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`swap.sh`·`backup.sh`·`restore.sh`·`.env`(서버 컨테이너가 봄)·`db.env`(Postgres 만)·`backup.env`(운영, 백업 스크립트만)·`app-blue.jar`·`app-green.jar`(색마다 jar)·`upstream.caddy`(Caddy 가 보내는 색, `swap.sh` 가 씀)·`active_color`(지금 받는 색)·`app.jar.good`(마지막으로 받는 쪽이 된 jar)·`backups/`. 컨테이너는 `api-blue`·`api-green`(서버, **늘 하나만 받는다**)·`postgres`·`caddy`(HTTPS).
+VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`swap.sh`·`backup.sh`·`restore.sh`·`.env`(서버 컨테이너가 봄)·`db.env`(Postgres 만)·`backup.env`(운영, 백업 스크립트만)·`app-blue.jar`·`app-green.jar`(색마다 jar)·`upstream.caddy`(Caddy 가 보내는 색, `swap.sh` 가 씀)·`active_color`(지금 받는 색)·`app.jar.good`(지금 받는 jar)·`app.jar.prev`(그 앞에 받던 jar, 되돌리기용)·`backups/`. 컨테이너는 `api-blue`·`api-green`(서버, **늘 하나만 받는다**)·`postgres`·`caddy`(HTTPS).
 
-서버를 바꿔 띄우는 것은 `swap.sh` 만 한다(결정 046): 쉬는 색에 jar 를 띄워 `/health` 200 을 본 뒤 Caddy 가 보내는 색을 바꾸고(`caddy reload`, 연결을 끊지 않는다), 옛 색은 받던 요청 · 쓰던 생성을 끝낸 뒤(최대 220초) 내린다. 새 색이 3분 안에 살아나지 않으면 받는 쪽은 옛 색 그대로다. Postgres · Caddy 는 만지지 않는다. **VM 에서 `docker compose up -d` 를 서비스 이름 없이 부르지 않는다**(두 색이 다 뜬다).
+서버를 바꿔 띄우는 것은 `swap.sh` 만 한다(결정 046): 쉬는 색에 jar 를 띄워 `/health` 200 을 본 뒤 Caddy 가 보내는 색을 바꾸고(`caddy reload`, 연결을 끊지 않는다), 옛 색은 받던 요청(최대 120초) · 쓰던 생성(최대 180초)을 끝낸 뒤 내린다. 새 색이 3분 안에 살아나지 않으면 받는 쪽은 옛 색 그대로다. Postgres · Caddy 는 만지지 않는다. **VM 에서 `docker compose up -d` 를 서비스 이름 없이 부르지 않는다**(두 색이 다 뜬다).
 
 ## (가) 처음 한 번 — 순서대로
 
@@ -120,8 +120,8 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 |---|---|
 | 스테이징에 올리기 | 작업 브랜치 → `develop` 으로 PR → CI 통과 확인 → 합치기. Actions 의 `deploy` 가 알아서 올린다 |
 | 운영에 올리기 | 스테이징에서 확인 → `develop` → `main` PR → CI 통과 확인 → 합치기(합치는 것이 "사람의 확인"이다). jar 를 바꾸기 직전에 DB 를 백업한다 |
-| 배포가 실패하면 | 새 색이 3분 안에 `/health` 200 이 아니거나 Caddy 다시 읽기가 실패하면 `swap.sh` 가 새 색을 내리고 실패로 끝난다. **받는 쪽은 옛 색 그대로라 되돌릴 것이 없다**(사용자는 끊김을 보지 않는다). 배포 직전 백업이 실패해도 아무것도 바꾸지 않고 끝난다. 원인은 `docker compose logs --tail 100 api-<새 색>` 과 Actions 로그의 `event=swap_failed step=…` |
-| 되돌리기(바로 앞 버전) | 쉬는 색의 jar 가 바로 앞 버전이다: `cat active_color` 가 `green` 이면 `./swap.sh app-blue.jar`, `blue` 면 `./swap.sh app-green.jar`(끊김 없음). 지금 jar 를 다시 띄우려면 `./swap.sh app.jar.good` |
+| 배포가 실패하면 | 새 색이 3분 안에 `/health` 200 이 아니거나 Caddy 다시 읽기가 실패하면 `swap.sh` 가 새 색을 내리고 실패로 끝난다. **받는 쪽은 옛 색 그대로라 되돌릴 것이 없다**(사용자는 끊김을 보지 않는다). 배포 직전 백업이 실패해도 서버는 그대로 두고 끝난다(설정 파일은 이미 올라가 있다). `step=reload` 면 올라간 Caddyfile 이 틀린 것이다 — 고쳐 다시 배포한다(그대로 두면 Caddy 가 다시 시작할 때 뜨지 못한다). 원인은 `docker compose logs --tail 100 api-<새 색>` 과 Actions 로그의 `event=swap_failed step=…` |
+| 되돌리기(바로 앞 버전) | `./swap.sh app.jar.prev` (끊김 없음). `app.jar.prev` 는 받는 jar 가 바뀔 때만 밀려난다 — `--restart` 나 실패한 배포는 건드리지 않는다. 다시 한 번 하면 되돌리기 전 버전으로 돌아간다 |
 | 되돌리기(더 이전 버전) | Actions → `deploy` → Run workflow → 대상·이전 커밋(또는 브랜치). 수동 실행은 빌드·테스트를 다시 돌린다. 끊김 없다. **DB 는 되돌리지 않는다.** 결정 046 앞의 커밋이면 jar 만 바꾸고 그 커밋의 설정 파일은 올리지 않는다(블루 · 그린 VM 을 깬다) |
 | DB 까지 되돌려야 할 때(운영) | ① `./restore.sh backups/byeolmyeong-predeploy-<시각>.dump --into-live` — 한 트랜잭션 안에서 public 스키마를 비우고 덤프를 넣으므로 새 마이그레이션이 만든 표도 남지 않는다. 끝나면 서버는 **멈춘 채로** 둔다(지금 jar 로 뜨면 그 마이그레이션이 다시 적용된다). ② Actions → `deploy` → Run workflow → 대상 `prod`·배포 전 커밋 → 그 jar 로 서버가 뜬다. 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
 | 상태 | `docker compose ps` (`postgres`·`caddy`·받는 색 하나가 Up, 쉬는 색은 Exited) · `cat active_color` · `curl -s https://<서버 주소>/health` |
@@ -130,7 +130,7 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 | 서버가 계속 다시 시작한다 | `docker compose logs --tail 50 api-$(cat active_color)` 에 `event=startup_refused reason=dev_login_outside_local_staging` 이면 개발용 로그인(`AUTH_DEV_ENABLED=true`)이 켜졌는데 `DEPLOY_ENV` 가 `staging` 이 아니다(결정 022). 운영이면 `AUTH_DEV_ENABLED` 를 지우고, 스테이징이면 `DEPLOY_ENV=staging` → `./swap.sh --restart`(새 색이 뜨지 않으면 받는 쪽은 그대로다) |
 | DB 비밀번호 바꾸기 | 점검 모드를 켠다(결정 017, Postgres 를 다시 만들면 끊긴다) → `docker compose exec postgres psql -U postgres` 로 들어가 `\password <DB 사용자>` (새 값이 셸 기록·프로세스 목록에 남지 않는다) → `.env` 의 `DATABASE_PASSWORD` 를 같은 값으로 → `docker compose up -d --no-deps --force-recreate postgres` (Postgres 의 상태 검사도 이 값으로 접속한다. `.env` 만 바꾸면 Postgres 는 처음 값을 그대로 쓴다) → `./swap.sh --restart` → 점검 모드를 끈다 |
 | 첫 관리자 만들기(운영) | `.env` 의 `ADMIN_BOOTSTRAP_*` 주석을 풀고 값 → `./swap.sh --restart` → 관리 화면 로그인 확인 → 다시 주석 → `./swap.sh --restart` |
-| Postgres · Caddy 업데이트 | 앱 배포는 둘을 받지도 다시 만들지도 않는다(결정 046, 패치까지 태그 고정). 올릴 때: `compose.yaml` 의 태그를 PR 로 바꿔 합친다(배포가 파일을 올린다) → VM 에서 `docker compose pull postgres caddy` → 점검 모드를 켠다(결정 017) → `docker compose up -d --no-deps postgres caddy` → `docker compose ps` · `curl -s https://<서버 주소>/health` → 점검 모드를 끈다. 서버 이미지(JRE)는 `docker compose pull api-blue` 뒤 `./swap.sh --restart` 로 끊김 없이 바뀐다 |
+| Postgres · Caddy 업데이트 | 앱 배포는 둘을 받지도 다시 만들지도 않는다(결정 046, 패치까지 태그 고정). 올릴 때: `compose.yaml` 의 태그를 PR 로 바꿔 합친다(배포가 파일을 올린다) → VM 에서 `docker compose pull postgres caddy` → 점검 모드를 켠다(결정 017) → `docker compose up -d --no-deps postgres caddy` → `docker compose ps` · `curl -s https://<서버 주소>/health` → 점검 모드를 끈다. 서버 이미지(JRE)는 배포가 받는다(쉬는 색만 새로 만들어 끊기지 않는다). 배포를 기다리지 않으려면 `docker compose pull api-blue && ./swap.sh --restart` |
 | 백업 확인(주 1회) | `tail -n 3 backups/backup.log` 에 `event=backup_done kind=daily`, 버킷에 오늘 덤프. 실패 알림은 없다. 덤프 이름은 매일 `byeolmyeong-daily-<시각>.dump`, 배포 직전 `byeolmyeong-predeploy-<시각>.dump` 이고 VM 에는 종류마다 7개 남는다 |
 | 손으로 백업 | `./backup.sh` (매일 백업과 같은 종류) |
 | 복원 연습 | `./restore.sh backups/<파일>` → 표별 행 수(일회용 컨테이너·볼륨은 지워진다). 실제 DB 와 몇 표만 견준다: `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select count(*) from accounts"` |
@@ -143,19 +143,16 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 - 스테이징 VM 이 회수되면 (가) 4·8·9 와 (다)의 "새 VM 에 처음 띄우기" 를 다시 한다. 데이터는 버린다.
 
 ## (다) 블루 · 그린 처음 한 번 (결정 046)
-`upstream.caddy` 는 VM 에만 있다(배포가 올리지 않는다). 아래의 받는 쪽 파일 내용은 `swap.sh` 의 `write_upstream` 과 같다:
-```
-printf '%s\n' '# swap.sh 가 쓴다(결정 046). 손으로 고치지 않는다 — 받는 쪽을 바꾸려면 ./swap.sh' 'reverse_proxy api-blue:8080 {' '	health_uri /health' '	health_interval 2s' '	lb_try_duration 15s' '}' > upstream.caddy
-```
+`upstream.caddy`(Caddy 가 보내는 색)는 VM 에만 있다(배포가 올리지 않는다). 처음 한 번 `./swap.sh --init` 이 `api-blue` 로 만든다. 그 뒤로는 `swap.sh` 만 고쳐 쓴다.
 
-### 옛 방식(`api` 하나)에서 옮겨 가기 — VM 마다 한 번, Caddy 를 다시 만들 때 몇 초 끊긴다
-운영은 **소유자 확인을 받고**, 사용자가 적은 시간에 점검 모드를 켜고 한다. 스테이징은 점검 모드 없이 해도 된다(관리 화면이 운영뿐이다). 이 사이 운영 배포(`main` 합치기)는 워크플로가 "옮기지 않은 VM" 으로 멈추므로 하지 않는다.
-1. (맥, 저장소 `develop`) `scp -i ~/.ssh/byeolmyeong-oci deploy/compose.yaml deploy/Caddyfile deploy/swap.sh deploy/restore.sh ubuntu@<IP>:/opt/byeolmyeong/` — 돌고 있는 컨테이너는 그대로다(옛 `api` 는 "고아" 경고가 뜬다).
+### 블루 · 그린으로 처음 옮겨 가기 (옛 방식 `api` 하나에서) — VM 마다 한 번, Caddy 를 다시 만들 때 몇 초 끊긴다
+운영은 **소유자 확인을 받고**, 사용자가 적은 시간에 점검 모드를 켜고 한다. 스테이징은 점검 모드 없이 해도 된다(관리 화면이 운영뿐이다). 옮기기 전의 배포(이 절차보다 먼저 결정 046 이 develop 에 합쳐진 뒤의 `develop` · `main` 합치기)는 워크플로가 "옮기지 않은 VM" 으로 아무것도 바꾸지 않고 멈춘다 — 옮긴 뒤 Actions → `deploy` → Run workflow(대상 · 그 브랜치)로 다시 올린다.
+1. (맥, 저장소 `develop`) `scp -i ~/.ssh/byeolmyeong-oci deploy/compose.yaml deploy/swap.sh deploy/restore.sh ubuntu@<IP>:/opt/byeolmyeong/` — 돌고 있는 컨테이너는 그대로다(옛 `api` 는 "고아" 경고가 뜬다). **Caddyfile 은 아직 올리지 않는다**(옛 Caddy 가 그 사이 다시 시작하면 `upstream.caddy` 가 붙어 있지 않아 뜨지 못한다).
 2. (VM) 지금 jar 로 블루를 옛 서버 옆에 띄운다: `chmod +x swap.sh restore.sh && cp app.jar app-blue.jar && docker compose up -d --no-deps api-blue` → `until docker compose exec -T caddy wget -q -O /dev/null http://api-blue:8080/health; do sleep 2; done`
-3. 위의 받는 쪽 파일(`api-blue`)을 쓴다. `docker compose pull caddy`(고정한 태그를 미리 받아 끊김을 줄인다).
+3. `./swap.sh --init`(받는 쪽 파일을 `api-blue` 로) · `docker compose pull caddy`(고정한 태그를 미리 받아 끊김을 줄인다).
 4. 운영: 관리 화면에서 점검 모드를 켠다. 쓰는 중인 생성이 끝날 때까지 기다린다 — 아래가 `0` 이면 된다(옛 jar 는 끌 때 생성을 기다리지 않는다):
    `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select (select count(*) from reports where status='WRITING' and active_at > now() - interval '1 minute') + (select count(*) from detail_reports where status='WRITING' and active_at > now() - interval '1 minute') + (select count(*) from synastry_reports where status='WRITING' and active_at > now() - interval '1 minute')"`
-5. Caddy 를 새 마운트 · 태그로 다시 만든다(여기서 몇 초 끊긴다): `docker compose up -d --no-deps caddy` → `curl -s https://<서버 주소>/health` 200 · `docker compose exec -T caddy wget -qO- http://127.0.0.1:2019/config/apps/http/servers | grep -o 'api-blue:8080'`
+5. (맥) `scp -i ~/.ssh/byeolmyeong-oci deploy/Caddyfile ubuntu@<IP>:/opt/byeolmyeong/` → (VM) Caddy 를 새 마운트 · 태그로 다시 만든다(여기서 몇 초 끊긴다): `docker compose up -d --no-deps caddy` → `curl -s https://<서버 주소>/health` 200 · `docker compose exec -T caddy wget -qO- http://127.0.0.1:2019/config/apps/http/servers | grep -o 'api-blue:8080'`
 6. `echo blue > active_color && cp app-blue.jar app.jar.good`
 7. 옛 서버를 내리고 지운다: `docker stop -t 60 byeolmyeong-api-1 && docker rm byeolmyeong-api-1 && rm -f app.jar app.jar.new`
 8. 운영: 점검 모드를 끈다. `./swap.sh --restart` 한 번으로 끊김 없이 바뀌는지 본다(`event=swap_done active=green`).
@@ -163,5 +160,5 @@ printf '%s\n' '# swap.sh 가 쓴다(결정 046). 손으로 고치지 않는다 �
 ### 새 VM 에 처음 띄우기
 (가) 8·9 뒤에:
 1. (맥) `./gradlew bootJar && scp -i ~/.ssh/byeolmyeong-oci -r deploy/compose.yaml deploy/Caddyfile deploy/swap.sh deploy/backup.sh deploy/restore.sh deploy/initdb build/libs/app.jar ubuntu@<IP>:/opt/byeolmyeong/`
-2. (VM) 위의 받는 쪽 파일(`api-blue`)을 쓰고 `chmod +x swap.sh backup.sh restore.sh initdb/*.sh && docker compose up -d postgres caddy`
+2. (VM) `chmod +x swap.sh backup.sh restore.sh initdb/*.sh && ./swap.sh --init && docker compose up -d postgres caddy`
 3. `./swap.sh app.jar && rm app.jar` → `event=swap_done`. 그 뒤로는 배포 워크플로가 올린다.
