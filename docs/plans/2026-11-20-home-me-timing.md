@@ -184,28 +184,28 @@ last_reviewed: 2026-11-20
 
 ### S③ 이번 달 · 시기 풀이 (결정 032 · 033, 029 의 시기 쪽)
 
-#### 8. s3-move-themes · 상태: 대기
+#### 8. s3-move-themes · 상태: 완료
 - 할 것: `report/TimingThemes.kt` → `generation`(동작 그대로, 옮기기만).
 - 검증: 지금 시기 테스트 그대로 초록, `ArchitectureTest` 초록
 
-#### 9. s3-transits · 상태: 대기
+#### 9. s3-transits · 상태: 완료
 - 읽을 것: 결정 032 의 3, 034 의 3, 문구표 초안의 "고르는 규칙", `chart/Positions.kt` · `Aspects.kt`
 - 할 것: `chart/Transits.kt` — 그날(한국 날짜 정오)의 통과 목록(지나가는 별 × 내 점 × 각도, 허용 오차 1°, 세기 순 — 달 포함 여부는 인자), 그달의 눈여겨볼 날 후보(해 · 수성 · 금성 · 화성 · 목성, 조합마다 가장 정확한 날, 점수 · 3일 간격 · 칩 겹침 규칙으로 셋까지 — 값은 문구표 초안), 그날의 하늘용 근거(1° 안 통과 중 가장 센 것, 없으면 달 5° 안 가장 정확한 각도).
 - 하지 말 것: 날짜 · 도수를 모델에게 넘기지 않는다.
 - 검증: 기준값 테스트(고정 차트 · 고정 달) — 같은 입력 같은 결과, 시각 모름이면 ASC · MC 대상 0, 달 빼기 옵션
 
-#### 10. s3-month-phrases · 상태: 대기(문구표 초안은 2026-11-20 소유자 "초안 그대로 써" 로 승인 — 실행 기록)
+#### 10. s3-month-phrases · 상태: 완료(문구표 초안은 2026-11-20 소유자 "초안 그대로 써" 로 승인 — 실행 기록)
 - 읽을 것: `docs/drafts/2026-11-20-month-phrases.md`
 - 할 것: `generation` 에 문구표(칸 = 지나가는 별 × 내 별 × 결 — 칩 · 문구 3~5) · 고르기(초안의 `CRC32("{날짜}|{조합}") mod 문구 수`, 한 달 안 겹침이면 다음 것).
 - 하지 말 것: 소유자가 보지 않은 문구를 넣지 않는다(초안 그대로면 PR 에 "초안" 표시).
 - 검증: 같은 날 · 같은 조합 → 같은 문구, 한 달 셋의 문구 겹침 0, 모든 칸의 문구 수 3~5, 문구에 숫자 · 금지 표현 없음
 
-#### 11. s3-month-endpoint · 상태: 대기
+#### 11. s3-month-endpoint · 상태: 완료
 - 할 것: 새 기능 패키지 `sky` — `GET /timing/month`(month 선택 · 범위 · 오류), `themes`(그달에 걸친 구간 우선순위 둘, 제목 겹침 없음), `days`(9 · 10 의 결과 + reason). 속도 제한 `month-per-minute`. 계약 표 · 모듈 · 요청 속도 제한 같은 커밋.
 - 하지 말 것: 저장하지 않고 생성 한도에 세지 않는다.
 - 검증: 통합 테스트 — month 없음 → 이번 달, 범위 밖 400, 형식 400, 출생 정보 없음 404, 같은 요청 두 번 같은 본문
 
-#### 12. s3-timing-report · 상태: 대기
+#### 12. s3-timing-report · 상태: 완료
 - 읽을 것: 결정 033, `report/ReportTiming.kt` · `ReportService.kt`
 - 할 것: `MeReportService` 의 심장박동 · 그만두기 · 끝내기 고리를 꺼내 ME · TIMING 이 같이 쓴다(결정 029 — 복사해 네 번째 벌을 만들지 않는다, S② 리뷰). 일꾼 자리 꽉 참 · 줄 대기 2분 테스트를 그 공통 고리에 붙인다. `DetailReportKind` 는 `DetailReportRepository.kt` 로. `POST/GET /timing-report`(kind TIMING), 구간 제목을 표 제목으로 고정, 9줄 묶음 약 4 호출(한꺼번에) · 묶음별 재시도, 모델 구간의 summary · body · detail · practices · reason, `current.mainId`(읽을 때), `TimingReportDone`. 지시문 `timing-report.md`. 계약 표 · "시기" · "글 생성 규칙"(시기의 글) 같은 커밋.
 - 하지 말 것: 옛 `POST /reports` 의 시기 생성은 바꾸지 않는다(S⑦ 까지).
@@ -313,3 +313,10 @@ last_reviewed: 2026-11-20
 - 6: 확인 자리 없음 → `report/EntitlementPolicy.kt`(`allows(ownerId, kind)` 언제나 true · 클래스 하나, 인터페이스 · 설정 스위치 없음) · `DetailReportKind`(ME · TIMING) · `web.PurchaseRequiredException` → 402 `PURCHASE_REQUIRED`. `EntitlementPolicyTest` 2(빨강: 컴파일 실패 먼저). 계약 표에 402 "예약". 계획과 다른 점: "서비스가 생성 시작 전에 부르는지" 의 검증은 서비스가 생기는 태스크 7 의 통합 테스트로 옮겼다(거절 → 402 · 행 0 · 한도 0 · 완성된 풀이는 묻지 않음). 커밋 `9ef5511`.
 - 7: 나 탭 풀이 경로 없음 → `POST` · `GET /me-report`(`MeReportController` · `MeReportService` · `DetailReportRepository` · `MeReport` · `MeReportDone`), 영역 다섯 한꺼번에 · 영역별 칸 · 근거 id → `Reason(BIRTH)` · `stars`(연애는 영역의 `reason` 에서) · 일에 `workStyle`, 검증(키워드 3 · 문단 4 · 근거 1~2 · 숫자 · 퍼센트 · "~기" · 단정), 새로 시작할 때만 확인 자리 → 자리 → 한도 한 번, `MeReportDone`(허용 이벤트), 지시문 `me-report*.md` 여섯. 단위 `MeReportDraftTest` 7(빨강: 컴파일 실패 먼저). 통합 `MeReportApiIntegrationTest` 16(NONE → WRITING → DONE · 영역 순서 · 칸 · 일 방식 = 계산값 · 한 영역 18가지로 끝내 실패 → FAILED · 저장 없음 · 출생 정보 고친 뒤 NONE · 시각 모름에 house/ASC/MC/CLUSTER 없음 · 2분 멈춤 → FAILED · 402 · 남의 것 · 로그) + `GenerationQuotaIntegrationTest` 한도 초과 1. 고친 코드를 일부러 되돌려(확인 자리를 자리 잡기 뒤로 · 일 방식 빼기 · 숫자 검사 빼기) 통합 테스트 5개가 실패하는 것을 봤다. 계획과 다른 점: 감사 기록은 새 행동 코드를 만들지 않고 `REPORT_REQUESTED` 에 `{ kind: "ME" }` 를 붙였다 · 숫자 · 단정 검사는 다섯 영역 모두(결정 030 의 6 "한 영역의 글") · 확인 자리를 자리 잡기 전에 두려고 `POST` 마다 상태를 한 번 먼저 읽는다 · 심장박동 · 그만두기 고리는 `MeReportService` 안에 옛 `ReportService` 와 같은 꼴로 따로 있다(시기 풀이가 오면 S③ 에서 둘이 같이 쓰게 묶는다 — 결정 029 "두 벌로 만들지 않는다"). 커밋 `75f7ecd`.
 - S② 검증: Docker 없이 도는 단위 테스트 32클래스 190 초록(전 29 · 176). Docker 데몬이 응답하지 않아 통합 테스트는 로컬 PG 15(스크래치 폴더, Testcontainers 대신 임시 설정 — 커밋하지 않음)에서 전체 617 중 611 통과, 나머지 6(`AppConfigApiIntegrationTest` 3 · `AdminClosedIntegrationTest` 2 · `ChartApiIntegrationTest` 1)은 모든 Spring 문맥이 한 DB 를 나눠 써서 남은 관리자 · 설정 행 때문이고 그 클래스만 빈 DB 에서 돌리면 통과. 최종 판정은 PR 의 CI(`./gradlew build`).
+- S③ 앞: S② 리뷰 제안 — 나 탭 풀이 `POST` 가 완성 · 쓰는 중이어도 차트를 계산하던 것 → 상태를 먼저 보고 새로 시작할 때만(받을 수 있나 뒤 · 자리 잡기 전) 계산. 동작 같음, `MeReportApiIntegrationTest` 16 그대로(로컬 PG). 커밋 `8666749`.
+- 8: `TimingThemes.kt` 가 `report` 안 → `generation` 으로(패키지만). 단위 33클래스 197 · `ReportApiIntegrationTest` · `DirectionFutureApiIntegrationTest` 그대로(로컬 PG) · `ArchitectureTest` 통과. 커밋 `7f4e20e`.
+- 9: 그날 · 그달의 지나가는 별 계산 없음 → `chart/Transits.kt`(`monthTransitCandidates` · `pickNotableDays` · `notableDays` · `dayTransits` · `daySkyTransit`, 문구표 초안 2 · 4 · 6절의 규칙 · 무게 그대로). `TransitsTest` 5 — 2026-12 동지(12-21 20:50 UTC) 기준값: 해 270° 에 가장 가까운 한국 정오는 12-22(오차 0.2~0.32), 세기 식, 생일(해 × 해 합) 제외, 시각 모름에 상승점 · 중천 대상 0, 고르기(세기 8 · 사흘 · 칩 먼저 · 셋), 다섯 별이 없으면 달(빨강: 컴파일 실패 먼저). 계획과 다른 점: "달 포함 여부는 인자" 대신 그날의 통과(`dayTransits`)는 늘 다섯 별, 달은 `daySkyTransit` 의 마지막 근거로만(초안 6절 그대로 — 달은 무게가 없어 세기 순에 넣을 수 없다). 칩 표는 문구표(10)에 두고 고르기 함수가 칩을 인자로 받는다. 커밋 `e23d262`.
+- 10: 문구표 없음 → `generation/MonthPhrases.kt`(칩 표 5 × 12 · 대표 33칸 + 기본 15칸 = 153줄을 초안에서 스크립트로 글자 그대로 옮김, 번호 = CRC32("날짜|칸") mod 줄 수 + 1, 한 달 안 겹침이면 다음 번호). `MonthPhrasesTest` 7(칸 수 · 3~5 · 모두 다름 · "날" 끝 · 숫자 · 용어 · 단정 없음 · 칩 · 결 · CRC32 번호 · 기본 칸 · 겹침 피하기, 빨강: 컴파일 실패 먼저). 문구는 초안 그대로(25자 넘는 두 줄도 그대로). 커밋 `3410d7a`.
+- 11: 이번 달 경로 없음 → 새 기능 패키지 `sky` 의 `GET /timing/month`(없거나 빈 값이면 이번 달 · `INVALID_MONTH` · `MONTH_OUT_OF_RANGE` · `NO_PROFILE` · 계정별 분당 `month-per-minute` 60 → 429). themes 는 초안 5절(10일 이상 겹침 · 우선순위 · 더 많이 겹침 · 그다음 늦게 시작 · 제목 겹침 없이 둘), 우선순위는 `generation.intervalPriority`(시기 풀이 `mainId` 와 같이). `MonthSkyTest` 3 · `MonthSkyApiIntegrationTest` 6(응답 = chart · generation 순수 함수의 계산, 같은 요청 같은 본문, 모델 0 · 한도 0 · 행 0, 로그) · `MonthSkyRateLimitIntegrationTest` 1(빨강: 컴파일 실패 먼저). 계획과 다른 점: themes 의 "같으면" 은 결정 032 의 "늦게 시작한 것" 보다 초안 5절의 "그달과 더 많이 겹치는 것" 을 먼저(소유자가 초안을 승인) · 빈 `month=` 은 없는 것으로 · 출생 정보가 없어 404 인 요청도 한도에 센다. 평생 시기 구간 계산(약 0.3초)이 요청마다 돈다. 커밋 `c9549ce`.
+- 12: 시기 풀이 없음 · 생성 고리가 `MeReportService` 안에만 → 공통 고리 `DetailReportService`(자리 잡기 · 받을 수 있나 · 한도 · 감사 기록 · 조각 · 심장박동 · 그만두기 · 끝내기, `DetailReportKind` 는 `DetailReportRepository.kt` 로)를 ME · TIMING 이 같이 쓰고, `POST` · `GET /timing-report`(9줄 묶음 약 넷 · 구간 이름 고정 · 맡긴 구간에만 summary · body · detail · practices · reason · `current.mainId` 는 읽을 때 · `TimingReportDone`). 지시문 `timing-report.md`. 단위 `TimingReportDraftTest` 6(빨강: 컴파일 실패 먼저), 통합 `TimingReportApiIntegrationTest` 9 · `DetailReportExecutorFullIntegrationTest` 1 · `DetailReportQueueWaitIntegrationTest` 2(공통 고리 — 나 탭이 일꾼을 채우면 시기 풀이가 FAILED, 줄 대기 11분도 WRITING, 두 종류 모두 심장박동), `MeReportApiIntegrationTest` 16 그대로. 대표 구간 · 실천 검사를 일부러 빼면 통합 테스트 3개가 실패하는 것을 봤다. 계획과 다른 점: 공통 고리의 이름은 `DetailReportService`(`*Repository` 는 같은 패키지의 `*Service` 만 부를 수 있다 — `ArchitectureTest`) · 시기 풀이의 모양은 옛 `ReportTiming` 에 칸을 더해 같이 쓴다(옛 리포트에는 그 칸 · `mainId` 키가 나오지 않는다) · 감사 기록 `REPORT_REQUESTED { kind: TIMING }`. 커밋 `1c98257`.
+- S③ 검증: Docker 없이 도는 단위 테스트 37클래스 218 초록(전 33 · 197). Docker 데몬이 응답하지 않아 통합 테스트는 로컬 PG 15(스크래치, Testcontainers 대신 임시 설정 — 커밋하지 않음)에서 전체 665 중 659 통과, 나머지 6(`AppConfigApiIntegrationTest` 3 · `AdminClosedIntegrationTest` 2 · `ChartApiIntegrationTest` 1)은 S② 때와 같은 까닭(모든 문맥이 한 DB 를 나눠 써서 남은 관리자 · 설정 행)이다. 최종 판정은 PR 의 CI(`./gradlew build`).
