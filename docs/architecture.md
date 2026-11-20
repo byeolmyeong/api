@@ -69,7 +69,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
-| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`·`sky`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 나 탭 풀이 · 시기 풀이가 완성됐다는 `report.MeReportDone` · `report.TimingReportDone`(알림함이 듣는다 — 결정 029 · 035), 궁합이 지워졌다는 `synastry.SynastryDeleted`(`direction` 이 그 궁합의 글을 지운다 — 결정 019), 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)와 관리자가 문의에 처음 답했다는 `admin.InquiryAnswered`(알림함 S⑤ · 푸시 S⑩ 가 듣는다 — 결정 039)와 출생 정보가 바뀌었다는 `profile.BirthProfileChanged`(`reading` · `report` · `sky` 가 옛 차트의 저장분을 지운다 — 결정 041)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015). 관리자의 탈퇴 대행도 공통 패키지의 `web.AccountDeletionRequested` 로 `auth` 에 알린다(공통 `auth` 는 기능의 이벤트 클래스를 알 수 없다 — 결정 043 의 1) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`·`sky`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 나 탭 풀이 · 시기 풀이가 완성됐다는 `report.MeReportDone` · `report.TimingReportDone`(알림함이 듣는다 — 결정 029 · 035), 궁합이 지워졌다는 `synastry.SynastryDeleted`(`direction` 이 그 궁합의 글을 지운다 — 결정 019), 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)와 관리자가 문의에 처음 답했다는 `admin.InquiryAnswered`(알림함 S⑤ · 푸시 S⑩ 가 듣는다 — 결정 039)와 출생 정보가 바뀌었다는 `profile.BirthProfileChanged`(`reading` · `report` · `sky` 가 옛 차트의 저장분을 지운다 — 결정 041)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015). 관리자의 탈퇴 대행도 공통 패키지의 `web.AccountDeletionRequested` 로 `auth` 에 알린다(공통 `auth` 는 기능의 이벤트 클래스를 알 수 없다 — 결정 043 의 1) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게. 관리자가 실패한 자세한 풀이를 다시 만들게 했다는 `admin.GenerationRetryRequested`(`report` 가 듣고 다시 시작한다 — 결정 043 의 1)도 허용된 이벤트다 |
 | 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
 | `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
 | `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
@@ -327,6 +327,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /admin/users/{id}/suspend` | `{ reason }` | 200 `UserDetail` |
 | `POST /admin/users/{id}/unsuspend` | `{ reason }` | 200 `UserDetail` |
 | `DELETE /admin/users/{id}` | `{ reason, confirmNickname }` | 204 |
+| `POST /admin/users/{id}/regenerate` | `{ kind }` | 202(본문 없음) |
 | `GET /admin/stats` | 없음 | 200 `Stats` |
 | `GET /admin/stats/active?range=today\|week\|month` | 쿼리 `range`(꼭 있어야 한다) | 200 `ActiveChart` |
 | `GET /admin/faqs` | 없음 | 200 `[Faq]` 보이는 순서대로(공개하지 않은 것 포함) |
@@ -391,6 +392,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `suspension.reason`: 정지 사유(관리자끼리만 — 앱에는 보이지 않는다). 기기 · 오늘의 하늘 알림 칸은 푸시 묶음(결정 042)이 더한다.
 - `POST /admin/users/{id}/suspend { reason }` · `POST /admin/users/{id}/unsuspend { reason }`: 사유는 앞뒤 공백을 뗀 1~200자(아니면 400 `INVALID_REASON`). 200 바뀐 `UserDetail`. 이미 그 상태면 409 `ALREADY_SUSPENDED` · `NOT_SUSPENDED`. 정지해도 세션은 그대로다 — 그 사람의 다음 요청부터 403 `ACCOUNT_SUSPENDED`(문의 · 계정 보기 · 로그아웃 · 계정 삭제만 열림, 위 "API 계약" 의 세션 줄). 정지 · 해제 사유는 정지 내역(`account_suspensions`)에 남고 감사 기록에는 `USER_SUSPENDED` · `USER_UNSUSPENDED`(대상 `USER` id)만 남는다.
 - `DELETE /admin/users/{id} { reason, confirmNickname }`: 사용자가 요청했을 때만 쓴다(사유에 요청 경로 — 확인용이고 저장하지 않는다). `confirmNickname` 이 그 사람의 닉네임과 글자 그대로(앞뒤 공백만 뗌) 같아야 하고 아니면 400 `CONFIRM_MISMATCH`(닉네임이 없는 옛 계정은 지울 수 없다). 지우는 일은 앱의 `DELETE /account` 와 같다(카카오 연결 끊기 · 애플 토큰 철회 · 출생 정보 · 생성 내역 · 문의 · 세션 — `admin` 이 이벤트 `web.AccountDeletionRequested` 를 내고 `auth` 가 지운다). 204. 감사 기록은 `USER_DELETED_BY_ADMIN`(대상 `USER` id) 하나 — 사용자가 지운 것(`ACCOUNT_DELETED`)으로 남기지 않는다.
+- `POST /admin/users/{id}/regenerate { kind }`: 가장 최근 생성이 실패(`FAILED`)한 것만 그 사람의 지금 차트로 다시 시작한다. `kind` 는 `NICKNAME` · `REPORT_ME` · `REPORT_TIMING`(그 밖이나 없으면 400 `INVALID_KIND`). 별명은 실패가 저장되지 않아(요약 해석은 요청 안에서 만든다) 늘 409 `NOT_FAILED`, 나 탭 풀이 · 시기 풀이도 가장 최근 `detail_reports` 행이 `FAILED` 가 아니면(완성 · 쓰는 중 · 만든 적 없음) 409 `NOT_FAILED`. 202(본문 없음) — 자리만 잡고 글은 뒤에서 쓴다. 결과는 사용자가 다시 눌렀을 때와 같이 간다(알림함 · 상세의 `generations`). 다시 만드는 일은 `admin` 이 이벤트 `admin.GenerationRetryRequested` 를 내고 `report` 가 요청 스레드에서 시작한다 — 그 사람의 생성 한도(결정 023)를 한 번 세고, 넘으면 429 `RATE_LIMITED`, 출생 정보가 지워졌으면 404 `NO_PROFILE`. 감사 기록 `GENERATION_RETRIED`(대상 `USER` id, `detail` 은 `kind`).
 - 오류: 404 `NOT_FOUND`(없는 사용자 · id 가 UUID 가 아님) · 400 `INVALID_REQUEST`(본문이 객체가 아니거나 타입이 틀리다).
 
 ### 문의
@@ -533,7 +535,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `MAINTENANCE_UPDATED` | `PUT /admin/app-config/maintenance`(아래 "앱 설정" 의 점검) | `ADMIN` | `APP_CONFIG` `maintenance` | `{ active }` — 켰는지 껐는지. 안내 글은 없다 |
   | `USER_SUSPENDED` · `USER_UNSUSPENDED` | 사용자를 정지했을 때 · 정지를 풀었을 때(`POST /admin/users/{id}/suspend` · `unsuspend`, 결정 043 의 1 · 044) | `ADMIN` | `USER` 그 계정의 id | 경로를 만드는 묶음이 정한다(사유 글은 넣지 않는다) |
   | `USER_DELETED_BY_ADMIN` | 사용자가 요청해 관리자가 탈퇴를 대행했을 때(`DELETE /admin/users/{id}`) | `ADMIN` | `USER` 그 계정의 id(이제 없는 id) | 경로를 만드는 묶음이 정한다(사유 · 닉네임은 넣지 않는다) |
-  | `GENERATION_RETRIED` | 실패한 생성을 다시 하게 했을 때(`POST /admin/users/{id}/regenerate`) | `ADMIN` | `USER` 그 계정의 id | 경로를 만드는 묶음이 정한다 |
+  | `GENERATION_RETRIED` | 실패한 생성을 다시 하게 했을 때(`POST /admin/users/{id}/regenerate`) | `ADMIN` | `USER` 그 계정의 id | `{ "kind": "REPORT_ME" \| "REPORT_TIMING" }` |
   | `PUSH_EVENT_SENT` | 광고 푸시를 보냈을 때(`POST /admin/push/events`, 결정 043 의 6) | `ADMIN` | `PUSH_EVENT` 그 발송의 id | 경로를 만드는 묶음이 정한다(제목 · 본문 글은 넣지 않는다) |
 
   - 아래 다섯 행동(`USER_SUSPENDED` ~ `PUSH_EVENT_SENT`)은 코드(`action` 조건으로 거를 수 있다)만 먼저 더했다. 그 경로가 아직 없어 지금은 남지 않는다 — 경로를 만드는 묶음(계획 S⑪ · S⑩)이 남기고 `detail` 을 이 표에 적는다.
