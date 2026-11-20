@@ -22,8 +22,6 @@ import java.util.UUID
 private const val TOKEN_BYTES = 32
 private const val LOGIN_WINDOW_MILLIS = 600_000L
 
-/** 아이디별 제한의 키로 쓰는 길이. 긴 글로 메모리를 채우지 못하게 자른다. */
-private const val LIMIT_KEY_LENGTH = 64
 
 /** 로그인 결과. [token] 은 원문이고 이 응답에서만 나간다. */
 class AdminLogin(val token: String, val expiresAt: OffsetDateTime, val admin: Admin)
@@ -44,12 +42,10 @@ class AdminAuthService(
 	private val audit: AdminAudit,
 	@Value("\${byeolmyeong.admin.session-hours}") private val sessionHours: Int,
 	@Value("\${byeolmyeong.rate-limit.admin-login-per-ip}") perIp: Int,
-	@Value("\${byeolmyeong.rate-limit.admin-login-per-id}") perId: Int,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val random = SecureRandom()
 	private val ipLimiter = RateLimiter(perIp, LOGIN_WINDOW_MILLIS, System::currentTimeMillis)
-	private val idLimiter = RateLimiter(perId, LOGIN_WINDOW_MILLIS, System::currentTimeMillis)
 
 	/**
 	 * 없는 아이디·틀린 비밀번호·꺼진 관리자는 모두 401 `INVALID_CREDENTIALS` 다. 시도는 주소별로만 센다(성공도 센다).
@@ -88,11 +84,10 @@ class AdminAuthService(
 	}
 
 	/**
-	 * 자기 비밀번호를 바꾼다. 이 요청의 세션([token])은 남기고 자기의 다른 세션은 지운다. 지금 비밀번호 확인은 아이디별 제한에 든다.
+	 * 자기 비밀번호를 바꾼다. 이 요청의 세션([token])은 남기고 자기의 다른 세션은 지운다. 아이디별 제한은 없다(결정 043 의 5 — 잠기지 않는다).
 	 * 임시 비밀번호로 들어온 동안([Admin.mustChangePassword])은 새 비밀번호가 임시 비밀번호와 같으면 400 `SAME_AS_TEMPORARY`, 바꾸면 풀린다.
 	 */
 	fun changePassword(admin: Admin, token: String, currentPassword: String, newPassword: String) {
-		if (!idLimiter.tryAcquire(admin.loginId.take(LIMIT_KEY_LENGTH))) throw AdminRejectedException(429, "RATE_LIMITED")
 		if (!passwords.matches(currentPassword, accounts.findByLoginId(admin.loginId)?.passwordHash)) {
 			log.warn("event=admin_password_change_failed")
 			throw BadRequestException("INVALID_CURRENT_PASSWORD")
