@@ -40,6 +40,9 @@ class AccountApiIntegrationTest {
 	private fun json(body: String): JsonNode = mapper.readTree(body)
 	private fun get(token: String) = http(port, "GET", "/account", token = token)
 	private fun patch(token: String, body: String) = http(port, "PATCH", "/account", body, token)
+	private fun nicknameCheck(token: String?, nickname: String?) = http(
+		port, "GET", "/account/nickname-check" + (nickname?.let { "?nickname=" + java.net.URLEncoder.encode(it, Charsets.UTF_8) } ?: ""), token = token,
+	)
 
 	private fun ownerId(): String = jdbc.queryForObject("select id::text from accounts where provider = 'DEV'", String::class.java)!!
 
@@ -232,5 +235,22 @@ class AccountApiIntegrationTest {
 		patch(token, """{"nickname":"비밀닉","marketingConsent":true}""")
 		val all = jdbc.queryForList("select coalesce(detail::text, '') from audit_logs", String::class.java).joinToString()
 		assertFalse(all.contains("비밀닉"))
+	}
+
+	@Test
+	fun `로그인 중 닉네임 확인 — 남이 쓰면 false(영문 대소문자는 같은 이름), 내 지금 닉네임은 true, 틀리면 400, 세션이 없으면 401`() {
+		jdbc.update("insert into accounts (id, provider, provider_user_id, nickname) values (gen_random_uuid(), 'GOOGLE', 'other', 'Star')")
+		val token = devToken(port)
+		assertEquals(200, patch(token, """{"nickname":"Moon"}""").statusCode())
+
+		assertEquals("""{"available":false}""", nicknameCheck(token, "star").body())
+		assertEquals("""{"available":true}""", nicknameCheck(token, "MOON").body(), "내 닉네임(대소문자만 다름)은 쓸 수 있다")
+		assertEquals("""{"available":true}""", nicknameCheck(token, "  새이름  ").body(), "앞뒤 공백은 뗀다")
+		for (bad in listOf(null, "", "   ", "별", "가".repeat(11), "별이1", "별 이")) {
+			val response = nicknameCheck(token, bad)
+			assertEquals(400, response.statusCode(), "$bad")
+			assertEquals("""{"error":"INVALID_NICKNAME"}""", response.body())
+		}
+		assertEquals(401, nicknameCheck(null, "Moon").statusCode())
 	}
 }

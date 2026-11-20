@@ -21,6 +21,7 @@ private const val SHARE_ID_BYTES = 16
 
 /**
  * 공유 카드(결정 012). 공유하는 순간의 공개 글만 `shares` 에 저장하고, 공개 조회는 그 JSON 을 그대로 준다.
+ * 종류마다의 함수는 카드만 만든다 — 만들기([create])는 저장까지 하고, 미리 받기(결정 051)는 카드만 돌려준다.
  * 카드의 글은 그 글을 가진 기능에게 이벤트로 묻는다 — 소유자의 것이 아니면 답이 오지 않고, 그때는 404 다.
  * 이름·공유 식별자·소유자를 로그에 남기지 않는다(카드 종류만).
  */
@@ -33,12 +34,12 @@ class ShareService(
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val random = SecureRandom()
 
-	fun reading(ownerId: UUID): Share {
+	fun reading(ownerId: UUID): ShareCard {
 		val asked = ReadingCardRequested(ownerId).also(events::publishEvent)
-		return save(ownerId, ReadingCard(asked.headline ?: nothing(), asked.keywords ?: nothing()))
+		return ReadingCard(asked.headline ?: nothing(), asked.keywords ?: nothing())
 	}
 
-	fun score(ownerId: UUID, synastryId: UUID, myName: String): Share {
+	fun score(ownerId: UUID, synastryId: UUID, myName: String): ShareCard {
 		val asked = ScoreCardRequested(ownerId, synastryId).also(events::publishEvent)
 		val card = ScoreCard(
 			names = listOf(myName, asked.partnerName ?: nothing()),
@@ -46,46 +47,46 @@ class ShareService(
 			scoreLabel = asked.scoreLabel,
 			headline = asked.headline ?: nothing(),
 		)
-		return save(ownerId, card)
+		return card
 	}
 
 	/** 앞의 [RANKING_TOP] 명만 싣는다. [showNames] 가 꺼져 있으면 이름을 이니셜로 가려서 저장한다(원래 이름은 표에 남지 않는다). */
-	fun ranking(ownerId: UUID, relation: Relation, showNames: Boolean): Share {
+	fun ranking(ownerId: UUID, relation: Relation, showNames: Boolean): ShareCard {
 		val asked = RankingCardRequested(ownerId, relation).also(events::publishEvent)
 		val entries = asked.entries.orEmpty().take(RANKING_TOP)
 			.map { (name, score) -> RankingCardEntry(if (showNames) name else initialsOf(name), score) }
 		if (entries.isEmpty()) nothing()
-		return save(ownerId, RankingCard(relation, entries))
+		return RankingCard(relation, entries)
 	}
 
 	/** 날짜는 여기서 해와 계절로 줄인다. 날짜 자체는 저장하지 않는다. */
-	fun nextTurn(ownerId: UUID): Share {
+	fun nextTurn(ownerId: UUID): ShareCard {
 		val asked = NextTurnCardRequested(ownerId).also(events::publishEvent)
 		val date = asked.date ?: nothing()
-		return save(ownerId, NextTurnCard(date.year, seasonOf(date), asked.theme ?: nothing()))
+		return NextTurnCard(date.year, seasonOf(date), asked.theme ?: nothing())
 	}
 
 	// ── 공유 v2(결정 036): 닉네임은 계정에서, 글은 그 글을 가진 기능에게 묻는다 ──
 
-	fun nickname(ownerId: UUID): Share {
+	fun nickname(ownerId: UUID): ShareCard {
 		val asked = NicknameCardRequested(ownerId).also(events::publishEvent)
-		return save(ownerId, NicknameCard(repository.nicknameOf(ownerId), asked.sunSign ?: nothing(), asked.headline ?: nothing()))
+		return NicknameCard(repository.nicknameOf(ownerId), asked.sunSign ?: nothing(), asked.headline ?: nothing())
 	}
 
-	fun meArea(ownerId: UUID, area: String): Share {
+	fun meArea(ownerId: UUID, area: String): ShareCard {
 		val asked = MeAreaCardRequested(ownerId, area).also(events::publishEvent)
-		return save(ownerId, MeAreaCard(repository.nicknameOf(ownerId), area, asked.title ?: nothing()))
+		return MeAreaCard(repository.nicknameOf(ownerId), area, asked.title ?: nothing())
 	}
 
 	/** 만들지 않은 날이면 답이 없어 404. */
-	fun daySky(ownerId: UUID, date: LocalDate): Share {
+	fun daySky(ownerId: UUID, date: LocalDate): ShareCard {
 		val asked = DaySkyCardRequested(ownerId, date).also(events::publishEvent)
-		return save(ownerId, DaySkyCard(repository.nicknameOf(ownerId), date.toString(), asked.title ?: nothing()))
+		return DaySkyCard(repository.nicknameOf(ownerId), date.toString(), asked.title ?: nothing())
 	}
 
-	fun nextBig(ownerId: UUID): Share {
+	fun nextBig(ownerId: UUID): ShareCard {
 		val asked = NextBigCardRequested(ownerId).also(events::publishEvent)
-		return save(ownerId, NextBigCard(repository.nicknameOf(ownerId), asked.year ?: nothing(), asked.age ?: nothing(), asked.title ?: nothing()))
+		return NextBigCard(repository.nicknameOf(ownerId), asked.year ?: nothing(), asked.age ?: nothing(), asked.title ?: nothing())
 	}
 
 	/** 공개 조회. 저장된 카드의 JSON 이고, 없으면 404. */
@@ -100,7 +101,7 @@ class ShareService(
 	}
 
 	// 같은 소유자의 같은 내용은 한 행이다. 동시에 만들어도 먼저 들어간 행의 식별자를 둘 다 받는다.
-	private fun save(ownerId: UUID, card: ShareCard): Share {
+	fun create(ownerId: UUID, card: ShareCard): Share {
 		val json = mapper.writeValueAsString(card)
 		val hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.toByteArray()))
 		val created = repository.insertIfAbsent(newShareId(), ownerId, card.kind, json, hash)

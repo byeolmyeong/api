@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 /** 세션 토큰. 웹이 쿠키로 받기로 했으면 null 이고 본문에서 빠진다(결정 021). */
@@ -158,6 +159,11 @@ class AuthController(
 	/** 계정 화면의 값(결정 025). 세션의 주인 것만. */
 	@GetMapping("/account")
 	fun account(): AccountResponse = auth.account(owner.id())
+
+	/** 로그인 중 닉네임 확인(결정 051) — 마이에서 닉네임을 바꾸기 전에. 가입 중 확인과 같은 규칙, 내 지금 닉네임이면 true. */
+	@GetMapping("/account/nickname-check")
+	fun accountNicknameCheck(@RequestParam(required = false) nickname: String?): NicknameCheckResponse =
+		NicknameCheckResponse(auth.nicknameAvailable(owner.id(), nickname))
 
 	/** 닉네임·수신 동의(마케팅 · 푸시)·프로필을 바꾼다(결정 025 · 027 · 028). 보낸 칸만. */
 	@PatchMapping("/account")

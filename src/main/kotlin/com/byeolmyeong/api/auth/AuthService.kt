@@ -71,6 +71,15 @@ class AuthService(
 	fun account(ownerId: UUID): AccountResponse = checkNotNull(accounts.account(ownerId)) { "세션의 계정이 없다" }
 
 	/**
+	 * 로그인 중 닉네임 확인(결정 051). 규칙은 가입 중 확인 · 바꾸기와 같다 — 틀리면 400 `INVALID_NICKNAME`, 영문 대소문자는 같은 이름,
+	 * 내 지금 닉네임(대소문자만 다른 것 포함)이면 쓸 수 있다.
+	 */
+	fun nicknameAvailable(ownerId: UUID, nickname: String?): Boolean {
+		val name = normalizeNickname(nickname) ?: throw BadRequestException("INVALID_NICKNAME")
+		return !accounts.nicknameTakenByOther(ownerId, name)
+	}
+
+	/**
 	 * 보낸 칸만 바꾼다(결정 025 · 027 · 028 · 042). 닉네임이 틀리면 400 `INVALID_NICKNAME`, 프로필이 1~8 밖이면 400 `INVALID_AVATAR`,
 	 * 받는 시간이 5분 단위 `HH:mm` 이 아니면 400 `INVALID_TODAY_SKY_TIME`, 닉네임을 다른 계정이 쓰면 409 `NICKNAME_TAKEN` — 모두 아무것도 바꾸지 않는다.
 	 * 동의(마케팅 · 푸시)가 바뀔 때만 감사 기록(동의/철회만, 닉네임·이메일 없이). 프로필 · 오늘의 하늘 알림 바꾸기는 남기지 않는다.
@@ -187,7 +196,7 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 		jdbc.queryForObject("select exists(select 1 from accounts where lower(nickname) = lower(?))", Boolean::class.java, nickname) == true
 
 	/** 다른 계정이 이 닉네임을 쓰는가. 내 행은 빼고 본다(내 닉네임의 대소문자만 바꾸는 건 된다). */
-	private fun nicknameTakenByOther(id: UUID, nickname: String): Boolean = jdbc.queryForObject(
+	fun nicknameTakenByOther(id: UUID, nickname: String): Boolean = jdbc.queryForObject(
 		"select exists(select 1 from accounts where lower(nickname) = lower(?) and id <> ?)", Boolean::class.java, nickname, id,
 	) == true
 

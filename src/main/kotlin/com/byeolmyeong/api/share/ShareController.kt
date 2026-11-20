@@ -39,7 +39,13 @@ private val ME_AREAS = setOf("PERSONALITY", "LOVE", "RELATIONSHIP", "WORK", "EMO
 class ShareController(private val owner: CurrentOwner, private val shares: ShareService) {
 
 	@PostMapping("/shares")
-	fun create(@RequestBody request: ShareRequest): Share =
+	fun create(@RequestBody request: ShareRequest): Share = shares.create(owner.id(), card(request))
+
+	/** 화면에 들어올 때 미리 받는 카드(결정 051). 만들기와 같은 요청 · 같은 400 · 404 이고, 공유 행 · 식별자 · 감사 기록은 없다. */
+	@PostMapping("/shares/preview")
+	fun preview(@RequestBody request: ShareRequest): SharePreview = SharePreview(card(request))
+
+	private fun card(request: ShareRequest): ShareCard =
 		when (ShareKind.entries.firstOrNull { it.name == request.kind } ?: throw BadRequestException("INVALID_KIND")) {
 			ShareKind.READING -> shares.reading(owner.id())
 			ShareKind.SCORE -> {

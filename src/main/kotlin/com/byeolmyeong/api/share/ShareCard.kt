@@ -70,6 +70,9 @@ data class NextBigCard(val nickname: String?, val year: Int, val age: Int, val t
 /** `POST /shares` 의 응답. [card] 는 공개 조회가 주는 것과 같다. */
 data class Share(val shareId: String, val card: ShareCard)
 
+/** `POST /shares/preview` 의 응답 — 저장하지 않은 카드뿐이다(결정 051). */
+data class SharePreview(val card: ShareCard)
+
 const val RANKING_TOP = 3
 
 /** 3~5월 봄, 6~8월 여름, 9~11월 가을, 12·1·2월 겨울. 해는 그 날의 달력 해를 그대로 쓴다. */
