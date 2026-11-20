@@ -3,7 +3,7 @@ type: decision
 tags: [무중단 배포, 블루그린, 배포, Caddy, 차분한 종료, 마이그레이션, 운영]
 status: active
 last_reviewed: 2026-11-20
-superseded_by:
+superseded_by: 050-prod-on-ampere-a1 (7번의 힙 256m 고정만 — 운영은 .env 의 API_HEAP_MAX)
 ---
 # 046. 배포 · 설정 바꾸기는 블루 · 그린으로 끊김 없이 한다
 
