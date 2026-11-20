@@ -1,7 +1,6 @@
 package com.byeolmyeong.api.admin
 
 import com.byeolmyeong.api.http
-import com.byeolmyeong.api.push.PushEventSent
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired

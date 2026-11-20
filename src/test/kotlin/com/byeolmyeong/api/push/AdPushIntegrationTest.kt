@@ -3,6 +3,7 @@ package com.byeolmyeong.api.push
 import com.byeolmyeong.api.DEV_AUTH_ON
 import com.byeolmyeong.api.TestcontainersConfiguration
 import com.byeolmyeong.api.admin.PushEventRequested
+import com.byeolmyeong.api.admin.PushEventSent
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -18,7 +19,7 @@ import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
 
-/** `push.PushEventSent` 를 모아 두는 듣는 쪽(관리자 발송 내역 대신). */
+/** `admin.PushEventSent` 를 모아 두는 듣는 쪽(관리자 발송 내역 대신). */
 class SentEvents {
 	val received = CopyOnWriteArrayList<PushEventSent>()
 
@@ -30,7 +31,7 @@ class SentEvents {
 
 /**
  * 광고 푸시의 보내는 쪽(결정 043 의 6 · 042 의 7): `admin.PushEventRequested` 를 듣고 푸시 · 마케팅 둘 다 동의 + 기기 + 정지 아님인 사람에게
- * 관리자가 정한 글 그대로(앞뒤 줄은 admin 이 붙임) 보내고, `push.PushEventSent` 로 대상 · 성공 · 실패 수를 알린다.
+ * 관리자가 정한 글 그대로(앞뒤 줄은 admin 이 붙임) 보내고, `admin.PushEventSent` 로 대상 · 성공 · 실패 수를 알린다.
  */
 @Import(TestcontainersConfiguration::class, AdPushIntegrationTest.Fakes::class)
 @SpringBootTest(properties = [DEV_AUTH_ON])

@@ -2,6 +2,7 @@ package com.byeolmyeong.api.push
 
 import com.byeolmyeong.api.admin.InquiryAnswered
 import com.byeolmyeong.api.admin.PushEventRequested
+import com.byeolmyeong.api.admin.PushEventSent
 import com.byeolmyeong.api.reading.ReadingCreated
 import com.byeolmyeong.api.report.MeReportDone
 import com.byeolmyeong.api.report.TimingReportDone
