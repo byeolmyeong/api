@@ -37,16 +37,17 @@ flock -n 9 || fail lock "reason=another_swap_running"
 [ -f .env ] || fail check "reason=no_env"
 [ -f upstream.caddy ] || fail check "reason=no_upstream_caddy (docs/deploy.md 블루 · 그린으로 처음 옮겨 가기)"
 # 옛 방식의 서버 컨테이너(api)가 남아 있으면 아직 옮겨 가지 않은 VM 이다.
-if [ -n "$(docker ps -aq --filter label=com.docker.compose.project=byeolmyeong --filter label=com.docker.compose.service=api)" ]; then
+if [ -n "$(docker ps -aq --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-byeolmyeong}" --filter label=com.docker.compose.service=api)" ]; then
 	fail check "reason=legacy_api_container (docs/deploy.md 블루 · 그린으로 처음 옮겨 가기)"
 fi
 
 in_caddy() { docker compose exec -T caddy "$@"; }
 
 # Caddy 가 지금 실제로 보내는 색(blue · green · none). 관리 API 의 살아 있는 설정을 읽는다. 읽지 못하면 실패.
+# 관리 API 는 127.0.0.1 에만 듣는다(컨테이너의 localhost 는 ::1 로 풀려 닿지 않는다).
 caddy_color() {
 	local config blue=0 green=0
-	config="$(in_caddy wget -qO- http://localhost:2019/config/apps/http/servers)" || return 1
+	config="$(in_caddy wget -qO- http://127.0.0.1:2019/config/apps/http/servers)" || return 1
 	grep -Eq '"dial": ?"api-blue:8080"' <<< "$config" && blue=1
 	grep -Eq '"dial": ?"api-green:8080"' <<< "$config" && green=1
 	case "$blue$green" in 10) echo blue ;; 01) echo green ;; 00) echo none ;; *) echo both ;; esac

@@ -155,7 +155,7 @@ printf '%s\n' '# swap.sh 가 쓴다(결정 046). 손으로 고치지 않는다 �
 3. 위의 받는 쪽 파일(`api-blue`)을 쓴다. `docker compose pull caddy`(고정한 태그를 미리 받아 끊김을 줄인다).
 4. 운영: 관리 화면에서 점검 모드를 켠다. 쓰는 중인 생성이 끝날 때까지 기다린다 — 아래가 `0` 이면 된다(옛 jar 는 끌 때 생성을 기다리지 않는다):
    `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select (select count(*) from reports where status='WRITING' and active_at > now() - interval '1 minute') + (select count(*) from detail_reports where status='WRITING' and active_at > now() - interval '1 minute') + (select count(*) from synastry_reports where status='WRITING' and active_at > now() - interval '1 minute')"`
-5. Caddy 를 새 마운트 · 태그로 다시 만든다(여기서 몇 초 끊긴다): `docker compose up -d --no-deps caddy` → `curl -s https://<서버 주소>/health` 200 · `docker compose exec -T caddy wget -qO- http://localhost:2019/config/apps/http/servers | grep -o 'api-blue:8080'`
+5. Caddy 를 새 마운트 · 태그로 다시 만든다(여기서 몇 초 끊긴다): `docker compose up -d --no-deps caddy` → `curl -s https://<서버 주소>/health` 200 · `docker compose exec -T caddy wget -qO- http://127.0.0.1:2019/config/apps/http/servers | grep -o 'api-blue:8080'`
 6. `echo blue > active_color && cp app-blue.jar app.jar.good`
 7. 옛 서버를 내리고 지운다: `docker stop -t 60 byeolmyeong-api-1 && docker rm byeolmyeong-api-1 && rm -f app.jar app.jar.new`
 8. 운영: 점검 모드를 끈다. `./swap.sh --restart` 한 번으로 끊김 없이 바뀌는지 본다(`event=swap_done active=green`).
