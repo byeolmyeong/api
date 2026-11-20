@@ -14,6 +14,9 @@ class BadRequestException(val code: String) : RuntimeException(code)
 /** 찾는 것이 없다(404). 남의 것도 없는 것으로 답한다. */
 class NotFoundException(val code: String) : RuntimeException(code)
 
+/** 이 풀이를 받을 수 없다(402 `PURCHASE_REQUIRED`, 결정 029 의 4 — 예약). 1.0.0 에는 나오지 않는다. */
+class PurchaseRequiredException : RuntimeException("PURCHASE_REQUIRED")
+
 @RestControllerAdvice
 class ErrorResponses {
 
@@ -24,6 +27,10 @@ class ErrorResponses {
 	@ExceptionHandler(NotFoundException::class)
 	fun notFound(e: NotFoundException): ResponseEntity<ErrorResponse> =
 		ResponseEntity.status(404).body(ErrorResponse(e.code))
+
+	@ExceptionHandler(PurchaseRequiredException::class)
+	fun purchaseRequired(): ResponseEntity<ErrorResponse> =
+		ResponseEntity.status(402).body(ErrorResponse("PURCHASE_REQUIRED"))
 
 	@ExceptionHandler(GenerationRateLimitedException::class)
 	fun generationRateLimited(): ResponseEntity<ErrorResponse> =

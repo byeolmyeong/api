@@ -33,6 +33,8 @@ class ArchitectureTest {
         /** 기능 사이에 허용되는 유일한 연결: Spring 이벤트 클래스. 이벤트를 늘리면 docs/architecture.md 와 여기를 같이 고친다. */
         private val EVENTS = setOf(
             "$ROOT.report.ReportDone",
+            // 나 탭 풀이가 완성됐다(결정 029 의 7) — 알림함(계획 S⑤)이 듣는다
+            "$ROOT.report.MeReportDone",
             "$ROOT.synastry.InviteAccepted",
             // 궁합이 지워지면 direction 이 그 궁합의 글을 지운다(결정 019)
             "$ROOT.synastry.SynastryDeleted",

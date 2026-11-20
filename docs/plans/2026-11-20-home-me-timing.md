@@ -161,22 +161,22 @@ last_reviewed: 2026-11-20
 
 ### S② 나 탭 풀이 · 일 방식 (결정 029 · 030 · 038)
 
-#### 4. s2-migration · 상태: 대기
+#### 4. s2-migration · 상태: 완료
 - 할 것: `V22__detail_reports.sql`(위 "마이그레이션").
 - 검증: 깨끗한 DB 와 V21 DB 양쪽에서 돈다(Testcontainers), DONE 인데 body 가 null 이면 거절
 
-#### 5. s2-work-style · 상태: 대기
-- 읽을 것: 결정 038, `docs/drafts/2026-11-20-work-style-formula.md`(소유자 검토 뒤 값)
+#### 5. s2-work-style · 상태: 완료
+- 읽을 것: 결정 038, `docs/drafts/2026-11-20-work-style-formula.md`(소유자 검토 뒤 값 — 2026-11-20 "초안 그대로 써", 아래 실행 기록)
 - 할 것: `chart/WorkStyle.kt` 순수 함수(차트 → together · flexible · fast).
 - 하지 말 것: 공식의 값을 초안과 다르게 바꾸지 않는다. 이유: 소유자가 본 값이 원본이다.
 - 검증: 기준값 테스트 — 초안의 예1(시각 앎) 51 · 36 · 44, 같은 차트 시각 모름 61 · 29 · 40, 예2 69 · 65 · 77, 모든 값 10~90
 
-#### 6. s2-entitlement · 상태: 대기
+#### 6. s2-entitlement · 상태: 완료
 - 할 것: `report/EntitlementPolicy.kt`(`allows(ownerId, kind)` — 1.0.0 언제나 true). 계약 표에 402 `PURCHASE_REQUIRED` 를 "예약" 으로.
 - 하지 말 것: 인터페이스 · 설정 스위치를 만들지 않는다. 이유: 단일 구현 인터페이스 금지, 1.1.0 에 함수 안만 바꾼다.
 - 검증: 서비스가 생성 시작 전에 부르는지(테스트 대역으로 false 를 주면 402 · 행이 FAILED 로 남지 않음)
 
-#### 7. s2-me-report · 상태: 대기
+#### 7. s2-me-report · 상태: 완료
 - 읽을 것: 결정 029 · 030, `report/ReportService.kt`(자리 잡기 · 심장박동 · 일꾼), `Report.kt`
 - 할 것: `POST/GET /me-report`, `detail_reports`(kind ME), 영역 다섯 생성(한꺼번에) · 영역별 칸 구조 · 검증(문단 4 · 키워드 3 · LOVE 실천 "~기" · 숫자 금지), `stars` 만들기, WORK 에 `workStyle` 넣기, 생성 한도 한 번, `MeReportDone` 이벤트(허용 목록에 추가). 지시문 `me-report*.md` 여섯. 계약 표 · "리포트 상태" · "데이터" · 모듈 설명 같은 커밋.
 - 하지 말 것: 옛 `POST /reports` 를 지우거나 바꾸지 않는다. 이유: 옛 테스트앱이 쓴다(S⑦).
@@ -194,7 +194,7 @@ last_reviewed: 2026-11-20
 - 하지 말 것: 날짜 · 도수를 모델에게 넘기지 않는다.
 - 검증: 기준값 테스트(고정 차트 · 고정 달) — 같은 입력 같은 결과, 시각 모름이면 ASC · MC 대상 0, 달 빼기 옵션
 
-#### 10. s3-month-phrases · 상태: 대기(문구표 초안 소유자 검토 뒤)
+#### 10. s3-month-phrases · 상태: 대기(문구표 초안은 2026-11-20 소유자 "초안 그대로 써" 로 승인 — 실행 기록)
 - 읽을 것: `docs/drafts/2026-11-20-month-phrases.md`
 - 할 것: `generation` 에 문구표(칸 = 지나가는 별 × 내 별 × 결 — 칩 · 문구 3~5) · 고르기(초안의 `CRC32("{날짜}|{조합}") mod 문구 수`, 한 달 안 겹침이면 다음 것).
 - 하지 말 것: 소유자가 보지 않은 문구를 넣지 않는다(초안 그대로면 PR 에 "초안" 표시).
@@ -207,7 +207,7 @@ last_reviewed: 2026-11-20
 
 #### 12. s3-timing-report · 상태: 대기
 - 읽을 것: 결정 033, `report/ReportTiming.kt` · `ReportService.kt`
-- 할 것: `POST/GET /timing-report`(kind TIMING), 구간 제목을 표 제목으로 고정, 9줄 묶음 약 4 호출(한꺼번에) · 묶음별 재시도, 모델 구간의 summary · body · detail · practices · reason, `current.mainId`(읽을 때), `TimingReportDone`. 지시문 `timing-report.md`. 계약 표 · "시기" · "글 생성 규칙"(시기의 글) 같은 커밋.
+- 할 것: `MeReportService` 의 심장박동 · 그만두기 · 끝내기 고리를 꺼내 ME · TIMING 이 같이 쓴다(결정 029 — 복사해 네 번째 벌을 만들지 않는다, S② 리뷰). 일꾼 자리 꽉 참 · 줄 대기 2분 테스트를 그 공통 고리에 붙인다. `DetailReportKind` 는 `DetailReportRepository.kt` 로. `POST/GET /timing-report`(kind TIMING), 구간 제목을 표 제목으로 고정, 9줄 묶음 약 4 호출(한꺼번에) · 묶음별 재시도, 모델 구간의 summary · body · detail · practices · reason, `current.mainId`(읽을 때), `TimingReportDone`. 지시문 `timing-report.md`. 계약 표 · "시기" · "글 생성 규칙"(시기의 글) 같은 커밋.
 - 하지 말 것: 옛 `POST /reports` 의 시기 생성은 바꾸지 않는다(S⑦ 까지).
 - 검증: 통합 테스트 — 모델 구간에만 detail · practices · reason, 표 구간에는 키 없음, 구간 제목 = 표 제목, `mainId` 우선순위(고정 날짜), 한 묶음 끝내 실패 → FAILED, YEAR_MISMATCH 재시도
 
@@ -289,7 +289,7 @@ last_reviewed: 2026-11-20
 ## 위험 · 되돌리기
 - 생성 비용: 그날의 하늘은 누른 날짜 수만큼 늘어난다. 앞뒤 한 달 · 생성 한도가 상한이다. 비용이 크면 소유자에게 보고하고 한도를 새 결정으로.
 - 시기 풀이 묶음 4회가 리포트 일꾼 자리를 오래 잡는다 — 일꾼 수 · 줄 길이 설정(`byeolmyeong.report.*`)을 스테이징에서 본다.
-- 문구표 · 공식이 초안 그대로 나가면 소유자가 본 적 없는 문구가 보인다 — 10 · 5 는 검토 뒤에.
+- 문구표 · 공식은 2026-11-20 소유자가 "초안 그대로 써" 로 승인했다(실행 기록) — 값을 바꾸면 그 태스크의 값만 고치는 작은 PR.
 - 되돌리기: 마이그레이션은 더하기만이라 코드만 되돌리면 된다. 요약 해석은 kind 를 되돌리면 옛 행이 다시 읽힌다. S⑦ 은 되돌리기 어렵다(옛 앱이 깨짐) — 소유자 확인 뒤.
 
 ## 열린 항목 (소유자 — 기본값으로 진행)
@@ -297,7 +297,7 @@ last_reviewed: 2026-11-20
 2. 시기 이름을 문구표 하나로 맞춰 시기 풀이 뒤에도 AI 가 이름을 바꾸지 않게 → 기본값: 그렇게 한다(결정 033 · 앱 049).
 3. 시기 자세히를 시기 풀이 때 한꺼번에 만들까, 열 때마다 → 기본값: 한꺼번에(결정 033).
 4. 그날의 하늘도 생성 한도(분당 5 · 시간당 30)를 같이 쓴다, 날짜를 빨리 넘기면 429 → 기본값: 그대로(결정 034 · 앱 049).
-- 검토할 초안: 이번 달 문구표 `docs/drafts/2026-11-20-month-phrases.md`, 일 방식 공식 `docs/drafts/2026-11-20-work-style-formula.md`(둘 다 "초안 · 소유자 검토 필요").
+- 초안 둘(이번 달 문구표 `docs/drafts/2026-11-20-month-phrases.md`, 일 방식 공식 `docs/drafts/2026-11-20-work-style-formula.md`)은 2026-11-20 소유자 "초안 그대로 써" 로 승인됨(실행 기록).
 - 궁합 탭 · 홈 궁합 칸: 보류(궁합 시안이 나오면 새 결정).
 - 개인정보 수집 · 이용 동의 글은 앱 온보딩 v2 에서 처리(이 계획 밖).
 
@@ -307,3 +307,9 @@ last_reviewed: 2026-11-20
 - 2: 실천 검사가 `direction/Direction.kt` 안 · "보기" 끝맺음 → `generation/Advice.kt` 의 `adviceProblem(practiceTitles, texts)` 하나 · "기" 끝맺음(앞뒤 공백을 떼고, 마침표 · 느낌표면 실패, 금지 표현 목록 그대로). `direction` 은 어느 글을 보는지만 정하는 한 줄로 그 함수를 부른다. `writing-rules.md` 에 "실천은 '~기' 로 끝나는 한 줄"(40자 안팎). `AdviceTest` 4(전하기 통과 · 전해요 실패 · 보기 통과 · 단정 10꼴 실패) · `DirectionDraftTest` 5 · `DirectionFutureTest` 6 그대로 초록(빨강: 컴파일 실패 먼저). 계약 표 `Direction` 줄 · 글 생성 규칙의 방향성 줄 고침.
 - 3: 요약 해석 `SUMMARY` · 근거 낱말 enum · 보완점 3 · 만든 때 없음 → `SUMMARY_V2` · 근거는 후보 id enum 1~2(같은 id 둘 = `MALFORMED`, 후보 밖 = `BASIS_NOT_IN_CHART`) · 저장 때 `Reason(BIRTH)` 로 바꿔 둠 · 보완점 2 · `createdAt`(저장 행 `created_at`, UTC 초) · 옛 `basis[]` 는 `basisWords(reason)` 로 함께 · `shareId` 그대로. 공유 카드의 요약 해석도 `SUMMARY_V2` 를 읽는다. 지시문 `writing-rules.md`(근거 절: "[근거 후보]" 가 있으면 id, 없으면 낱말) · `reading-summary*.md` 셋(보완점 2 · 문단마다 먼저 고를 후보). 단위: `BasisTest` 6 · `ReadingDraftTest` 3 · `BasisCandidatesTest` 14(빨강: 본 코드만 되돌려 컴파일 실패 확인), Docker 없이 도는 단위 테스트 29클래스 176 초록. 통합(`ReadingApiIntegrationTest` — 응답 키 · reason 1~2 · cautions 2 · createdAt · 시각 모름에 house/ASC/MC/CLUSTER 없음 · 옛 `SUMMARY` 행만 있으면 새로 생성하고 옛 행 그대로)은 커밋 때 Docker 데몬이 응답하지 않아 아래 build 기록에서 돌린다. 계약 표 `Reading` · `Reason` · `BasisItem` · 용어 · 데이터 · 글 생성 규칙(근거 대조 · 요약 해석의 모양 · 근거 후보 · 근거에 쓸 수 있는 말) 같은 커밋.
 - 2026-11-20 소유자 "그대로 둬": 상승점의 다스리는 별(`R-ASC`, `RULER.body` = `Body | "ASC"`)을 근거로 쓰는 것을 승인. 시각을 모르면 나오지 않는다.
+- 2026-11-20 소유자 "초안 그대로 써": 일 방식 공식(`docs/drafts/2026-11-20-work-style-formula.md`)과 이번 달 문구표(`docs/drafts/2026-11-20-month-phrases.md`)를 소유자 검토가 끝난 값으로 그대로 쓴다 — 태스크 5 의 "(소유자 검토 뒤 값)" 과 태스크 10 의 "소유자 검토 뒤" 가 풀렸다(일 방식의 시각 모름 축 2 는 초안의 0.70 · 0.30).
+- 4: `detail_reports` 없음(로컬 PG 15 에 V1~V21 만 돌리고 넣기 → "릴레이션이 없습니다") → `V22__detail_reports.sql`(`reports` 와 같은 꼴 · kind `ME` · `TIMING` · unique(owner_id, kind, chart_hash) · DONE ⇔ body · 계정 cascade, 더하기만). 로컬 PG: 넣기 3 통과 · 거절 4(DONE 인데 본문 없음 · WRITING 인데 본문 · 같은 (소유자, 종류, 차트) · 종류 밖) · 계정 삭제 뒤 0행 · V21 DB 위에 V22. `DetailReportsMigrationIntegrationTest` 6(깨끗한 DB · V21 DB · 제약 · cascade). 커밋 `abb9ab8`.
+- 5: 일 방식 계산 없음 → `chart/WorkStyle.kt` 의 `computeWorkStyle(chart)`(초안 공식 그대로 — 무게 · 원소 · 성질 · 하우스 묶음 · 축 가중치, 시각을 모르면 상승점 · 중천 · 하우스 항을 빼고 천체의 하우스를 읽지 않음). `WorkStyleTest` 5 — 예 1 시각 앎 51 · 36 · 44, 같은 차트 시각 모름 61 · 29 · 40, 예 2 69 · 65 · 77, 모든 점이 한 별자리여도 10~90(양 · 1하우스는 fast 90), 같은 차트 같은 값(빨강: 컴파일 실패 먼저). 커밋 `4bd1142`.
+- 6: 확인 자리 없음 → `report/EntitlementPolicy.kt`(`allows(ownerId, kind)` 언제나 true · 클래스 하나, 인터페이스 · 설정 스위치 없음) · `DetailReportKind`(ME · TIMING) · `web.PurchaseRequiredException` → 402 `PURCHASE_REQUIRED`. `EntitlementPolicyTest` 2(빨강: 컴파일 실패 먼저). 계약 표에 402 "예약". 계획과 다른 점: "서비스가 생성 시작 전에 부르는지" 의 검증은 서비스가 생기는 태스크 7 의 통합 테스트로 옮겼다(거절 → 402 · 행 0 · 한도 0 · 완성된 풀이는 묻지 않음). 커밋 `9ef5511`.
+- 7: 나 탭 풀이 경로 없음 → `POST` · `GET /me-report`(`MeReportController` · `MeReportService` · `DetailReportRepository` · `MeReport` · `MeReportDone`), 영역 다섯 한꺼번에 · 영역별 칸 · 근거 id → `Reason(BIRTH)` · `stars`(연애는 영역의 `reason` 에서) · 일에 `workStyle`, 검증(키워드 3 · 문단 4 · 근거 1~2 · 숫자 · 퍼센트 · "~기" · 단정), 새로 시작할 때만 확인 자리 → 자리 → 한도 한 번, `MeReportDone`(허용 이벤트), 지시문 `me-report*.md` 여섯. 단위 `MeReportDraftTest` 7(빨강: 컴파일 실패 먼저). 통합 `MeReportApiIntegrationTest` 16(NONE → WRITING → DONE · 영역 순서 · 칸 · 일 방식 = 계산값 · 한 영역 18가지로 끝내 실패 → FAILED · 저장 없음 · 출생 정보 고친 뒤 NONE · 시각 모름에 house/ASC/MC/CLUSTER 없음 · 2분 멈춤 → FAILED · 402 · 남의 것 · 로그) + `GenerationQuotaIntegrationTest` 한도 초과 1. 고친 코드를 일부러 되돌려(확인 자리를 자리 잡기 뒤로 · 일 방식 빼기 · 숫자 검사 빼기) 통합 테스트 5개가 실패하는 것을 봤다. 계획과 다른 점: 감사 기록은 새 행동 코드를 만들지 않고 `REPORT_REQUESTED` 에 `{ kind: "ME" }` 를 붙였다 · 숫자 · 단정 검사는 다섯 영역 모두(결정 030 의 6 "한 영역의 글") · 확인 자리를 자리 잡기 전에 두려고 `POST` 마다 상태를 한 번 먼저 읽는다 · 심장박동 · 그만두기 고리는 `MeReportService` 안에 옛 `ReportService` 와 같은 꼴로 따로 있다(시기 풀이가 오면 S③ 에서 둘이 같이 쓰게 묶는다 — 결정 029 "두 벌로 만들지 않는다"). 커밋 `75f7ecd`.
+- S② 검증: Docker 없이 도는 단위 테스트 32클래스 190 초록(전 29 · 176). Docker 데몬이 응답하지 않아 통합 테스트는 로컬 PG 15(스크래치 폴더, Testcontainers 대신 임시 설정 — 커밋하지 않음)에서 전체 617 중 611 통과, 나머지 6(`AppConfigApiIntegrationTest` 3 · `AdminClosedIntegrationTest` 2 · `ChartApiIntegrationTest` 1)은 모든 Spring 문맥이 한 DB 를 나눠 써서 남은 관리자 · 설정 행 때문이고 그 클래스만 빈 DB 에서 돌리면 통과. 최종 판정은 PR 의 CI(`./gradlew build`).
