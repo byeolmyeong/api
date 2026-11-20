@@ -4,7 +4,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.scheduling.annotation.EnableScheduling
 
-// 주기 작업: 쓰는 중인 리포트가 살아 있다고 적는 일(report·synastry 의 heartbeat).
+// 주기 작업: 쓰는 중인 리포트가 살아 있다고 적는 일(report·synastry 의 heartbeat). 서버를 닫는 동안에도 돈다(결정 046).
 @EnableScheduling
 @SpringBootApplication
 class ByeolmyeongApiApplication
