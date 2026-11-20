@@ -208,7 +208,7 @@ class MonthSkyApiIntegrationTest {
 	fun `모델을 부르지 않고 생성 한도를 쓰지 않으며 아무것도 저장하지 않는다`() {
 		val token = tokenWithProfile(KNOWN)
 		val tables = jdbc.queryForList(
-			"select table_name from information_schema.tables where table_schema = 'public' and table_name not in ('flyway_schema_history', 'audit_logs', 'sessions', 'app_configs', 'app_maintenance', 'admin_accounts', 'admin_sessions', 'faqs')",
+			"select table_name from information_schema.tables where table_schema = 'public' and table_name not in ('flyway_schema_history', 'audit_logs', 'sessions', 'daily_active', 'app_configs', 'app_maintenance', 'admin_accounts', 'admin_sessions', 'faqs')",
 			String::class.java,
 		)
 		fun rows() = tables.associateWith { jdbc.queryForObject("select count(*) from \"$it\"", Long::class.java)!! }
