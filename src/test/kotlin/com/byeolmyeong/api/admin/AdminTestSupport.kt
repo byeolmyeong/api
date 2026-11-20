@@ -36,7 +36,6 @@ const val APP_ORIGIN = "http://localhost:8081"
 		"byeolmyeong.admin.bootstrap-password=$ROOT_PASSWORD",
 		"byeolmyeong.admin.bcrypt-strength=4",
 		"byeolmyeong.rate-limit.admin-login-per-ip=100000",
-		"byeolmyeong.rate-limit.admin-login-per-id=100000",
 		"byeolmyeong.rate-limit.inquiries-per-hour=100000",
 		"byeolmyeong.rate-limit.faqs-per-minute=100000",
 		"byeolmyeong.cors.allowed-origins=$APP_ORIGIN",
