@@ -77,10 +77,10 @@ class MeReportService(
 	 */
 	fun request(ownerId: UUID): ReportStatus {
 		val birth = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
-		// 차트는 자리를 잡기 전에 계산한다: 계산이 실패해도 WRITING 인 채 남는 행이 없다.
-		val chart = birth.chart()
 		find(ownerId, birth.hash)?.let(::statusOf)?.takeIf { it == ReportStatus.DONE || it == ReportStatus.WRITING }?.let { return it }
 		if (!entitlement.allows(ownerId, DetailReportKind.ME)) throw PurchaseRequiredException()
+		// 차트는 새로 시작할 때만, 자리를 잡기 전에 계산한다: 완성 · 쓰는 중이면 계산하지 않고, 계산이 실패해도 WRITING 인 채 남는 행이 없다.
+		val chart = birth.chart()
 		val run = repository.claim(ownerId, DetailReportKind.ME, birth.hash, STALE_SECONDS)
 			?: return find(ownerId, birth.hash)?.let(::statusOf) ?: ReportStatus.WRITING
 		// 자리를 잡은 뒤 센다(결정 023). 넘으면 그 자리를 실패로 돌려 쓰는 중으로 남기지 않는다.
