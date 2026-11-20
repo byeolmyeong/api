@@ -58,19 +58,21 @@ class ReportExecutorConfig {
 	fun reportExecutor(
 		@Value("\${byeolmyeong.report.worker-threads}") threads: Int,
 		@Value("\${byeolmyeong.report.queue-capacity}") queueCapacity: Int,
-		@Value("\${byeolmyeong.report.shutdown-wait-seconds}") shutdownWaitSeconds: Int,
 	): ThreadPoolTaskExecutor = ThreadPoolTaskExecutor().apply {
 		corePoolSize = threads
 		maxPoolSize = threads
 		this.queueCapacity = queueCapacity
 		setThreadNamePrefix("report-")
-		// 서버를 닫을 때(배포에서 옛 색을 내릴 때, 결정 046) 맡은 일은 줄에서 기다리는 것까지 끝까지 쓴다. 끊고 다시 시작하게 하지 않는다.
+		// 서버를 닫을 때(배포에서 옛 색을 내릴 때, 결정 046) 맡은 일을 끊지 않는다(닫기 시작할 때 먼저 멈추거나 쉬지 않는다).
+		// 기다리는 것은 ReportExecutorDrain 한 곳이다. 여기서 또 기다리면 그 시간을 넘긴 일을 박동 없이 한 번 더 기다린다.
 		setWaitForTasksToCompleteOnShutdown(true)
-		setAwaitTerminationSeconds(shutdownWaitSeconds)
 	}
 
 	@Bean
-	fun reportExecutorDrain(@Qualifier("reportExecutor") executor: ThreadPoolTaskExecutor) = ReportExecutorDrain(executor)
+	fun reportExecutorDrain(
+		@Qualifier("reportExecutor") executor: ThreadPoolTaskExecutor,
+		@Value("\${byeolmyeong.report.shutdown-wait-seconds}") waitSeconds: Long,
+	) = ReportExecutorDrain(executor, waitSeconds)
 }
 
 /**
@@ -79,7 +81,7 @@ class ReportExecutorConfig {
  * 그러면 2분 뒤 새 서버가 그 생성을 멈춘 것으로 보고 다시 시작할 수 있다. 그래서 빈을 없애기 전, 박동이 아직 도는 이 단계에서 기다린다.
  * 박동 일정이 닫기 시작할 때 먼저 멈추지 않게 하는 설정은 `spring.task.scheduling.shutdown.await-termination`(application.properties).
  */
-class ReportExecutorDrain(private val executor: ThreadPoolTaskExecutor) : SmartLifecycle {
+class ReportExecutorDrain(private val executor: ThreadPoolTaskExecutor, private val waitSeconds: Long) : SmartLifecycle {
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	@Volatile
@@ -97,9 +99,11 @@ class ReportExecutorDrain(private val executor: ThreadPoolTaskExecutor) : SmartL
 	override fun stop() {
 		running = false
 		log.info("event=report_drain_started active={} queued={}", executor.activeCount, executor.queueSize)
-		// 새 일은 받지 않고, 맡은 일이 끝날 때까지(최대 shutdown-wait-seconds) 기다린다.
-		executor.shutdown()
-		if (executor.threadPoolExecutor.isTerminated) {
+		// 새 일은 받지 않고, 맡은 일이 줄의 것까지 끝날 때까지(최대 shutdown-wait-seconds) 기다린다.
+		// 못 끝낸 일은 서버가 꺼지며 멈추고, 2분 뒤 FAILED 로 보여 사람이 다시 만든다.
+		val pool = executor.threadPoolExecutor
+		pool.shutdown()
+		if (pool.awaitTermination(waitSeconds, TimeUnit.SECONDS)) {
 			log.info("event=report_drain_done")
 		} else {
 			log.warn("event=report_drain_timeout active={} queued={}", executor.activeCount, executor.queueSize)

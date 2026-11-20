@@ -27,8 +27,8 @@ x-api: &api
   depends_on:
     postgres:
       condition: service_healthy
-  # 내릴 때 받던 요청(최대 30초)과 쓰던 생성(최대 180초)을 끝낼 시간. 넘으면 Docker 가 죽인다(application.properties 의 종료 설정).
-  stop_grace_period: 220s
+  # 내릴 때 받던 요청(최대 120초)과 쓰던 생성(최대 180초)을 끝낼 시간. 넘으면 Docker 가 죽인다(application.properties 의 종료 설정).
+  stop_grace_period: 320s
   restart: unless-stopped
   logging: *logging
 
