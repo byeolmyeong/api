@@ -343,19 +343,22 @@ class MeReportApiIntegrationTest {
 
 		http(port, "PUT", "/profile", UNKNOWN, token)
 		assertEquals(NONE, get(token).body(), "지금 차트의 풀이는 아직 없다")
+		assertEquals(0, rows(), "바꾸면 옛 차트의 풀이를 지운다(결정 041)")
 		assertEquals(WRITING, post(token).body())
 		val changed = await(token, "DONE")
 		assertEquals(10, generator.requests.size)
-		assertEquals(2, rows())
+		assertEquals(1, rows())
 		assertEquals(2, quota.owners.size)
 		assertTrue(original != changed)
 
 		http(port, "PUT", "/profile", KNOWN, token)
-		assertEquals(original, mapper.readTree(get(token).body()), "되돌리면 예전 글")
-		assertEquals(DONE, post(token).body())
+		assertEquals(NONE, get(token).body(), "되돌려도 옛 풀이는 지워졌으니 없다")
+		assertEquals(WRITING, post(token).body())
+		await(token, "DONE")
 		settle()
-		assertEquals(10, generator.requests.size)
-		assertEquals(2, events.owners.size)
+		assertEquals(15, generator.requests.size, "되돌린 차트를 다시 만든다")
+		assertEquals(1, rows())
+		assertEquals(3, events.owners.size)
 	}
 
 	@Test
@@ -650,7 +653,7 @@ class MeReportApiIntegrationTest {
 
 		http(port, "PUT", "/profile", UNKNOWN, token)
 		assertEquals(402, post(token).statusCode(), "새 차트의 풀이는 새로 시작이라 묻는다")
-		assertEquals(1, rows())
+		assertEquals(0, rows(), "옛 차트의 풀이는 바꿀 때 지워졌고(결정 041) 402 는 행을 만들지 않는다")
 		assertEquals(listOf(DetailReportKind.ME), entitlement.asked.toList())
 	}
 
