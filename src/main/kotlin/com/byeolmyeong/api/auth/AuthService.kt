@@ -1,5 +1,6 @@
 package com.byeolmyeong.api.auth
 
+import com.byeolmyeong.api.web.AccountDeletionRequested
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
@@ -7,6 +8,7 @@ import com.byeolmyeong.api.web.BadRequestException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.context.event.EventListener
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
@@ -89,14 +91,18 @@ class AuthService(
 		return account(ownerId)
 	}
 
-	fun deleteAccount(ownerId: UUID) {
+	/** 관리자의 탈퇴 대행(결정 043 의 1). 앱의 계정 삭제와 같이 지우고, 감사 기록은 관리자 쪽(`USER_DELETED_BY_ADMIN`)만 남긴다. */
+	@EventListener
+	fun onDeletionRequested(event: AccountDeletionRequested) = deleteAccount(event.accountId, byUser = false)
+
+	fun deleteAccount(ownerId: UUID, byUser: Boolean = true) {
 		cleanUpProvider("apple_revoke_failed") { appleTokens.find(ownerId)?.let { apple.revoke(it.refreshToken, it.clientId) } }
 		cleanUpProvider("kakao_unlink_failed") {
 			accounts.identity(ownerId)?.takeIf { it.provider == Provider.KAKAO }?.let { kakao.unlink(it.subject) }
 		}
 		accounts.delete(ownerId)
 		// 감사 기록은 계정과 함께 지워지지 않는다(결정 015). 지운 뒤에도 "이 계정이 지워졌다" 가 남는다.
-		events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
+		if (byUser) events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
 	}
 
 	/**
