@@ -75,6 +75,24 @@ fun basisVocabulary(chart: Chart): List<String> {
 	return names + Sign.entries.filter { it in occupiedSigns }.map { it.label } + (1..12).filter { it in occupiedHouses }.map(::houseLabel)
 }
 
+/**
+ * 근거 구조([reason])를 옛 근거 말(`basisVocabulary` 의 낱말, 겹침 없이 순서대로)로 옮긴다. 요약 해석의 옛 칸 `sections[].basis` 를
+ * 옛 앱이 읽는 동안만 함께 보낸다(결정 031 의 8 — 계획 S⑦ 에서 뺀다). 통과는 태어날 때의 글에 없으므로 낱말이 없다.
+ */
+fun basisWords(reason: Reason): List<String> = reason.items.flatMap { item ->
+	when (item) {
+		is PlacementBasis -> listOfNotNull(pointLabel(item.body), item.sign.label, item.house?.let(::houseLabel))
+		is ClusterBasis -> listOf(houseLabel(item.house)) + item.bodies.map { it.label }
+		is AspectBasis -> listOf(pointLabel(item.a), pointLabel(item.b))
+		is RulerBasis -> listOf(pointLabel(item.body), item.ruler.label)
+		is TransitBasis -> emptyList()
+	}
+}.distinct()
+
+// "천체 또는 상승점·중천" 칸의 글자 열(Body 또는 ChartAngle 의 이름)을 근거 말로.
+private fun pointLabel(name: String): String =
+	ChartAngle.entries.firstOrNull { it.name == name }?.label ?: Body.valueOf(name).label
+
 /** 궁합 글의 근거로 쓸 수 있는 말: 점수에서 보는 내 쪽 요소(태양·달·수성·금성·화성, 시각을 알면 상승점). */
 fun synastryBasisVocabulary(mine: Chart): List<String> =
 	SynastryTarget.entries.mapNotNull { target -> target.body?.label ?: ASCENDANT_LABEL.takeIf { mine.houses != null } }

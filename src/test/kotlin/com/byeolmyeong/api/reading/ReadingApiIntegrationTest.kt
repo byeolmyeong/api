@@ -3,11 +3,9 @@ package com.byeolmyeong.api.reading
 import com.byeolmyeong.api.DEV_AUTH_ON
 import com.byeolmyeong.api.TestcontainersConfiguration
 import com.byeolmyeong.api.devToken
-import com.byeolmyeong.api.generation.ASCENDANT_LABEL
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.generation.GenerationRequest
 import com.byeolmyeong.api.generation.TextGenerator
-import com.byeolmyeong.api.generation.houseLabel
 import com.byeolmyeong.api.http
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -41,8 +39,8 @@ private const val UNKNOWN = """{"date":"1990-03-15","time":null,"placeId":$MAPO}
 private const val FAILED = """{"error":"GENERATION_FAILED"}"""
 private val TIME_ONLY_WORDS = listOf("하우스", "상승점", "중천", "행운점", "버텍스")
 
-/** 테스트가 보는 요청의 모습. [basisVocabulary] 는 요청의 구조(스키마)에서 근거로 고를 수 있게 한 말이다. */
-data class ReadingPrompt(val instructions: String, val facts: String, val basisVocabulary: List<String>)
+/** 테스트가 보는 요청의 모습. [basisIds] 는 요청의 구조(스키마)에서 근거로 고를 수 있게 한 근거 후보 id 다(결정 031). */
+data class ReadingPrompt(val instructions: String, val facts: String, val basisIds: List<String>)
 
 /** 실제 생성기 대신 끼우는 가짜. 받은 프롬프트를 기억하고, 테스트가 정한 대로 답한다. */
 class FakeReadingGenerator : TextGenerator {
@@ -66,14 +64,14 @@ class FakeReadingGenerator : TextGenerator {
 	}
 }
 
-/** 검증을 통과하는 글. 부를 때마다 글이 다르다([call] 번째). */
+/** 검증을 통과하는 글. 부를 때마다 글이 다르다([call] 번째). 문단 근거는 후보의 앞 둘(해 · 달이 놓인 자리). */
 fun validDraft(prompt: ReadingPrompt, call: Int): ReadingDraft {
-	val sections = if (ASCENDANT_LABEL in prompt.basisVocabulary) 5 else 4
+	val sections = if ("P-ASC" in prompt.basisIds) 5 else 4
 	return ReadingDraft(
 		headline = "가짜총평-$call",
-		sections = (1..sections).map { ReadingSection("가짜제목$it", "가짜본문$it-$call", prompt.basisVocabulary.take(2)) },
+		sections = (1..sections).map { DraftSection("가짜제목$it", "가짜본문$it-$call", prompt.basisIds.take(2)) },
 		strengths = listOf("강점1", "강점2", "강점3"),
-		cautions = listOf("보완1", "보완2", "보완3"),
+		cautions = listOf("보완1", "보완2"),
 	)
 }
 
@@ -96,6 +94,9 @@ class ReadingApiIntegrationTest {
 
 	@Autowired
 	private lateinit var generator: FakeReadingGenerator
+
+	@Autowired
+	private lateinit var profiles: com.byeolmyeong.api.birth.BirthProfileService
 
 	private val mapper = JsonMapper()
 
@@ -128,14 +129,85 @@ class ReadingApiIntegrationTest {
 		assertEquals(1, rows())
 
 		val json = mapper.readTree(first.body())
-		assertEquals(listOf("headline", "sections", "strengths", "cautions", "shareId"), json.propertyNames().toList())
+		assertEquals(listOf("headline", "sections", "strengths", "cautions", "createdAt", "shareId"), json.propertyNames().toList())
 		assertEquals("가짜총평-1", json["headline"].asString())
 		assertEquals(5, json["sections"].size())
-		assertEquals(listOf("title", "body", "basis"), json["sections"][0].propertyNames().toList())
-		assertEquals(listOf("태양", "달"), json["sections"][0]["basis"].values().map { it.asString() })
+		val section = json["sections"][0]
+		assertEquals(listOf("title", "body", "reason", "basis"), section.propertyNames().toList())
+		// 고른 id(P-SUN · P-MOON)가 태어날 때의 구조로 바뀐다(결정 031)
+		assertEquals("BIRTH", section["reason"]["when"].asString())
+		val items = section["reason"]["items"].values().toList()
+		assertEquals(listOf("PLACEMENT", "PLACEMENT"), items.map { it["kind"].asString() })
+		assertEquals(listOf("SUN", "MOON"), items.map { it["body"].asString() })
+		assertEquals("PISCES", items[0]["sign"].asString())
+		assertTrue(items.all { it["house"].asInt() in 1..12 }, "시각을 알면 하우스가 있다")
+		assertEquals(listOf("kind", "body", "sign", "house"), items[0].propertyNames().toList())
+		// 옛 앱이 읽는 근거 낱말(결정 030 의 5)은 reason 에서 만든다
+		val basis = section["basis"].values().map { it.asString() }
+		assertEquals(listOf("태양", "물고기", "${items[0]["house"].asInt()}하우스", "달"), basis.take(4))
 		assertEquals(3, json["strengths"].size())
-		assertEquals(3, json["cautions"].size())
+		assertEquals(2, json["cautions"].size(), "보완점은 2개(결정 030)")
 		assertTrue(json["shareId"].asString().length >= 22, "공유 식별자는 무작위 16바이트 이상")
+		// 만든 때(결정 030 의 4): 저장 행의 created_at, UTC 초까지
+		val createdAt = json["createdAt"].asString()
+		assertTrue(Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z""").matches(createdAt), createdAt)
+		assertEquals(
+			jdbc.queryForObject("select created_at from readings", java.time.OffsetDateTime::class.java)!!.toInstant().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString(),
+			createdAt,
+		)
+		for (each in json["sections"].values()) assertTrue(each["reason"]["items"].size() in 1..2)
+	}
+
+	@Test
+	fun `시각을 모르면 응답 어디에도 하우스 상승점 중천 하우스 모임이 없다`() {
+		val token = tokenWithProfile(UNKNOWN)
+		// 문단마다 후보의 앞(놓인 자리)과 뒤(다스리는 별 · 각도)를 하나씩 고른다
+		generator.respond = { prompt, call ->
+			val ids = prompt.basisIds
+			val draft = validDraft(prompt, call)
+			draft.copy(sections = draft.sections.mapIndexed { i, it -> it.copy(basis = listOf(ids[i], ids[ids.lastIndex - i])) })
+		}
+
+		val response = read(token)
+
+		assertEquals(200, response.statusCode(), response.body())
+		val prompt = generator.prompts.single()
+		assertTrue(prompt.basisIds.none { it.contains("ASC") || it.contains("MC") || it.startsWith("C-") }, prompt.basisIds.toString())
+		for (word in listOf("\"house\"", "\"ASC\"", "\"MC\"", "CLUSTER", "VERTEX", "하우스", "상승점", "중천")) {
+			assertFalse(response.body().contains(word), "시각 모름 응답에 $word: ${response.body()}")
+		}
+		val json = mapper.readTree(response.body())
+		assertEquals(4, json["sections"].size())
+		assertEquals(2, json["cautions"].size())
+	}
+
+	@Test
+	fun `옛 모양 SUMMARY 행만 있는 계정은 새 모양으로 다시 만들고 옛 행은 그대로 둔다`() {
+		val token = tokenWithProfile(KNOWN)
+		val owner = jdbc.queryForObject("select id from accounts", UUID::class.java)!!
+		val chartHash = profiles.chartInput(owner)!!.hash
+		val oldBody = """{"headline":"옛총평","sections":[{"title":"옛제목","body":"옛본문","basis":["태양"]}],"strengths":["a","b","c"],"cautions":["a","b","c"]}"""
+		jdbc.update(
+			"insert into readings (id, owner_id, kind, chart_hash, body, share_id) values (?, ?, 'SUMMARY', ?, ?::jsonb, 'old-share')",
+			UUID.randomUUID(), owner, chartHash, oldBody,
+		)
+
+		val response = read(token)
+
+		assertEquals(200, response.statusCode(), response.body())
+		assertEquals(1, generator.prompts.size, "옛 행은 읽지 않는다 — 생성 한 번")
+		val json = mapper.readTree(response.body())
+		assertEquals("가짜총평-1", json["headline"].asString())
+		assertTrue(json["sections"][0].has("reason") && json.has("createdAt"))
+		assertEquals(2, rows())
+		assertEquals(listOf("SUMMARY", "SUMMARY_V2"), jdbc.queryForList("select kind from readings order by kind", String::class.java))
+		assertEquals(
+			mapper.readTree(oldBody),
+			mapper.readTree(jdbc.queryForObject("select body::text from readings where kind = 'SUMMARY'", String::class.java)),
+			"옛 행은 고치지 않는다",
+		)
+		assertEquals(response.body(), read(token).body(), "그다음은 새 저장본")
+		assertEquals(1, generator.prompts.size)
 	}
 
 	/** 같은 계정이 동시에 두 번 부른다. 두 요청이 생성기 안에서 겹치도록 생성기를 느리게 한다. */
@@ -205,7 +277,7 @@ class ReadingApiIntegrationTest {
 		val token = tokenWithProfile(KNOWN)
 		generator.respond = { prompt, call ->
 			val draft = validDraft(prompt, call)
-			if (call == 1) draft.copy(sections = draft.sections.map { it.copy(basis = listOf("태양", "없는별")) }) else draft
+			if (call == 1) draft.copy(sections = draft.sections.map { it.copy(basis = listOf("P-SUN", "없는별")) }) else draft
 		}
 
 		val response = read(token)
@@ -220,11 +292,11 @@ class ReadingApiIntegrationTest {
 	@Test
 	fun `다시 생성은 두 번까지이고 그래도 틀리면 502 이며 저장하지 않는다`() {
 		val token = tokenWithProfile(KNOWN)
-		// 차트에 아무 천체도 없는 하우스는 없다고 본다: 근거 말에 없는 하우스를 고른다
+		// 천체가 셋 모이지 않은 하우스의 모임 id 는 후보에 없다
 		generator.respond = { prompt, call ->
-			val emptyHouse = (1..12).map(::houseLabel).first { it !in prompt.basisVocabulary }
+			val notCluster = (1..12).map { "C-$it" }.first { it !in prompt.basisIds }
 			val draft = validDraft(prompt, call)
-			draft.copy(sections = draft.sections.map { it.copy(basis = listOf(emptyHouse)) })
+			draft.copy(sections = draft.sections.map { it.copy(basis = listOf(notCluster)) })
 		}
 
 		val response = read(token)
@@ -243,11 +315,11 @@ class ReadingApiIntegrationTest {
 	@Test
 	fun `시각을 모르는데 하우스나 상승점을 근거로 들면 버린다`() {
 		val token = tokenWithProfile(UNKNOWN)
-		for (basis in listOf("1하우스", "상승점", "중천")) {
+		for (basis in listOf("C-1", "P-ASC", "P-MC", "R-ASC", "A-SUN-ASC-CONJUNCTION")) {
 			generator.reset()
 			generator.respond = { prompt, call ->
 				val draft = validDraft(prompt, call)
-				draft.copy(sections = draft.sections.map { it.copy(basis = listOf("태양", basis)) })
+				draft.copy(sections = draft.sections.map { it.copy(basis = listOf("P-SUN", basis)) })
 			}
 			assertEquals(502, read(token).statusCode(), basis)
 			assertEquals(3, generator.prompts.size, basis)
@@ -265,8 +337,11 @@ class ReadingApiIntegrationTest {
 			"문단이 없음" to { d -> d.copy(sections = emptyList()) },
 			"빈 본문" to { d -> d.copy(sections = d.sections.map { it.copy(body = "") }) },
 			"근거 없는 문단" to { d -> d.copy(sections = d.sections.map { it.copy(basis = emptyList()) }) },
+			"근거가 3개" to { d -> d.copy(sections = d.sections.map { it.copy(basis = listOf("P-SUN", "P-MOON", "P-MARS")) }) },
+			"같은 근거 둘" to { d -> d.copy(sections = d.sections.map { it.copy(basis = listOf("P-SUN", "P-SUN")) }) },
 			"강점이 2개" to { d -> d.copy(strengths = d.strengths.drop(1)) },
-			"빈 보완점" to { d -> d.copy(cautions = listOf("보완1", "", "보완3")) },
+			"보완점이 3개(옛 모양)" to { d -> d.copy(cautions = listOf("보완1", "보완2", "보완3")) },
+			"빈 보완점" to { d -> d.copy(cautions = listOf("보완1", "")) },
 		)
 		for ((name, breakIt) in broken) {
 			generator.reset()
@@ -297,18 +372,22 @@ class ReadingApiIntegrationTest {
 		read(tokenWithProfile(KNOWN))
 		val known = generator.prompts.single()
 		assertTrue(known.facts.contains("하우스") && known.facts.contains("상승점: ") && known.facts.contains("중천: "))
-		assertTrue(known.basisVocabulary.containsAll(listOf("상승점", "중천", "행운점", "버텍스")))
-		assertTrue(known.basisVocabulary.any { it.endsWith("하우스") })
+		assertTrue(known.basisIds.containsAll(listOf("P-SUN", "P-MOON", "P-ASC", "P-MC", "R-ASC")), known.basisIds.toString())
+		assertEquals(known.basisIds, known.facts.substringAfter("[근거 후보]\n").lines().map { it.substringBefore(":") }, "구조의 id 와 프롬프트의 후보가 같다")
+		assertFalse(known.facts.contains("[근거로 쓸 수 있는 말]"))
 		assertTrue(known.instructions.contains("정확히 5개"))
+		assertTrue(known.instructions.contains("`cautions`: 보완점 정확히 2개"))
+		assertTrue(known.instructions.contains("[근거 후보]"), "근거는 후보 id 에서 고른다고 알린다")
 
 		generator.reset()
 		read(tokenWithProfile(UNKNOWN))
 		val unknown = generator.prompts.single()
 		for (word in TIME_ONLY_WORDS) {
 			assertFalse(unknown.facts.contains(word), "차트 사실에 '$word' 가 있다:\n${unknown.facts}")
-			assertFalse(unknown.basisVocabulary.any { it.contains(word) }, "근거 말에 '$word' 가 있다")
+			assertFalse(unknown.facts.substringAfter("[근거 후보]").contains(word), "근거 후보에 '$word' 가 있다")
 		}
 		assertTrue(unknown.facts.contains("태양: 물고기"))
+		assertTrue(unknown.basisIds.none { it.contains("ASC") || it.contains("MC") || it.startsWith("C-") }, unknown.basisIds.toString())
 		assertTrue(unknown.instructions.contains("정확히 4개"))
 		assertTrue(
 			unknown.instructions.contains("하우스·상승점·중천·행운점·버텍스는 계산되지 않았습니다") &&
@@ -346,11 +425,12 @@ class ReadingApiIntegrationTest {
 
 		assertEquals(2, generator.prompts.size)
 		for (prompt in generator.prompts) {
-			val all = prompt.instructions + "\n" + prompt.facts + "\n" + prompt.basisVocabulary.joinToString(",")
+			val all = prompt.instructions + "\n" + prompt.facts + "\n" + prompt.basisIds.joinToString(",")
 			for (secret in listOf("1977", "07-07", "07:07", "7월", "마포", "서울", "37.5", "126.9", MAPO.toString())) {
 				assertFalse(all.contains(secret), "프롬프트에 '$secret' 이 있다")
 			}
-			assertFalse(Regex("""\d{2,}""").containsMatchIn(prompt.facts.replace(Regex("""\d{1,2}하우스"""), "")), "도수 같은 수치가 있다:\n${prompt.facts}")
+			// 하우스 번호("10하우스")와 하우스 모임 id("C-10")만 숫자다
+			assertFalse(Regex("""\d{2,}""").containsMatchIn(prompt.facts.replace(Regex("""\d{1,2}하우스|C-\d{1,2}"""), "")), "도수 같은 수치가 있다:\n${prompt.facts}")
 		}
 	}
 
@@ -402,7 +482,7 @@ class ReadingApiIntegrationTest {
 		read(tokenWithProfile("""{"date":"1977-07-07","time":"07:07","placeId":$MAPO}"""))
 
 		val row = jdbc.queryForMap("select kind, chart_hash, body::text as body, share_id from readings")
-		assertEquals("SUMMARY", row["kind"])
+		assertEquals("SUMMARY_V2", row["kind"])
 		assertTrue(Regex("[0-9a-f]{64}").matches(row["chart_hash"] as String))
 		val stored = row.values.joinToString("\n")
 		for (secret in listOf("1977", "07-07", "07:07")) assertFalse(stored.contains(secret), "'$secret' 이 저장됐다")

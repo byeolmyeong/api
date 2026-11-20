@@ -150,6 +150,26 @@ class BasisCandidatesTest {
 	}
 
 	@Test
+	fun `옛 근거 낱말은 그 차트의 근거 말 안에서 만든다`() {
+		val utc = Instant.parse("1990-03-15T05:30:00Z")
+		for (timeKnown in listOf(true, false)) {
+			val chart = computeChart(utc, 37.5663, 126.9019, timeKnown)
+			val vocabulary = basisVocabulary(chart).toSet()
+			for (candidate in basisCandidates(chart)) {
+				val words = basisWords(Reason(ReasonWhen.BIRTH, listOf(candidate.item)))
+				assertTrue(words.isNotEmpty() && vocabulary.containsAll(words), "${candidate.id} → $words")
+			}
+		}
+		val known = basisCandidates(known)
+		assertEquals(listOf("토성", "태양"), basisWords(Reason(ReasonWhen.BIRTH, listOf(known.item("A-SATURN-SUN-SQUARE")))))
+		assertEquals(
+			listOf("태양", "물병", "5하우스", "수성", "금성", "토성"),
+			basisWords(Reason(ReasonWhen.BIRTH, listOf(known.item("P-SUN"), known.item("C-5"), known.item("R-SUN")))),
+			"겹치는 말은 한 번",
+		)
+	}
+
+	@Test
 	fun `지점은 근거 후보가 아니다`() {
 		val utc = Instant.parse("1990-03-15T05:30:00Z")
 		val json = jacksonObjectMapper().writeValueAsString(basisCandidates(computeChart(utc, 37.5663, 126.9019, timeKnown = true)).map { it.item })
