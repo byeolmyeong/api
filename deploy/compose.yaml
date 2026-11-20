@@ -22,8 +22,9 @@ x-api: &api
     # Caddy 뒤에서 연결 상대는 늘 Caddy 다. Caddy 가 넣는 X-Forwarded-For 의 주소를 요청 주소로 써야
     # 주소별 요청 속도 제한·관리자 로그인 제한이 사용자마다 따로 센다(web/RateLimitConfig.kt).
     SERVER_FORWARD_HEADERS_STRATEGY: native
-    # 힙 상한은 1GB VM 에서 JVM 이 스스로 고르던 값(256MB)과 같다. 바꿀 때 두 JVM 이 잠깐 같이 떠도 더 커지지 않게 못 박는다(결정 046 의 7).
-    JAVA_TOOL_OPTIONS: -Xmx256m -XX:+ExitOnOutOfMemoryError
+    # 힙 상한은 VM 마다 .env 의 API_HEAP_MAX(결정 050). 비우면 256MB — 1GB VM(스테이징)에서 JVM 이 스스로 고르던 값이다.
+    # 바꿀 때 두 JVM 이 잠깐 같이 떠도 더 커지지 않게 못 박는다(결정 046 의 7). 운영(A1 12GB)은 1g.
+    JAVA_TOOL_OPTIONS: -Xmx${API_HEAP_MAX:-256m} -XX:+ExitOnOutOfMemoryError
   depends_on:
     postgres:
       condition: service_healthy
