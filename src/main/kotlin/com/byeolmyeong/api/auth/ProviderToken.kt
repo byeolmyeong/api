@@ -117,7 +117,8 @@ private class JwksTokenVerifier(
 			provider, subject, audience, emailOf(claims),
 			tokenId = claims.jwtid?.takeIf { it.isNotBlank() },
 			expiresAt = claims.expirationTime?.toInstant(),
-			authorizedParty = claims.getStringClaim("azp"),
+			// azp 가 문자열이 아니면 없는 것으로 본다(대상이 하나일 때는 위에서 보지 않는다).
+			authorizedParty = runCatching { claims.getStringClaim("azp") }.getOrNull(),
 		)
 	}
 

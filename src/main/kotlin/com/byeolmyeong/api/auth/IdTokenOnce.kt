@@ -23,13 +23,20 @@ internal fun needsOnce(identity: ProviderIdentity, webClientId: String): Boolean
 class IdTokenOnceService(
 	private val jdbc: JdbcTemplate,
 	@Value("\${byeolmyeong.auth.google.web-client-id}") webClientId: String,
+	@Value("\${byeolmyeong.auth.google.client-ids}") clientIds: String,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val webClientId = webClientId.trim()
+	private val clientIds = clientIds.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
+	/** 켜졌는지 시작할 때 남긴다. 값이 구글 클라이언트 목록에 없으면(오타) 어떤 토큰도 대상이 아니라 꺼진 것과 같다. */
 	@PostConstruct
-	fun warnWhenOff() {
-		if (webClientId.isEmpty()) log.warn("event=id_token_once_off reason=NO_WEB_CLIENT_ID")
+	fun logState() {
+		when {
+			webClientId.isEmpty() -> log.warn("event=id_token_once_off reason=NO_WEB_CLIENT_ID")
+			webClientId !in clientIds -> log.warn("event=id_token_once_off reason=WEB_CLIENT_ID_NOT_IN_CLIENT_IDS")
+			else -> log.info("event=id_token_once_on")
+		}
 	}
 
 	/** 서명 · 대상 · 만료를 확인한 [identity] 를 받는다. 대상이면 `jti` 를 선점하고, 없거나 이미 쓴 것이면 401 `INVALID_ID_TOKEN`. */
@@ -47,10 +54,13 @@ class IdTokenOnceService(
 		}
 	}
 
-	/** 날마다 한국 시각 04:15 에 끝난 줄을 지운다. 같은 지우기라 서버 둘이 함께 돌아도 결과가 같다. */
+	/**
+	 * 날마다 한국 시각 04:15 에 끝난 줄을 지운다. 확인은 exp 뒤 60초(시계 차이)까지 받으므로 2분 더 지난 줄만 지운다.
+	 * 같은 지우기라 서버 둘이 함께 돌아도 결과가 같다.
+	 */
 	@Scheduled(cron = "0 15 4 * * *", zone = "Asia/Seoul")
 	fun deleteExpired() {
-		val count = jdbc.update("delete from used_id_tokens where expires_at < now()")
+		val count = jdbc.update("delete from used_id_tokens where expires_at < now() - interval '2 minutes'")
 		log.info("event=used_id_tokens_expired_deleted count={}", count)
 	}
 }

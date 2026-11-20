@@ -113,8 +113,19 @@ class GoogleWebIdTokenOnceIntegrationTest {
 	}
 
 	@Test
-	fun `jti 가 없는 웹 토큰은 401 이다`() {
+	fun `앱 토큰(대상은 웹 · 발급받은 쪽은 앱)은 같은 토큰을 다시 보내도 된다 — 앱은 serverClientId 로 웹 대상 토큰을 받는다`() {
+		val token = googleToken(WEB, azp = IOS)
+
+		assertEquals(200, login(token))
+		assertEquals(200, login(token))
+		assertEquals(0, jdbc.queryForObject("select count(*) from used_id_tokens", Int::class.java))
+	}
+
+	@Test
+	fun `jti 가 없거나 비어 있는 웹 토큰은 401 이다`() {
 		assertEquals(401, login(googleToken(WEB, jti = null)))
+		assertEquals(401, login(googleToken(WEB, jti = "")))
+		assertEquals(401, login(googleToken(WEB, jti = " ")))
 	}
 
 	@Test
@@ -132,11 +143,15 @@ class GoogleWebIdTokenOnceIntegrationTest {
 
 	@Test
 	fun `끝난 줄은 날마다 지운다`() {
-		jdbc.update("insert into used_id_tokens (jti, expires_at) values ('old', now() - interval '1 hour'), ('live', now() + interval '1 hour')")
+		jdbc.update(
+			"insert into used_id_tokens (jti, expires_at) values ('old', now() - interval '1 hour'), ('live', now() + interval '1 hour'), " +
+				"('skew', now() - interval '30 seconds')",
+		)
 
 		once.deleteExpired()
 
-		assertEquals(listOf("live"), jdbc.queryForList("select jti from used_id_tokens", String::class.java))
+		// 확인은 exp 뒤 60초(시계 차이)까지 받으므로 그 안의 줄은 남긴다.
+		assertEquals(setOf("live", "skew"), jdbc.queryForList("select jti from used_id_tokens", String::class.java).toSet())
 	}
 
 	@Test
