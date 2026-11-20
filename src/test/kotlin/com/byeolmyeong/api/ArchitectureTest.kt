@@ -61,6 +61,9 @@ class ArchitectureTest {
             // 별명을 처음 지었다 · 궁합 리포트가 완성됐다 — 알림함(결정 035)과 푸시(결정 042)가 듣는다
             "$ROOT.reading.ReadingCreated",
             "$ROOT.synastry.SynastryReportDone",
+            // 관리자가 광고 푸시를 보냈다 · push 가 다 보냈다(결정 043 의 6) — push(S⑩)가 보내고 admin 이 내역을 채운다
+            "$ROOT.admin.PushEventRequested",
+            "$ROOT.push.PushEventSent",
         )
 
         /** 외부 공급자 SDK·HTTP 클라이언트. 이것을 쓰는 클래스는 우리 인터페이스 하나 뒤에 있어야 한다. */
