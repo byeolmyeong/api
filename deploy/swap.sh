@@ -5,13 +5,14 @@
 #   ./swap.sh --restart   지금 받는 색의 jar 그대로 쉬는 색으로 다시 띄운다(.env 를 바꾼 뒤 — 새 컨테이너가 새 값을 읽는다).
 #   ./swap.sh --init      처음 한 번: 받는 쪽 파일(upstream.caddy)을 api-blue 로 만든다. 이미 있으면 하지 않는다(docs/deploy.md (다)).
 # 순서: ① 지금 색(Caddy 가 실제로 쓰는 색)과 쉬는 색 ② jar 를 쉬는 색 파일로 ③ 쉬는 색을 새로 만든다
-#       ④ Caddy 안에서 그 색의 /health 가 200 일 때까지(최대 3분) ⑤ upstream.caddy 를 그 색으로 · caddy reload · 실제로 바뀌었는지 확인
+#       ④ Caddy 안에서 그 색의 /health 가 200 일 때까지(최대 5분) ⑤ upstream.caddy 를 그 색으로 · caddy reload · 실제로 바뀌었는지 확인
 #       ⑥ 5초 뒤 옛 색을 차분하게 내린다(받던 요청 · 쓰던 생성을 끝낸다, 최대 320초) ⑦ app.jar.good(지금) · app.jar.prev(그 앞)를 적는다.
 # 받는 쪽을 바꾸기 전에 실패하면 쉬는 색을 내리고 끝낸다 — 받는 쪽은 옛 색 그대로다. Caddy 가 쓰는 색인지 모르면 아무 색도 내리지 않는다.
 # Postgres · Caddy 는 만지지 않는다(--no-deps). 로그는 event=swap_* 한 줄씩. 실패하면 0 이 아닌 값으로 끝난다.
 set -euo pipefail
 
-HEALTH_WAIT_SECONDS=180
+# E2.1.Micro(1GB · 버스트 CPU)에서 두 JVM 이 겹치면 새 JVM 시작이 89~187초 걸렸다(2026-11-20 스테이징 8번). 넘으면 바꾸지 않고 실패한다.
+HEALTH_WAIT_SECONDS=300
 DRAIN_DELAY_SECONDS=5
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) event=$*"; }
@@ -61,7 +62,8 @@ if [ -n "$(docker ps -aq --filter "label=com.docker.compose.project=${COMPOSE_PR
 	fail check "reason=legacy_api_container (docs/deploy.md 블루 · 그린으로 처음 옮겨 가기)"
 fi
 
-in_caddy() { docker compose exec -T caddy "$@"; }
+# stdin 을 막는다: 이 스크립트가 stdin 으로 넘겨진 스크립트 안에서 불려도 남은 줄을 먹지 않게.
+in_caddy() { docker compose exec -T caddy "$@" < /dev/null; }
 
 # Caddy 가 지금 실제로 보내는 색(blue · green · none). 관리 API 의 살아 있는 설정을 읽는다. 읽지 못하면 실패.
 # 관리 API 는 127.0.0.1 에만 듣는다(컨테이너의 localhost 는 ::1 로 풀려 닿지 않는다).

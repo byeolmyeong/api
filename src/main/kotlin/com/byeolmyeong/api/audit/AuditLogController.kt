@@ -26,7 +26,10 @@ private val KOREA: ZoneId = ZoneId.of("Asia/Seoul")
 @RestController
 class AuditLogController(private val audit: AuditService) {
 
-	/** 새것부터. 빈 글인 조건은 없는 것으로 본다. 틀린 조건은 `actorType` → `action` → 날짜 → 쪽 순서로 처음 걸린 것 하나를 답한다. */
+	/**
+	 * 새것부터. 빈 글인 조건은 없는 것으로 본다. 틀린 조건은 `actorType` → `action` → 날짜 → 쪽 순서로 처음 걸린 것 하나를 답한다.
+	 * `q` 는 틀릴 수 없다(앞뒤 공백을 떼고 대소문자를 가리지 않는 일부 맞춤).
+	 */
 	@GetMapping("/admin/audit-logs")
 	fun list(
 		@RequestParam(required = false) actorType: String?,
@@ -34,6 +37,7 @@ class AuditLogController(private val audit: AuditService) {
 		@RequestParam(required = false) from: String?,
 		@RequestParam(required = false) to: String?,
 		@RequestParam(required = false) actorRef: String?,
+		@RequestParam(required = false) q: String?,
 		@RequestParam(required = false) page: String?,
 		@RequestParam(required = false) size: String?,
 	): AuditLogPage {
@@ -48,7 +52,8 @@ class AuditLogController(private val audit: AuditService) {
 		val pageSize = if (size.isNullOrEmpty()) SIZE_DEFAULT else size.toIntOrNull()
 		if (pageNumber == null || pageNumber < 0 || pageSize == null || pageSize !in 1..SIZE_MAX) throw BadRequestException("INVALID_PAGE")
 		val ref = actorRef?.trim()?.lowercase(Locale.ROOT)?.ifEmpty { null }
-		return audit.list(AuditFilter(type, act, since, until, ref), pageNumber, pageSize)
+		val search = q?.trim()?.lowercase(Locale.ROOT)?.ifEmpty { null }
+		return audit.list(AuditFilter(type, act, since, until, ref, search), pageNumber, pageSize)
 	}
 
 	/** `YYYY-MM-DD` 만 받는다. 없거나 빈 글이면 null, 모양이 틀리거나 없는 날이면 `INVALID_DATE`. */
@@ -63,5 +68,8 @@ class AuditLogController(private val audit: AuditService) {
 	}
 }
 
-/** 거르는 조건. null 인 것은 거르지 않는다. [since] 는 포함, [until] 은 포함하지 않는다. */
-class AuditFilter(val actorType: String?, val action: String?, val since: Instant?, val until: Instant?, val actorRef: String?)
+/**
+ * 거르는 조건. null 인 것은 거르지 않는다. [since] 는 포함, [until] 은 포함하지 않는다.
+ * [q] 는 소문자로 바꾼 검색어다: 관리자 아이디 일부 또는 (지금 있는) 앱 사용자 닉네임 일부(결정 043 의 8).
+ */
+class AuditFilter(val actorType: String?, val action: String?, val since: Instant?, val until: Instant?, val actorRef: String?, val q: String? = null)

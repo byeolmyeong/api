@@ -1,5 +1,6 @@
 package com.byeolmyeong.api.auth
 
+import com.byeolmyeong.api.web.AccountDeletionRequested
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
@@ -7,6 +8,7 @@ import com.byeolmyeong.api.web.BadRequestException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.context.event.EventListener
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
@@ -49,8 +51,11 @@ class AuthService(
 		return token
 	}
 
-	/** 토큰의 주인. 토큰이 없는 것이거나 계정이 지워졌거나 마지막 사용 후 [sessionDays]일이 지났으면 null(결정 021). */
-	fun ownerOf(token: String): UUID? = sessions.use(hash(token), sessionDays)
+	/**
+	 * 토큰의 주인과 정지 여부(결정 044 의 4 — 세션을 확인하는 같은 쿼리에서 읽는다).
+	 * 토큰이 없는 것이거나 계정이 지워졌거나 마지막 사용 후 [sessionDays]일이 지났으면 null(결정 021).
+	 */
+	fun sessionOf(token: String): SessionOwner? = sessions.use(hash(token), sessionDays)
 
 	/** 로그아웃. 이 세션만 지운다(다른 기기의 세션은 그대로). */
 	fun logout(token: String) {
@@ -86,14 +91,18 @@ class AuthService(
 		return account(ownerId)
 	}
 
-	fun deleteAccount(ownerId: UUID) {
+	/** 관리자의 탈퇴 대행(결정 043 의 1). 앱의 계정 삭제와 같이 지우고, 감사 기록은 관리자 쪽(`USER_DELETED_BY_ADMIN`)만 남긴다. */
+	@EventListener
+	fun onDeletionRequested(event: AccountDeletionRequested) = deleteAccount(event.accountId, byUser = false)
+
+	fun deleteAccount(ownerId: UUID, byUser: Boolean = true) {
 		cleanUpProvider("apple_revoke_failed") { appleTokens.find(ownerId)?.let { apple.revoke(it.refreshToken, it.clientId) } }
 		cleanUpProvider("kakao_unlink_failed") {
 			accounts.identity(ownerId)?.takeIf { it.provider == Provider.KAKAO }?.let { kakao.unlink(it.subject) }
 		}
 		accounts.delete(ownerId)
 		// 감사 기록은 계정과 함께 지워지지 않는다(결정 015). 지운 뒤에도 "이 계정이 지워졌다" 가 남는다.
-		events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
+		if (byUser) events.publishEvent(AuditEvent(AuditAction.ACCOUNT_DELETED, AuditActor.user(ownerId)))
 	}
 
 	/**
@@ -147,13 +156,13 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 
 	/** 계정 화면의 값(결정 025 · 027 · 028). 없으면 null. 닉네임·이메일은 로그에 남기지 않는다. */
 	fun account(id: UUID): AccountResponse? = jdbc.query(
-		"select nickname, email, provider, marketing_consented_at, push_consented_at, avatar from accounts where id = ?",
+		"select nickname, email, provider, marketing_consented_at, push_consented_at, avatar, suspended_at is not null as suspended from accounts where id = ?",
 		{ rs, _ ->
 			val consentedAt = rs.getTimestamp("marketing_consented_at")?.toInstant()
 			val pushAt = rs.getTimestamp("push_consented_at")?.toInstant()
 			AccountResponse(
 				rs.getString("nickname"), rs.getString("email"), rs.getString("provider"), consentedAt != null, consentedAt,
-				pushAt != null, pushAt, (rs.getObject("avatar") as Number?)?.toInt(),
+				pushAt != null, pushAt, (rs.getObject("avatar") as Number?)?.toInt(), rs.getBoolean("suspended"),
 			)
 		},
 		id,
@@ -276,8 +285,11 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 	}
 }
 
+/** 세션의 주인. [suspended] 면 열린 경로 말고 403 `ACCOUNT_SUSPENDED`(결정 044). */
+data class SessionOwner(val accountId: UUID, val suspended: Boolean)
+
 /** 세션 확인 한 번에 읽는 값. */
-private class SessionUse(val accountId: UUID, val expired: Boolean, val stale: Boolean, val unseen: Boolean)
+private class SessionUse(val accountId: UUID, val expired: Boolean, val stale: Boolean, val unseen: Boolean, val suspended: Boolean)
 
 @Repository
 class SessionRepository(private val jdbc: JdbcTemplate) {
@@ -291,7 +303,7 @@ class SessionRepository(private val jdbc: JdbcTemplate) {
 	 * 마지막 사용이 하루 넘게 지났을 때만 지금으로 고쳐 쓴다(요청마다 쓰지 않게).
 	 * 계정의 마지막 접속은 10분이 지났거나 한국 날짜가 바뀌었을 때만 쓰고, 그때 그날의 접속 줄을 넣는다(결정 043 의 2).
 	 */
-	fun use(tokenHash: String, days: Int): UUID? {
+	fun use(tokenHash: String, days: Int): SessionOwner? {
 		val row = jdbc.query(
 			"""
 			select s.account_id,
@@ -299,11 +311,17 @@ class SessionRepository(private val jdbc: JdbcTemplate) {
 			       s.last_used_at < now() - interval '1 day' as stale,
 			       a.last_seen_at is null
 			         or a.last_seen_at < now() - interval '10 minutes'
-			         or (a.last_seen_at at time zone 'Asia/Seoul')::date <> (now() at time zone 'Asia/Seoul')::date as unseen
+			         or (a.last_seen_at at time zone 'Asia/Seoul')::date <> (now() at time zone 'Asia/Seoul')::date as unseen,
+			       a.suspended_at is not null as suspended
 			from sessions s join accounts a on a.id = s.account_id
 			where s.token_hash = ?
 			""".trimIndent(),
-			{ rs, _ -> SessionUse(rs.getObject("account_id", UUID::class.java), rs.getBoolean("expired"), rs.getBoolean("stale"), rs.getBoolean("unseen")) },
+			{ rs, _ ->
+				SessionUse(
+					rs.getObject("account_id", UUID::class.java), rs.getBoolean("expired"), rs.getBoolean("stale"), rs.getBoolean("unseen"),
+					rs.getBoolean("suspended"),
+				)
+			},
 			days, tokenHash,
 		).firstOrNull() ?: return null
 		if (row.expired) {
@@ -312,7 +330,7 @@ class SessionRepository(private val jdbc: JdbcTemplate) {
 		}
 		if (row.stale) jdbc.update("update sessions set last_used_at = now() where token_hash = ?", tokenHash)
 		if (row.unseen) markSeen(row.accountId)
-		return row.accountId
+		return SessionOwner(row.accountId, row.suspended)
 	}
 
 	/** 마지막 접속을 지금으로, 그날(한국 날짜) 처음이면 접속 줄 하나. 서버 여러 대가 같이 써도 줄은 하나다. */

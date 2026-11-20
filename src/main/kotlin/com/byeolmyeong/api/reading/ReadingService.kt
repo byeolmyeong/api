@@ -1,9 +1,12 @@
 package com.byeolmyeong.api.reading
 
 import com.byeolmyeong.api.birth.BirthProfileService
+import com.byeolmyeong.api.profile.BirthProfileChanged
+import com.byeolmyeong.api.chart.Body
 import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.generation.TextGenerator
+import com.byeolmyeong.api.share.NicknameCardRequested
 import com.byeolmyeong.api.share.ReadingCardRequested
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
@@ -98,10 +101,16 @@ class ReadingService(
 			throw e
 		}
 		// 동시에 두 요청이 생성했으면 먼저 들어간 글만 남고, 둘 다 그 글을 돌려준다.
-		repository.insertIfAbsent(ownerId, SUMMARY, chartHash, body, newShareId())
+		val created = repository.insertIfAbsent(ownerId, SUMMARY, chartHash, body, newShareId())
 		events.publishEvent(AuditEvent(AuditAction.READING_GENERATED, AuditActor.user(ownerId)))
+		// 별명을 처음 지었을 때만(결정 035 의 4). 같은 때 두 요청이 생성했으면 먼저 넣은 쪽만 낸다.
+		if (created) events.publishEvent(ReadingCreated(ownerId))
 		return checkNotNull(repository.find(ownerId, SUMMARY, chartHash)) { "방금 저장한 글이 없다" }
 	}
+
+	/** 출생 정보가 바뀌면 옛 차트의 요약 해석을 지운다(결정 041). 다음 `POST /readings` 가 새 출생 정보로 만든다. */
+	@EventListener
+	fun on(event: BirthProfileChanged) = repository.deleteOtherCharts(event.ownerId, event.chartHash)
 
 	/** 공유 카드에 실을 글을 묻는 이벤트(결정 012). 그 소유자의 지금 차트의 요약 해석이 있을 때만 답한다. 근거와 본문은 주지 않는다. */
 	@EventListener
@@ -110,6 +119,15 @@ class ReadingService(
 		val reading = repository.find(event.ownerId, SUMMARY, birth.hash) ?: return
 		event.headline = reading.headline
 		event.keywords = reading.sections.take(SHARE_KEYWORDS).map { it.title }
+	}
+
+	/** 내 별명 카드(결정 036): 지금 차트의 요약 해석 v2 의 한 줄 별명과 그 차트의 해 별자리. 요약 해석이 있을 때만 답한다. */
+	@EventListener
+	fun on(event: NicknameCardRequested) {
+		val birth = profiles.chartInput(event.ownerId) ?: return
+		val reading = repository.find(event.ownerId, SUMMARY, birth.hash) ?: return
+		event.headline = reading.headline
+		event.sunSign = birth.chart().positions.first { it.body == Body.SUN }.sign
 	}
 
 	private fun generate(chart: Chart): ReadingDraft {

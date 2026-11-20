@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service
 import tools.jackson.databind.json.JsonMapper
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.time.LocalDate
 import java.util.Base64
 import java.util.HexFormat
 import java.util.UUID
@@ -62,6 +63,29 @@ class ShareService(
 		val asked = NextTurnCardRequested(ownerId).also(events::publishEvent)
 		val date = asked.date ?: nothing()
 		return save(ownerId, NextTurnCard(date.year, seasonOf(date), asked.theme ?: nothing()))
+	}
+
+	// ── 공유 v2(결정 036): 닉네임은 계정에서, 글은 그 글을 가진 기능에게 묻는다 ──
+
+	fun nickname(ownerId: UUID): Share {
+		val asked = NicknameCardRequested(ownerId).also(events::publishEvent)
+		return save(ownerId, NicknameCard(repository.nicknameOf(ownerId), asked.sunSign ?: nothing(), asked.headline ?: nothing()))
+	}
+
+	fun meArea(ownerId: UUID, area: String): Share {
+		val asked = MeAreaCardRequested(ownerId, area).also(events::publishEvent)
+		return save(ownerId, MeAreaCard(repository.nicknameOf(ownerId), area, asked.title ?: nothing()))
+	}
+
+	/** 만들지 않은 날이면 답이 없어 404. */
+	fun daySky(ownerId: UUID, date: LocalDate): Share {
+		val asked = DaySkyCardRequested(ownerId, date).also(events::publishEvent)
+		return save(ownerId, DaySkyCard(repository.nicknameOf(ownerId), date.toString(), asked.title ?: nothing()))
+	}
+
+	fun nextBig(ownerId: UUID): Share {
+		val asked = NextBigCardRequested(ownerId).also(events::publishEvent)
+		return save(ownerId, NextBigCard(repository.nicknameOf(ownerId), asked.year ?: nothing(), asked.age ?: nothing(), asked.title ?: nothing()))
 	}
 
 	/** 공개 조회. 저장된 카드의 JSON 이고, 없으면 404. */

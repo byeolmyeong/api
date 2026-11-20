@@ -1,6 +1,7 @@
 package com.byeolmyeong.api.report
 
 import com.byeolmyeong.api.generation.GenerationException
+import com.byeolmyeong.api.profile.BirthProfileChanged
 import com.byeolmyeong.api.generation.GenerationRequest
 import com.byeolmyeong.api.generation.TextGenerator
 import com.byeolmyeong.api.web.AuditAction
@@ -12,6 +13,7 @@ import com.byeolmyeong.api.web.PurchaseRequiredException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.context.event.EventListener
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
@@ -69,6 +71,12 @@ class DetailReportService(
 
 	// 이 서버가 맡아 아직 끝내지 않은 생성(줄에서 기다리는 것 포함, 종류를 가리지 않는다).
 	private val live = ConcurrentHashMap.newKeySet<DetailReportRun>()
+
+	/**
+	 * 출생 정보가 바뀌면 옛 차트의 나 탭 풀이 · 시기 풀이를 지운다(결정 041). 쓰는 중이던 생성은 끝낼 때 자리가 없어 저장 · 완성 알림 없이 버려진다.
+	 */
+	@EventListener
+	fun on(event: BirthProfileChanged) = repository.deleteOtherCharts(event.ownerId, event.chartHash)
 
 	/** 이 서버가 맡은 생성이 살아 있다고 행에 적는다. 서버가 꺼지면 더 적히지 않아 그 행은 멈춘 것으로 보인다. */
 	@Scheduled(fixedDelayString = "\${byeolmyeong.report.heartbeat-seconds}", timeUnit = TimeUnit.SECONDS)

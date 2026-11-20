@@ -14,6 +14,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private val PLATFORM_KEYS = setOf("minVersion", "latestVersion", "storeUrl", "message", "blockNow", "updatedAt", "updatedBy")
+private val MAINTENANCE_KEYS = setOf("active", "message", "updatedAt", "updatedBy", "startedAt", "startedBy")
 private const val STORE = "https://apps.apple.com/kr/app/id0000000000"
 private const val MESSAGE = "안내비밀글-새 버전으로 업데이트해 주세요"
 
@@ -71,9 +72,10 @@ class AdminAppConfigApiIntegrationTest {
 		val json = response.json()
 		assertEquals(setOf("ios", "android", "maintenance"), json.propertyNames().toSet())
 		val maintenance = json["maintenance"]
-		assertEquals(setOf("active", "message", "updatedAt", "updatedBy"), maintenance.propertyNames().toSet())
+		assertEquals(MAINTENANCE_KEYS, maintenance.propertyNames().toSet())
 		assertEquals(false, maintenance["active"].asBoolean())
 		assertTrue(maintenance["message"].isNull && maintenance["updatedBy"].isNull)
+		assertTrue(maintenance["startedAt"].isNull && maintenance["startedBy"].isNull)
 		assertTrue(maintenance["updatedAt"].asString().matches(Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z""")))
 		for (platform in listOf("ios", "android")) {
 			val config = json[platform]
@@ -274,7 +276,7 @@ class AdminAppConfigApiIntegrationTest {
 		val on = putMaintenance(mapOf("active" to true, "message" to "  $MESSAGE \n"))
 		assertEquals(200, on.statusCode(), on.body())
 		val json = on.json()
-		assertEquals(setOf("active", "message", "updatedAt", "updatedBy"), json.propertyNames().toSet())
+		assertEquals(MAINTENANCE_KEYS, json.propertyNames().toSet())
 		assertEquals(true, json["active"].asBoolean())
 		assertEquals(MESSAGE, json["message"].asString(), "앞뒤 공백을 뗀다")
 		assertEquals(listOf(rootId, ROOT_ID), listOf(json["updatedBy"]["id"].asString(), json["updatedBy"]["name"].asString()))
@@ -294,6 +296,45 @@ class AdminAppConfigApiIntegrationTest {
 
 		for (blank in listOf("", "   ")) assertTrue(putMaintenance(mapOf("active" to false, "message" to blank)).json()["message"].isNull)
 		assertEquals(200, putMaintenance(mapOf("active" to false, "message" to "😀".repeat(200))).statusCode())
+	}
+
+	@Test
+	fun `점검을 꺼진 상태에서 켤 때만 시작한 때와 관리자가 적히고 끄면 지워진다`() {
+		val rootId = jdbc.queryForObject("select id::text from admin_accounts where login_id = ?", String::class.java, ROOT_ID)
+		val secondId = createAdmin(port, token, "second-admin", "second-admin-password", jdbc).toString()
+		val secondToken = adminToken(port, "second-admin", "second-admin-password")
+		val before = Instant.now().minusSeconds(2)
+
+		val on = putMaintenance(mapOf("active" to true, "message" to MESSAGE)).json()
+		val startedAt = Instant.parse(on["startedAt"].asString())
+		assertTrue(startedAt.isAfter(before) && startedAt.isBefore(Instant.now().plusSeconds(2)), "켠 때")
+		assertTrue(on["startedAt"].asString().matches(Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z""")), "UTC 초까지")
+		assertEquals(listOf(rootId, ROOT_ID), listOf(on["startedBy"]["id"].asString(), on["startedBy"]["name"].asString()))
+		assertEquals(setOf("id", "name"), on["startedBy"].propertyNames().toSet())
+
+		// 켜진 채로 글만 바꾸면(다른 관리자가 해도) 시작은 그대로이고 고친 사람만 바뀐다.
+		jdbc.update("update app_maintenance set started_at = '2026-11-01T00:00:00Z'")
+		val edited = putMaintenance(mapOf("active" to true, "message" to "글만 바꿔요"), secondToken).json()
+		assertEquals("2026-11-01T00:00:00Z", edited["startedAt"].asString())
+		assertEquals(rootId, edited["startedBy"]["id"].asString())
+		assertEquals(secondId, edited["updatedBy"]["id"].asString())
+		assertEquals(edited, get().json()["maintenance"])
+
+		// 끄면 둘 다 지워지고, 꺼진 채로 다시 꺼도 그대로 null 이다.
+		for (round in 1..2) {
+			val off = putMaintenance(mapOf("active" to false, "message" to null)).json()
+			assertTrue(off["startedAt"].isNull && off["startedBy"].isNull, "끈 뒤 $round")
+		}
+
+		// 다시 켜면 그때 켠 관리자다.
+		val again = putMaintenance(mapOf("active" to true, "message" to null), secondToken).json()
+		assertEquals(secondId, again["startedBy"]["id"].asString())
+		assertEquals("second-admin", again["startedBy"]["name"].asString())
+		assertTrue(Instant.parse(again["startedAt"].asString()).isAfter(before))
+
+		// 앱이 읽는 공개 설정의 점검 모양은 그대로다(시작한 때 · 관리자는 관리자 쪽에만).
+		assertTrue(""""maintenance":{"active":true,"message":null}""" in public(), public())
+		assertFalse("startedAt" in public() || "second-admin" in public())
 	}
 
 	@Test

@@ -127,6 +127,10 @@ class ReadingApiIntegrationTest {
 		assertEquals(first.body(), second.body())
 		assertEquals(1, generator.prompts.size, "두 번째는 저장본이다")
 		assertEquals(1, rows())
+		assertEquals(
+			listOf("READING_DONE"), jdbc.queryForList("select kind from notifications", String::class.java),
+			"처음 저장할 때만 별명을 지었다는 알림이 한 줄 생긴다(결정 035 — ReadingCreated)",
+		)
 
 		val json = mapper.readTree(first.body())
 		assertEquals(listOf("headline", "sections", "strengths", "cautions", "createdAt", "shareId"), json.propertyNames().toList())
@@ -255,21 +259,23 @@ class ReadingApiIntegrationTest {
 	}
 
 	@Test
-	fun `출생 정보를 바꾸면 새 차트의 글을 만들고 되돌리면 예전 글이 나온다`() {
+	fun `출생 정보를 바꾸면 옛 글을 지우고 새 차트의 글을 만들며 되돌려도 다시 만든다`() {
 		val token = tokenWithProfile(KNOWN)
 		val original = read(token).body()
 
 		http(port, "PUT", "/profile", UNKNOWN, token)
+		assertEquals(0, rows(), "바꾸면 옛 차트의 글을 지운다(결정 041)")
 		val changed = read(token)
 		assertEquals(200, changed.statusCode())
 		assertNotEquals(original, changed.body())
 		assertEquals(4, mapper.readTree(changed.body())["sections"].size(), "시각을 모르면 4문단")
 		assertEquals(2, generator.prompts.size)
-		assertEquals(2, rows())
+		assertEquals(1, rows())
 
 		http(port, "PUT", "/profile", KNOWN, token)
-		assertEquals(original, read(token).body())
-		assertEquals(2, generator.prompts.size, "다시 생성하지 않는다")
+		assertEquals(200, read(token).statusCode())
+		assertEquals(3, generator.prompts.size, "옛 글은 지워졌으니 다시 만든다")
+		assertEquals(1, rows())
 	}
 
 	@Test

@@ -80,7 +80,7 @@ fun createAdmin(port: Int, token: String, loginId: String, password: String, jdb
 fun resetAdminData(jdbc: JdbcTemplate) {
 	jdbc.update("delete from faqs")
 	jdbc.update("update app_configs set min_version = null, latest_version = null, store_url = null, message = null, block_now = false, updated_by = null")
-	jdbc.update("update app_maintenance set active = false, message = null, updated_by = null")
+	jdbc.update("update app_maintenance set active = false, message = null, updated_by = null, started_at = null, started_by = null")
 	jdbc.update("delete from accounts")
 	jdbc.update("delete from admin_sessions")
 	jdbc.update("delete from admin_accounts where login_id <> ?", ROOT_ID)
