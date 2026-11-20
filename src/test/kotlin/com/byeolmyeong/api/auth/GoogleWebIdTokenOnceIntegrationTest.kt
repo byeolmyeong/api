@@ -29,6 +29,7 @@ import java.util.Date
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 private const val WEB = "test-google-web-client"
 private const val IOS = "test-google-ios-client"
@@ -96,11 +97,25 @@ class GoogleWebIdTokenOnceIntegrationTest {
 	}
 
 	@Test
-	fun `azp 가 없으면 대상(aud)으로 웹인지 가린다`() {
+	fun `azp 가 없으면 걸지 않는다 — 앱 토큰도 대상이 웹이라 가릴 수 없다`() {
 		val token = googleToken(WEB, azp = null)
 
 		assertEquals(200, login(token))
-		assertEquals(401, login(token))
+		assertEquals(200, login(token))
+		assertEquals(0, jdbc.queryForObject("select count(*) from used_id_tokens", Int::class.java))
+	}
+
+	@Test
+	fun `구글 로그인마다 받은 클라이언트(azp · aud)와 한 번만 대상인지를 남긴다 — 실기기 토큰의 azp 를 로그로 확인한다`(output: CapturedOutput) {
+		login(googleToken(WEB, azp = IOS))
+		login(googleToken(WEB))
+		login(googleToken(WEB, azp = null))
+		login(googleToken(WEB, azp = "someone-else"))
+
+		assertTrue("event=google_token_client azp=$IOS aud=$WEB once=false" in output.all)
+		assertTrue("event=google_token_client azp=$WEB aud=$WEB once=true" in output.all)
+		assertTrue("event=google_token_client azp=NONE aud=$WEB once=false" in output.all)
+		assertTrue("event=google_token_client azp=OTHER aud=$WEB once=false" in output.all, "목록에 없는 값은 그대로 남기지 않는다")
 	}
 
 	@Test

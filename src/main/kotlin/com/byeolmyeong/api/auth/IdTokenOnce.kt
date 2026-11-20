@@ -9,11 +9,12 @@ import org.springframework.stereotype.Service
 import java.sql.Timestamp
 
 /**
- * 한 번만 받기 대상인가(결정 047): 구글 토큰 가운데 웹 클라이언트([webClientId])가 받은 것 — 발급받은 쪽(`azp`), 없으면 대상(`aud`)으로 가린다.
+ * 한 번만 받기 대상인가(결정 047): 구글 토큰 가운데 발급받은 쪽(`azp`)이 웹 클라이언트([webClientId])인 것만.
+ * 앱(iOS · 안드로이드)도 웹 클라이언트를 대상(`aud`)으로 받으므로 `aud` 로는 가리지 않고, `azp` 가 없으면 걸지 않는다 — 앱 로그인이 깨지지 않게.
  * [webClientId] 가 비면 아무것도 대상이 아니다(검사 꺼짐).
  */
 internal fun needsOnce(identity: ProviderIdentity, webClientId: String): Boolean =
-	webClientId.isNotBlank() && identity.provider == Provider.GOOGLE && (identity.authorizedParty ?: identity.audience) == webClientId
+	webClientId.isNotBlank() && identity.provider == Provider.GOOGLE && identity.authorizedParty == webClientId
 
 /**
  * 웹 클라이언트가 받은 구글 ID 토큰은 만료까지 한 번만 받는다(결정 047). 웹 리디렉트의 ID 토큰은 방문 기록에 남아 다시 쓸 수 있어서다.
@@ -41,7 +42,17 @@ class IdTokenOnceService(
 
 	/** 서명 · 대상 · 만료를 확인한 [identity] 를 받는다. 대상이면 `jti` 를 선점하고, 없거나 이미 쓴 것이면 401 `INVALID_ID_TOKEN`. */
 	fun claim(identity: ProviderIdentity) {
-		if (!needsOnce(identity, webClientId)) return
+		val once = needsOnce(identity, webClientId)
+		if (identity.provider == Provider.GOOGLE) {
+			// 어느 클라이언트가 받은 토큰인지(클라이언트 ID 는 비밀 아님). 목록에 없는 azp 는 그대로 남기지 않는다. aud 는 확인을 지난 우리 값이다.
+			val azp = when (val value = identity.authorizedParty) {
+				null -> "NONE"
+				in clientIds -> value
+				else -> "OTHER"
+			}
+			log.info("event=google_token_client azp={} aud={} once={}", azp, identity.audience, once)
+		}
+		if (!once) return
 		val jti = identity.tokenId ?: throw InvalidIdTokenException()
 		val expiresAt = identity.expiresAt ?: throw InvalidIdTokenException()
 		val claimed = jdbc.update(
