@@ -310,6 +310,7 @@ class TimingReportApiIntegrationTest {
 		assertEquals(0, rows(), "바꾸면 옛 차트의 풀이를 지운다(결정 041)")
 		assertEquals(WRITING, post(token).body())
 		await(token, "DONE")
+		settle() // DONE 을 커밋한 뒤 일꾼이 완성 이벤트를 낸다 — 세기 전에 끝나길 기다린다
 		assertEquals(1, rows())
 		assertEquals(2, events.owners.size)
 	}
@@ -364,6 +365,7 @@ class TimingReportApiIntegrationTest {
 		generator.reset()
 		assertEquals(WRITING, post(token).body())
 		await(token, "DONE")
+		settle() // DONE 을 커밋한 뒤 일꾼이 완성 이벤트를 낸다 — 세기 전에 끝나길 기다린다
 		assertEquals(1, events.owners.size)
 	}
 
