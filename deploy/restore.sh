@@ -6,7 +6,7 @@
 #                                    한 트랜잭션 안에서 public 스키마를 비우고 덤프를 넣는다. 덤프 뒤에 생긴 표도 남지 않는다.
 #                                    중간에 실패하면 DB 는 원래대로 남고 서버는 다시 뜬다.
 #                                    성공하면 서버는 멈춘 채로 둔다. 지금 jar 로 띄우면 그 jar 의 마이그레이션이 다시 적용될 수 있어서다.
-#                                    같은 jar 로 띄우려면 `docker compose start api`, 이전 버전이면 그 커밋을 배포 수동 실행으로 올린다.
+#                                    같은 jar 로 띄우려면 `docker compose start api-<active_color 의 색>`, 이전 버전이면 그 커밋을 배포 수동 실행으로 올린다.
 # 운영 덤프는 운영 VM 밖(스테이징·개인 컴퓨터)으로 옮기지 않는다. 출생 정보가 들어 있다.
 # 복원 직전에 남긴 backups/before-restore-*.dump 는 자동으로 지워지지 않는다. 필요 없어지면 지운다.
 set -euo pipefail
@@ -48,6 +48,9 @@ fi
 
 DB_USER="$(grep -E '^DATABASE_USERNAME=' .env | tail -n 1 | cut -d= -f2- || true)"
 [ -n "$DB_USER" ] || fail read_env
+# 지금 받는 서버 색(블루 · 그린, 결정 046). 실패하면 이 색을 다시 띄운다.
+ACTIVE="$(cat active_color 2> /dev/null || true)"
+case "$ACTIVE" in blue | green) ;; *) fail read_active_color ;; esac
 echo "실제 DB(byeolmyeong)를 $(basename "$DUMP") 의 내용으로 바꿉니다. 지금 DB 는 먼저 backups/ 에 덤프해 둡니다."
 read -r -p "계속하려면 'restore byeolmyeong' 을 입력하세요: " answer
 [ "$answer" = "restore byeolmyeong" ] || { echo "취소했습니다."; exit 1; }
@@ -67,12 +70,12 @@ cleanup_tmp() { docker compose exec -T postgres rm -f /tmp/restore.dump /tmp/res
 trap cleanup_tmp EXIT
 docker compose exec -T postgres sh -c 'umask 077 && cat > /tmp/restore.dump && pg_restore --no-owner --no-privileges -f /tmp/restore.sql /tmp/restore.dump' < "$DUMP" || fail convert "db=unchanged"
 
-docker compose stop api
+docker compose stop api-blue api-green
 RESTORED=0
-# 실패하면 한 트랜잭션이 통째로 취소돼 DB 는 원래대로이므로 서버를 다시 띄운다. 성공하면 멈춘 채로 둔다(맨 위 설명).
-trap 'cleanup_tmp; [ "$RESTORED" = 1 ] || docker compose start api > /dev/null' EXIT
+# 실패하면 한 트랜잭션이 통째로 취소돼 DB 는 원래대로이므로 받던 색을 다시 띄운다. 성공하면 멈춘 채로 둔다(맨 위 설명).
+trap 'cleanup_tmp; [ "$RESTORED" = 1 ] || docker compose start "api-$ACTIVE" > /dev/null' EXIT
 # public 스키마를 지우고 처음 상태(소유자 pg_database_owner)로 다시 만든 뒤 덤프를 넣는다. 모두 한 트랜잭션이다.
 docker compose exec -T postgres sh -c '{ echo "drop schema public cascade;"; echo "create schema public authorization pg_database_owner;"; cat /tmp/restore.sql; } | psql -q -v ON_ERROR_STOP=1 --single-transaction -U "$APP_DB_USER" -d byeolmyeong > /dev/null' || fail apply "db=unchanged"
 RESTORED=1
 log "restore_live_done file=$(basename "$DUMP") api=stopped"
-echo "복원했습니다. 서버는 멈춰 있습니다. 같은 jar 로 띄우려면 docker compose start api, 이전 버전이면 그 커밋을 배포 수동 실행으로 올리세요."
+echo "복원했습니다. 서버는 멈춰 있습니다. 같은 jar 로 띄우려면 docker compose start api-$ACTIVE, 이전 버전이면 그 커밋을 배포 수동 실행으로 올리세요."
