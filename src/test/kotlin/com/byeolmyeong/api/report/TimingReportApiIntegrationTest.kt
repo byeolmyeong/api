@@ -307,9 +307,10 @@ class TimingReportApiIntegrationTest {
 
 		http(port, "PUT", "/profile", UNKNOWN, token)
 		assertEquals(NONE, get(token).body())
+		assertEquals(0, rows(), "바꾸면 옛 차트의 풀이를 지운다(결정 041)")
 		assertEquals(WRITING, post(token).body())
 		await(token, "DONE")
-		assertEquals(2, rows())
+		assertEquals(1, rows())
 		assertEquals(2, events.owners.size)
 	}
 
