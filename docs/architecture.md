@@ -35,6 +35,7 @@ last_reviewed: 2026-11-12
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
 - `share` — 공유 카드 4종(요약 해석·궁합 점수·랭킹·다음 변곡점): 만들기·공개 조회·지우기. 공유하는 순간의 공개 글만 `shares` 에 따로 저장하고(스냅샷) 공개 조회는 그 표만 읽는다. 카드의 글은 그 글을 가진 기능에게 이벤트(`ReadingCardRequested` 등)로 묻는다. 이름을 이니셜로, 날짜를 해 + 계절로 줄이는 것도 여기서 한다. 결정: docs/decisions/012-share-cards-snapshot.md
 - `push` — 기기 토큰과 알림 발송.
+- `sky` — 시기 탭의 이번 달(`GET /timing/month`, 결정 032). 요청 때마다 `chart` 로 계산하고(그달의 지나가는 별 · 평생 시기 구간) `generation` 의 문구표 · 시기 표에서 글을 골라 준다. 저장하지 않고 모델을 부르지 않으며 생성 한도에 세지 않는다 — 계정별 분당 요청 수만 센다. 그날의 하늘(계획 S④)도 여기에 둔다.
 
 ## 디렉터리 구조
 ```
@@ -56,6 +57,7 @@ src/main/kotlin/com/byeolmyeong/api/
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
   share/       ShareController · ShareService · ShareRepository · ShareCard(카드의 모양·이니셜·계절) · ShareCardRequested(이벤트 넷)
   push/        PushTokenController · PushSender(인터페이스) · 이벤트 리스너
+  sky/         MonthSkyController · MonthSkyService(계정별 분당 한도) · MonthSky(모양 · 고를 달 · 이번 달 내내 고르기)
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
 src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 ```
@@ -67,7 +69,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
-| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 나 탭 풀이가 완성됐다는 `report.MeReportDone`(알림함이 듣는다 — 결정 029 · 035), 궁합이 지워졌다는 `synastry.SynastryDeleted`(`direction` 이 그 궁합의 글을 지운다 — 결정 019), 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`·`sky`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 나 탭 풀이가 완성됐다는 `report.MeReportDone`(알림함이 듣는다 — 결정 029 · 035), 궁합이 지워졌다는 `synastry.SynastryDeleted`(`direction` 이 그 궁합의 글을 지운다 — 결정 019), 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
 | 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
 | `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
 | `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
@@ -89,6 +91,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | 방향성 제시 | `Direction` | 해 볼 만한 것 3개 |
 | 이렇게 풀이한 이유 | `Reason { when, items: BasisItem[] }` | 문단 하나의 근거 구조. 서버가 만든 근거 후보 id 에서 모델이 고르고 서버가 구조로 바꾼다. 문장은 앱이 만든다(결정 031) |
 | 공유 카드 | `ShareCard(kind = READING \| SCORE \| RANKING \| NEXT_TURN)` | 스토리용 카드 |
+| 이번 달 | `MonthSky { themes, days }` | 시기 탭의 이번 달 — "이번 달 내내" 줄(`themes`)과 눈여겨볼 날(`days`, 달력의 점). 서버가 요청 때 계산(결정 032) |
 
 ## API 계약 (앱 저장소와 맞춘다. 바꾸면 이 표를 같은 커밋에서 고친다)
 | 메서드·경로 | 인증 | 요청 | 응답 |
@@ -110,6 +113,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /readings` | 세션 | 없음(프로필의 출생 정보를 쓴다) | `Reading`(요약 해석 v2 — 결정 030 · 031) · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트는 저장된 글을 바로 준다 · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `POST /reports` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "리포트 상태" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `GET /reports/me` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report? }` · 지금 프로필의 차트 기준 · `report` 는 `DONE` 일 때만(`sections` 와 `timing` 이 언제나 함께 온다) · 저장한 출생 정보가 없으면 `NONE` |
+| `GET /timing/month?month=YYYY-MM` | 세션 | `month` 선택 — 없거나 빈 값이면 한국 날짜의 이번 달 | 200 `MonthSky` · 형식이 틀리면 400 `INVALID_MONTH` · 지난달 · 이번 달 · 다음 달(한국 날짜) 밖이면 400 `MONTH_OUT_OF_RANGE` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 계정별 분당 `month-per-minute`(60)을 넘으면 429 `RATE_LIMITED` · 저장하지 않고 모델 · 생성 한도를 쓰지 않는다 · 시기 풀이 없이 열린다 · 아래 "이번 달" |
 | `POST /me-report` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "나 탭 풀이" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) · 402 `PURCHASE_REQUIRED` 는 예약(1.0.0 에는 나오지 않는다) |
 | `GET /me-report` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report?: MeReport }` · 지금 프로필의 차트 기준(출생 정보를 고치면 `NONE`) · `report` 는 `DONE` 일 때만 · 저장한 출생 정보가 없으면 `NONE` · `POST` 가 429 `RATE_LIMITED` 였으면 행이 `FAILED` 로 남아 `FAILED`(다시 `POST` 하면 새로 시작) · 아래 "나 탭 풀이" |
 | `POST /synastry/direct` | 세션 | `{ name, relation: LOVE \| FRIEND \| WORK \| FAMILY, date, time \| null, placeId? }` (상대의 출생 정보) | 200 `Synastry` + `overlay` · 아래 "궁합(직접 입력)" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
@@ -185,6 +189,15 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `POST`: 없거나 `FAILED` 면 생성을 시작하고 `WRITING`. 이미 `DONE` 이면 다시 만들지 않고 `DONE`. 쓰는 중이면 두 번째 생성을 시작하지 않고 `WRITING`. 뒤에서 일할 자리가 꽉 차 시작하지 못하면 `FAILED`(잠시 뒤 다시 `POST`).
   - 멈춘 생성(쓰는 도중 서버가 꺼진 경우): 생성을 맡은 서버는 살아 있는 동안 그 행에 살아 있다는 표시(`active_at`)를 15초마다 다시 적는다(줄에서 기다리는 것도). `WRITING` 인데 이 표시가 2분 넘게 끊겼으면 멈춘 것으로 본다: `GET` 은 `FAILED` 로 답하고, `POST` 는 다시 시작한다. 자리를 잡은 뒤 흐른 시간으로는 가리지 않는다 — 요청이 몰려 줄에서 오래 기다리는 리포트는 `WRITING` 그대로다.
   - 앱은 `POST` 뒤 `GET /reports/me` 를 몇 초 간격으로 다시 부른다. 실제 생성은 1분 안팎이다. 출생 정보를 고쳐 차트가 달라지면 `GET` 은 `NONE` 이 되고(예전 리포트는 남아 있어 되돌리면 다시 보인다) `POST` 로 새로 만든다.
+- 이번 달 `GET /timing/month` (2026-11-20 구현, 결정 032 · 규칙 · 문구의 원본 docs/drafts/2026-11-20-month-phrases.md — 소유자 "초안 그대로 써"). 시기 탭의 "이번 달". 요청 때마다 계산하고 저장하지 않는다 — 같은 차트 · 같은 달은 언제나 같은 본문이다.
+  - `MonthSky` = `{ month: "YYYY-MM", timeKnown, themes[0~2], days[0~3] }`. `month` 는 계산한 달(앱은 처음 받은 달로 앞뒤 한 달을 정한다).
+  - `themes`("이번 달 내내") = `[{ area: PEOPLE | WORK | MONEY | SELF, title, from, to }]` — 그 사람의 시기 구간(변화 · 기회 · 운명적 만남) 가운데 그달의 날과 10일 이상 겹치는 것을 우선순위(변화 큰 > 변화 작은 > 운명적 만남 > 기회, 같으면 그달과 더 많이 겹치는 것, 그다음 늦게 시작한 것)로 제목이 겹치지 않게 둘까지. `title` 은 시기의 표 제목(`generation.TimingThemes` — 시기 풀이의 구간 이름과 같은 말, 결정 033). `from` · `to` 는 그 구간의 한국 날짜(그달 밖으로 이어질 수 있다).
+  - `days`(눈여겨볼 날 = 달력의 점) = `[{ date, category: PEOPLE | WORK | MIND, text, reason }]`, 날짜 순. `text` 는 "~날" 로 끝나는 한 줄, `reason` = `{ when: "DAY", items: [{ kind: "TRANSIT", mover, target, type }] }`(1개).
+    - 지나가는 별(`mover`)은 해 · 수성 · 금성 · 화성 · 목성, 내 점(`target`)은 행성 10 + 시각을 알면 `ASC` · `MC`, 각도는 다섯. 그날 한국 정오의 위치로 잰다.
+    - 조합마다 그달에서 가장 정확한 날(오차 1° 안)이 후보이고, 세기(각도 × 지나가는 별 × 내 점의 무게 × (1 − 오차 ÷ 2)) 8 이상을 세기 순으로 두 번 훑는다: 사흘 이상 떨어지고 칩(`category`)이 아직 없는 것 → 사흘 간격만 지켜 채운다. 셋까지. 지나가는 해 × 내 해의 합(생일)은 뺀다. 셋이 안 되는 달은 있는 만큼(0개도 오류가 아니다).
+    - 칩 · 문구는 문구표(`generation.MonthPhrases`): 칸 = 지나가는 별 × 내 점 × 결(합 · 어울림 · 부딪힘), 칸마다 3~5줄, 번호 = CRC32("날짜|칸") mod 줄 수 — 같은 날 · 같은 조합은 늘 같은 문구, 한 달 안에 같은 글자면 뒤의 것을 다음 번호로.
+  - 시각을 모르면 `timeKnown: false` 이고 `ASC` · `MC` 가 대상인 날과 상승점 · 중천 · 하우스 · 버텍스 구간이 없다.
+  - 모델을 부르지 않고 생성 한도(결정 022 · 023)에 세지 않는다. 남용은 계정별 분당 `byeolmyeong.rate-limit.month-per-minute`(60)로 막는다(출생 정보가 없어 404 인 요청도 센다).
 - 나 탭 풀이 (2026-11-20 구현, 결정 029 · 030 · 031 · 038). 앱 나 탭의 "자세한 풀이 받기". 옛 심층 리포트(`POST /reports`)와 따로 저장하고 따로 받는다(옛 `reports` 행은 읽지 않는다).
   - `MeReport` = `{ areas: [MeArea × 5] }` — 정확히 이 다섯 영역이 이 순서: `PERSONALITY`(성격) · `LOVE`(연애) · `RELATIONSHIP`(관계) · `WORK`(일) · `EMOTION`(감정).
   - `MeArea` = `{ area, title, keywords[3], stars[Star 1~3], paragraphs[{ title, body, reason: Reason }], glance?, practices?, reason?, closer?, workStyle?, shaken? }`. 키는 이 순서로 오고, 그 영역의 칸이 아니면 키가 없다(null 을 보내지 않는다).
@@ -542,7 +555,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 리포트·궁합·방향성 제시에 기능 횟수 제한은 없다(앱 결정 011). 같은 차트·같은 두 사람의 글은 한 번만 만든다(방향성 제시의 미래 주제는 지금의 시기가 같은 동안 한 번, 궁합 주제는 궁합마다 한 번).
 - 계정·주소(IP)별 분당 요청 수를 제한한다. 한도는 `application.properties` 의 `byeolmyeong.rate-limit.*`(분당, 서버 메모리). 지금 거는 곳: `POST /charts`·`GET /places`·`POST /synastry/direct`(주소별, 요청마다 모델 호출이 나간다)·`GET /faqs`(주소별, `faqs-per-minute` 120)·`GET /app-config`(주소별, `app-config-per-minute` 120)·`GET /shared/{shareId}`(주소별 `shared-per-minute`, 식별자를 마구 넣어 보는 것을 늦춘다)·`POST /auth/login` + `POST /auth/signup` + `POST /auth/nickname-check`(합쳐 주소별 `auth-per-minute` 30 — 카카오 웹 코드는 확인 전에 카카오를 부른다, 결정 021). 주소는 연결의 상대 주소(`remoteAddr`)라 프록시 뒤에서는 전달 헤더 설정이 있어야 주소별이 된다 — 배포 VM 은 Caddy 뒤라 `SERVER_FORWARD_HEADERS_STRATEGY=native` 를 준다(`deploy/compose.yaml`, 결정 020).
 - 관리자 로그인(`POST /admin/auth/login`)은 10분에 주소별 `byeolmyeong.rate-limit.admin-login-per-ip`(20)번·아이디별 `admin-login-per-id`(5)번까지다. `admin.AdminAuthService` 가 같은 `web.RateLimiter` 를 쓴다(결정 014).
-- 계정별 제한은 둘이다. ① `POST /inquiries`: 소유자 id 별로 한 시간에 `byeolmyeong.rate-limit.inquiries-per-hour`(5)건, 같은 `web.RateLimiter`(고정 창, 서버 메모리)를 `inquiry.InquiryService` 가 쓴다(결정 013). ② 생성 기능(결정 022): 모델을 부르는 `POST /readings`·`POST /me-report`·`POST /reports`·`POST /directions`·`POST /synastry/direct`·`POST /synastry/{id}/report` 를 한 계정이 합쳐서 분당 `generation-per-minute`(5)·시간당 `generation-per-hour`(30)번까지, 넘으면 429 `RATE_LIMITED`. 모델을 실제로 부르는 요청만 센다(결정 023): 각 서비스가 저장본이 없음을 확인하고 생성을 시작하기 직전에 `web.GenerationQuota` 로 소유자 id 를 한 번 센다(재시도·여러 영역도 한 번). 저장본을 돌려준 요청·404 는 세지 않는다. 나 탭 풀이·리포트·궁합 리포트는 자리를 잡은 뒤 세고, 넘으면 그 자리를 실패로 돌린다. 기능 횟수 제한이 아니라 남용을 막는 속도 제한이다(결정 003).
+- 계정별 제한은 셋이다. ⓪ `GET /timing/month`: 소유자 id 별로 분당 `byeolmyeong.rate-limit.month-per-minute`(60)번, `sky.MonthSkyService` 가 `web.RateLimiter` 를 쓴다(결정 032 — 모델을 부르지 않아 생성 한도와 따로). ① `POST /inquiries`: 소유자 id 별로 한 시간에 `byeolmyeong.rate-limit.inquiries-per-hour`(5)건, 같은 `web.RateLimiter`(고정 창, 서버 메모리)를 `inquiry.InquiryService` 가 쓴다(결정 013). ② 생성 기능(결정 022): 모델을 부르는 `POST /readings`·`POST /me-report`·`POST /reports`·`POST /directions`·`POST /synastry/direct`·`POST /synastry/{id}/report` 를 한 계정이 합쳐서 분당 `generation-per-minute`(5)·시간당 `generation-per-hour`(30)번까지, 넘으면 429 `RATE_LIMITED`. 모델을 실제로 부르는 요청만 센다(결정 023): 각 서비스가 저장본이 없음을 확인하고 생성을 시작하기 직전에 `web.GenerationQuota` 로 소유자 id 를 한 번 센다(재시도·여러 영역도 한 번). 저장본을 돌려준 요청·404 는 세지 않는다. 나 탭 풀이·리포트·궁합 리포트는 자리를 잡은 뒤 세고, 넘으면 그 자리를 실패로 돌린다. 기능 횟수 제한이 아니라 남용을 막는 속도 제한이다(결정 003).
 - 광고 시청 판정은 1.1.0 에 더한다(앱 결정 015).
 
 ## 외부 시스템
