@@ -221,6 +221,7 @@ last_reviewed: 2026-11-20
 - 읽을 것: 결정 034, `reading/ReadingService.kt`(진행 중 생성 표시 · 기다리기)
 - 할 것: `sky` 에 `POST /day-sky` — 날짜 범위, 눈여겨볼 날이면 그 문구 · 칩 · 근거, 아니면 그날 가장 센 통과(달 포함)로 근거, 모델은 흐름 · 실천(+ 제목), 검증(칸 · "~기" · 숫자 · 금지 표현), 저장 · 같은 사람 같은 날 동시 요청 하나만, 생성 한도(새로 만들 때만). 지시문 `day-sky.md`. 계약 표 · "데이터" · 생성 한도 목록 같은 커밋.
 - 하지 말 것: 아침 일괄 생성 · 알림을 만들지 않는다(범위 밖).
+- 주의(S③ 리뷰): 눈여겨볼 날의 제목 · 칩은 그날 하나로 다시 고르지 말고 그달의 `generation.monthPhrases(chart.notableDays(…))` 값에서 그날 것을 가져온다 — 한 달 안 겹침 피하기 때문에 첫 번호와 다를 수 있다. 근거(눈여겨볼 날이 아니면)는 `chart.daySkyTransit`.
 - 검증: 통합 테스트 — 저장본 재요청은 모델 0회 · 한도 0회, 동시 두 요청 → 모델 1회, 범위 밖 400, 눈여겨볼 날의 제목 = 이번 달 `days[].text`, date 없음 → 한국 오늘
 
 ### S⑤ 알림함 (결정 035)
@@ -299,6 +300,10 @@ last_reviewed: 2026-11-20
 4. 그날의 하늘도 생성 한도(분당 5 · 시간당 30)를 같이 쓴다, 날짜를 빨리 넘기면 429 → 기본값: 그대로(결정 034 · 앱 049).
 - 초안 둘(이번 달 문구표 `docs/drafts/2026-11-20-month-phrases.md`, 일 방식 공식 `docs/drafts/2026-11-20-work-style-formula.md`)은 2026-11-20 소유자 "초안 그대로 써" 로 승인됨(실행 기록).
 - 궁합 탭 · 홈 궁합 칸: 보류(궁합 시안이 나오면 새 결정).
+- (S③ 리뷰에서 넘김) 시각을 모르면 달의 별자리가 하루 안에서 바뀔 수 있다 — 그런 사람에게 내 달이 대상인 눈여겨볼 날을 뺄지 → 기본값: 지금처럼 넣는다(한국 정오의 달).
+- (S③ 리뷰에서 넘김) "이번 달 내내" 의 겹침 10일 · 동점 규칙(초안 5절)이 결정 032 의 2("같으면 늦게 시작한 것")와 다르다 — 새 결정으로 남길지(번호는 047 부터) → 기본값: 승인된 초안을 따르고 실행 기록에만 적었다.
+- (S③ 리뷰에서 넘김) 대표 조합이 아닌 칸은 지나가는 별 × 결의 기본 문구 3줄을 같이 써서 한 달 · 여러 달에 같은 말이 되풀이될 수 있다(초안 소유자가 볼 것 5) · 문구표에 25자를 넘는 줄이 둘(26자) 있다(초안 7절) → 기본값: 초안 그대로.
+- (S③ 리뷰에서 넘김) 시기 풀이의 "운명" 검사로 다시 생성하는 비율과 모델 호출 120초 시간 초과는 스테이징 로그(`event=timing_report_attempt_rejected reason=NOT_ADVICE_FORM` · `reason=` 시간 초과)로 본다.
 - 개인정보 수집 · 이용 동의 글은 앱 온보딩 v2 에서 처리(이 계획 밖).
 
 ## 실행 기록
@@ -320,3 +325,4 @@ last_reviewed: 2026-11-20
 - 11: 이번 달 경로 없음 → 새 기능 패키지 `sky` 의 `GET /timing/month`(없거나 빈 값이면 이번 달 · `INVALID_MONTH` · `MONTH_OUT_OF_RANGE` · `NO_PROFILE` · 계정별 분당 `month-per-minute` 60 → 429). themes 는 초안 5절(10일 이상 겹침 · 우선순위 · 더 많이 겹침 · 그다음 늦게 시작 · 제목 겹침 없이 둘), 우선순위는 `generation.intervalPriority`(시기 풀이 `mainId` 와 같이). `MonthSkyTest` 3 · `MonthSkyApiIntegrationTest` 6(응답 = chart · generation 순수 함수의 계산, 같은 요청 같은 본문, 모델 0 · 한도 0 · 행 0, 로그) · `MonthSkyRateLimitIntegrationTest` 1(빨강: 컴파일 실패 먼저). 계획과 다른 점: themes 의 "같으면" 은 결정 032 의 "늦게 시작한 것" 보다 초안 5절의 "그달과 더 많이 겹치는 것" 을 먼저(소유자가 초안을 승인) · 빈 `month=` 은 없는 것으로 · 출생 정보가 없어 404 인 요청도 한도에 센다. 평생 시기 구간 계산(약 0.3초)이 요청마다 돈다. 커밋 `c9549ce`.
 - 12: 시기 풀이 없음 · 생성 고리가 `MeReportService` 안에만 → 공통 고리 `DetailReportService`(자리 잡기 · 받을 수 있나 · 한도 · 감사 기록 · 조각 · 심장박동 · 그만두기 · 끝내기, `DetailReportKind` 는 `DetailReportRepository.kt` 로)를 ME · TIMING 이 같이 쓰고, `POST` · `GET /timing-report`(9줄 묶음 약 넷 · 구간 이름 고정 · 맡긴 구간에만 summary · body · detail · practices · reason · `current.mainId` 는 읽을 때 · `TimingReportDone`). 지시문 `timing-report.md`. 단위 `TimingReportDraftTest` 6(빨강: 컴파일 실패 먼저), 통합 `TimingReportApiIntegrationTest` 9 · `DetailReportExecutorFullIntegrationTest` 1 · `DetailReportQueueWaitIntegrationTest` 2(공통 고리 — 나 탭이 일꾼을 채우면 시기 풀이가 FAILED, 줄 대기 11분도 WRITING, 두 종류 모두 심장박동), `MeReportApiIntegrationTest` 16 그대로. 대표 구간 · 실천 검사를 일부러 빼면 통합 테스트 3개가 실패하는 것을 봤다. 계획과 다른 점: 공통 고리의 이름은 `DetailReportService`(`*Repository` 는 같은 패키지의 `*Service` 만 부를 수 있다 — `ArchitectureTest`) · 시기 풀이의 모양은 옛 `ReportTiming` 에 칸을 더해 같이 쓴다(옛 리포트에는 그 칸 · `mainId` 키가 나오지 않는다) · 감사 기록 `REPORT_REQUESTED { kind: TIMING }`. 커밋 `1c98257`.
 - S③ 검증: Docker 없이 도는 단위 테스트 37클래스 218 초록(전 33 · 197). Docker 데몬이 응답하지 않아 통합 테스트는 로컬 PG 15(스크래치, Testcontainers 대신 임시 설정 — 커밋하지 않음)에서 전체 665 중 659 통과, 나머지 6(`AppConfigApiIntegrationTest` 3 · `AdminClosedIntegrationTest` 2 · `ChartApiIntegrationTest` 1)은 S② 때와 같은 까닭(모든 문맥이 한 DB 를 나눠 써서 남은 관리자 · 설정 행)이다. 최종 판정은 PR 의 CI(`./gradlew build`).
+- S③ 리뷰(PR #32, 차단 0) 반영: ① 이번 달이 요청마다 평생 시기 구간을 다시 계산(요청당 약 0.26초 CPU, 시기 탭이 석 달을 부르면 약 0.8초) → `sky/IntervalCache`(차트 해시마다 10분 · 최대 500개 · LRU, 서버 메모리). 결정 032 의 4 "요청마다 계산한다(가볍다)" 와 다른 점은 이 하나 — 눈여겨볼 날은 그대로 요청마다 계산하고 응답은 같다. `IntervalCacheTest` 3(같은 차트는 10분 안 다시 계산 안 함 · LRU · 기본 계산 = `computeIntervals`). 커밋 `5db344d`. ② `dayPhrase`(겹침 피하기 전 첫 번호, 주석이 틀리고 운영 코드가 안 씀) 뺌 — 테스트는 한 날만 든 달의 `monthPhrases` 로, S④ 줄에 "그날의 하늘 제목은 그달의 `monthPhrases(notableDays)` 에서". 커밋 `aecc85e`. ③ 공통 고리의 끝내기에서 오류가 나면 그 행을 바로 `FAILED`(빨강: `WRITING` 으로 남는 것 먼저 봄) — 커밋 `47d7ae3`. 시기 풀이 429 뒤 `FAILED` · 옛 `/reports` 의 시기에 `mainId` · 새 칸이 없음 테스트 — 커밋 `3a362e6`. ④ 문구표 초안 머리에 승인 표시. 그대로 두고 열린 항목으로 넘긴 것: 시각 모름의 달 대상 날 · 이번 달 내내 규칙의 새 결정 여부 · 기본 문구 반복 · 26자 두 줄 · "운명" 재시도 비율과 120초 시간 초과(스테이징 로그). Docker 가 다시 돌아 이번 확인은 Testcontainers: `MonthSky*` 10 · `TimingReportApiIntegrationTest` 10 · `GenerationQuotaIntegrationTest` 6 · `ReportApiIntegrationTest` 25 통과.
