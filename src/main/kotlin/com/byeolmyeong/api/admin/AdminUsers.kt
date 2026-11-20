@@ -75,7 +75,7 @@ data class UserActivity(val at: String, val action: String)
 
 data class UserSuspension(val at: String, val by: AdminRef?, val reason: String)
 
-/** 오늘의 하늘 알림(결정 042 의 3): 실제로 켜졌는지(직접 정한 값, 없으면 푸시 수신 동의) · 받는 한국 시각 `HH:mm`. */
+/** 오늘의 하늘 알림(결정 042 의 3 · 4): 실제로 받는지(푸시 수신 동의 + 직접 끄지 않음) · 받는 한국 시각 `HH:mm`. */
 data class UserTodaySky(val on: Boolean, val time: String)
 
 /** 등록 기기(결정 042 의 2). 토큰은 주지 않는다. */
@@ -398,7 +398,7 @@ class AdminUsersRepository(private val jdbc: JdbcTemplate) {
 	).firstOrNull()
 
 	private fun todaySky(id: UUID): UserTodaySky = jdbc.queryForObject(
-		"select coalesce(today_sky_push, push_consented_at is not null) as sky_on, to_char(today_sky_time, 'HH24:MI') as sky_time from accounts where id = ?",
+		"select push_consented_at is not null and coalesce(today_sky_push, true) as sky_on, to_char(today_sky_time, 'HH24:MI') as sky_time from accounts where id = ?",
 		{ rs, _ -> UserTodaySky(rs.getBoolean("sky_on"), rs.getString("sky_time")) },
 		id,
 	)!!

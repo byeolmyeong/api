@@ -78,9 +78,10 @@ class PushEventsIntegrationTest {
 		other = account("다른이", "ExponentPushToken[other-phone]")
 	}
 
+	/** 푸시 수신 동의를 한 계정(동의가 꺼지면 어떤 푸시도 가지 않는다 — 소유자 결정 2026-11-20, 캔버스 v185). */
 	private fun account(nickname: String?, vararg tokens: String): UUID {
 		val id = UUID.randomUUID()
-		jdbc.update("insert into accounts (id, provider, provider_user_id, nickname) values (?, 'TEST', ?, ?)", id, id.toString(), nickname)
+		jdbc.update("insert into accounts (id, provider, provider_user_id, nickname, push_consented_at) values (?, 'TEST', ?, ?, now())", id, id.toString(), nickname)
 		for (token in tokens) jdbc.update("insert into push_devices (expo_token, account_id, platform) values (?, ?, 'IOS')", token, id)
 		return id
 	}
@@ -170,6 +171,20 @@ class PushEventsIntegrationTest {
 			),
 			sent.map { Triple(it.title, it.body, it.data) }.toSet(),
 		)
+	}
+
+	@Test
+	fun `푸시 수신 동의를 끄면 별명 · 풀이 · 문의 답변 푸시를 모두 보내지 않는다`() {
+		jdbc.update("update accounts set push_consented_at = null where id = ?", me)
+		val inquiry = UUID.randomUUID()
+		jdbc.update("insert into inquiries (id, owner_id, category, body, answer_body, answered_at) values (?, ?, 'BUG', '앱이 멈춰요 열 글자 넘게', '답', now())", inquiry, me)
+
+		events.publishEvent(ReadingCreated(me))
+		events.publishEvent(MeReportDone(me))
+		events.publishEvent(TimingReportDone(me))
+		events.publishEvent(InquiryAnswered(me, inquiry))
+
+		assertEquals(0, awaitSent(1).size)
 	}
 
 	@Test

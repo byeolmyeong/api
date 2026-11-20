@@ -150,11 +150,14 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 @Repository
 class PushRepository(private val jdbc: JdbcTemplate) {
 
-	/** 그 계정의 기기 토큰. 오래 등록한 것부터. 정지된 계정이면 비어 있다(결정 044 의 3 — 어떤 푸시도 보내지 않는다). */
+	/**
+	 * 그 계정의 기기 토큰. 오래 등록한 것부터. 푸시 수신 동의를 끈 계정(결정 042 의 4 — 별명 · 풀이 · 문의 답변 · 오늘의 하늘 모두)과
+	 * 정지된 계정(결정 044 의 3)이면 비어 있다 — 어떤 푸시도 보내지 않는다.
+	 */
 	fun tokens(accountId: UUID): List<String> = jdbc.queryForList(
 		"""
 		select d.expo_token from push_devices d join accounts a on a.id = d.account_id
-		where d.account_id = ? and a.suspended_at is null
+		where d.account_id = ? and a.push_consented_at is not null and a.suspended_at is null
 		order by d.created_at, d.expo_token
 		""".trimIndent(),
 		String::class.java, accountId,

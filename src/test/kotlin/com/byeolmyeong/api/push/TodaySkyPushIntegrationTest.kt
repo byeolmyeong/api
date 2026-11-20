@@ -79,7 +79,7 @@ class TodaySkyPushIntegrationTest {
 	}
 
 	/** 오늘의 하늘 알림을 켠(또는 [on] 대로) 계정 하나 — 출생 정보 · 기기 하나. */
-	private fun person(name: String, time: String = "08:00", on: Boolean? = true, device: Boolean = true, consent: Boolean = false): UUID {
+	private fun person(name: String, time: String = "08:00", on: Boolean? = true, device: Boolean = true, consent: Boolean = true): UUID {
 		val id = UUID.randomUUID()
 		jdbc.update(
 			"insert into accounts (id, provider, provider_user_id, nickname, today_sky_push, today_sky_time, push_consented_at) values (?, 'TEST', ?, ?, ?, ?::time, ?)",
@@ -138,6 +138,20 @@ class TodaySkyPushIntegrationTest {
 
 		at("07:30")
 		job.run()
+		at("08:00")
+		job.run()
+
+		assertEquals(0, generator.prompts.size)
+		assertEquals(0, expo.sent.size)
+	}
+
+	@Test
+	fun `푸시 수신 동의를 끄면 오늘의 하늘을 켜 두어도 만들지도 보내지도 않는다`() {
+		val off = person("동의끔", on = true, consent = false)
+
+		at("07:30")
+		job.run()
+		awaitSky(off) // 만들어졌다면 생길 때까지 기다린다(만들지 않아야 하므로 5초를 다 기다린다)
 		at("08:00")
 		job.run()
 

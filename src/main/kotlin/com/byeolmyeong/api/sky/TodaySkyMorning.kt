@@ -61,7 +61,7 @@ private fun slots(from: LocalDateTime, to: LocalDateTime): List<Slot> {
  * ② 받는 시간이 앞으로 30분 안이고 그날 아직 맡지 않은 사람의 그날 것을 생성 일꾼(`reportExecutor` — 닫을 때 끝까지 기다린다)에 맡겨 미리 만든다.
  * 칸을 놓쳐도(늦게 돈 · 재시작) 다음 번이 따라잡는다. 같은 날 한 번: (계정, 한국 날짜) 줄을 먼저 넣은 서버만 맡고, 보낸 때를 먼저 적은 서버만 보낸다 —
  * 서버 둘이 함께 떠도(결정 046) 두 번 가지 않는다(일정 잠금 대신 줄 단위 선점). 한 사람의 오류는 그 사람만 건너뛴다.
- * 켬은 직접 정한 값, 없으면 푸시 수신 동의. 정지 · 기기 없음 · 출생 정보 없음은 대상이 아니다. 스위치 `byeolmyeong.push.today-sky-enabled`.
+ * 대상은 푸시 수신 동의 + 오늘의 하늘 알림 켬(직접 정한 값, 없으면 켬). 정지 · 기기 없음 · 출생 정보 없음은 대상이 아니다. 스위치 `byeolmyeong.push.today-sky-enabled`.
  */
 @Service
 class TodaySkyMorningService(
@@ -150,14 +150,16 @@ class TodaySkyMorningService(
 
 /**
  * 아침 알림이 읽는 것. 계정 · 기기 · 출생 정보 표는 대상을 고를 만큼만 읽는다(관리자 현황과 같은 방식 — 결정 014).
- * "켜졌는가" 는 `coalesce(today_sky_push, push_consented_at is not null)` — `auth` 의 계정 응답 · 관리자 사용자 상세와 같은 식이다.
+ * 보내는 대상은 푸시 수신 동의를 했고(끄면 어떤 푸시도 가지 않는다 — 결정 042 의 4) 오늘의 하늘 알림을 끄지 않은 사람이다
+ * (`today_sky_push` 가 null 이면 켬 — 동의의 기본을 따른다). 관리자 사용자 상세의 `todaySky.on` 과 같은 식이다.
  */
 @Repository
 class TodaySkyMorningRepository(private val jdbc: JdbcTemplate) {
 
 	private val target = """
 		select a.id from accounts a
-		where coalesce(a.today_sky_push, a.push_consented_at is not null)
+		where a.push_consented_at is not null
+		  and coalesce(a.today_sky_push, true)
 		  and a.suspended_at is null
 		  and a.today_sky_time between ? and ?
 		  and exists (select 1 from push_devices d where d.account_id = a.id)
