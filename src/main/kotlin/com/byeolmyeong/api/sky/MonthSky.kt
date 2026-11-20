@@ -68,6 +68,8 @@ fun monthThemes(intervals: List<Interval>, month: YearMonth): List<MonthTheme> {
 		.take(MAX_THEMES)
 }
 
-/** 눈여겨볼 날과 그 문구를 응답의 한 줄로. 근거는 그날 지나가는 별 · 내 점 · 각도다(결정 031). */
-fun monthDay(day: SkyTransit, phrase: DayPhrase): MonthDay =
-	MonthDay(day.date, phrase.category, phrase.text, Reason(ReasonWhen.DAY, listOf(TransitBasis(day.mover, day.target, day.type))))
+/** 그날의 근거: 지나가는 별 · 내 점 · 각도(결정 031). 이번 달의 눈여겨볼 날과 그날의 하늘이 같이 쓴다. */
+fun dayReason(transit: SkyTransit): Reason = Reason(ReasonWhen.DAY, listOf(TransitBasis(transit.mover, transit.target, transit.type)))
+
+/** 눈여겨볼 날과 그 문구를 응답의 한 줄로. */
+fun monthDay(day: SkyTransit, phrase: DayPhrase): MonthDay = MonthDay(day.date, phrase.category, phrase.text, dayReason(day))
