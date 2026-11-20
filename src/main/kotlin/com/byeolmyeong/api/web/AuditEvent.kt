@@ -11,6 +11,8 @@ enum class AuditAction {
 	ADMIN_LOGIN, ADMIN_LOGOUT, ADMIN_PASSWORD_CHANGED, ADMIN_PASSWORD_RESET, ADMIN_CREATED, ADMIN_DEACTIVATED, ADMIN_REACTIVATED, ADMIN_BOOTSTRAPPED,
 	// 다른 관리자에게 임시 비밀번호를 다시 만들어 줌(결정 043 의 5). 비밀번호는 없다
 	ADMIN_PASSWORD_REISSUED,
+	// 광고 푸시를 보냄(결정 043 의 6). 대상 PUSH_EVENT id, detail 은 target · recipients 만(제목 · 본문은 발송 내역에)
+	PUSH_EVENT_SENT,
 	INQUIRY_VIEWED, INQUIRY_UPDATED,
 	// 문의에 답을 저장함(결정 039). detail 은 first=true|false 만
 	INQUIRY_ANSWERED,
