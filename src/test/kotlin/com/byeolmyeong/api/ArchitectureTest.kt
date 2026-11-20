@@ -27,7 +27,7 @@ class ArchitectureTest {
     companion object {
         const val ROOT = "com.byeolmyeong.api"
 
-        private val FEATURES = listOf("profile", "reading", "report", "synastry", "direction", "inquiry", "admin", "faq", "audit", "appconfig", "share", "push", "sky")
+        private val FEATURES = listOf("profile", "reading", "report", "synastry", "direction", "inquiry", "admin", "faq", "audit", "appconfig", "share", "push", "sky", "notification")
         private val SHARED = listOf("chart", "birth", "auth", "web", "generation")
 
         /** 기능 사이에 허용되는 유일한 연결: Spring 이벤트 클래스. 이벤트를 늘리면 docs/architecture.md 와 여기를 같이 고친다. */

@@ -141,6 +141,11 @@ class SynastryReportApiIntegrationTest {
 		}
 		assertEquals(REPORT_AREAS.sorted(), generator.areas.map(::areaOf).sorted())
 		assertEquals("DONE", reportStatusOf(token, id))
+		// 완성되면 알림함에 궁합 리포트 줄이 그 궁합 id 로 하나 생긴다(결정 035 — SynastryReportDone)
+		val until = System.currentTimeMillis() + 5_000
+		fun notified() = jdbc.queryForList("select kind || ':' || synastry_id from notifications", String::class.java)
+		while (notified().isEmpty() && System.currentTimeMillis() < until) Thread.sleep(20)
+		assertEquals(listOf("SYNASTRY_REPORT_DONE:$id"), notified())
 		assertEquals(done["report"], mapper.readTree(storedBody()))
 		// 완성된 리포트는 상대의 출생 정보 없이 읽고, 다시 요청해도 새로 쓰지 않는다
 		val again = post(token, id, body = null)

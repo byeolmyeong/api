@@ -14,6 +14,9 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
+import org.springframework.transaction.support.TransactionTemplate
 import org.springframework.transaction.event.TransactionPhase
 import org.springframework.transaction.event.TransactionalEventListener
 import org.springframework.web.bind.annotation.GetMapping
@@ -68,8 +71,13 @@ class NotificationController(private val notifications: NotificationService, pri
  * 이벤트에는 글 · 출생 정보가 없다.
  */
 @Service
-class NotificationService(private val repository: NotificationRepository) {
+class NotificationService(private val repository: NotificationRepository, transactionManager: PlatformTransactionManager) {
 	private val log = LoggerFactory.getLogger(javaClass)
+
+	/** 커밋 뒤에 듣는 넣기는 자기 트랜잭션에서 한다(결정 035 의 4 — 앞 트랜잭션은 이미 끝났다). */
+	private val ownTransaction = TransactionTemplate(transactionManager).apply {
+		propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+	}
 
 	fun list(ownerId: UUID): NotificationList =
 		NotificationList(repository.unread(ownerId, KEEP_DAYS), repository.recent(ownerId, KEEP_DAYS, LIST_MAX))
@@ -105,7 +113,7 @@ class NotificationService(private val repository: NotificationRepository) {
 
 	private fun add(ownerId: UUID, kind: NotificationKind, synastryId: UUID? = null, inquiryId: UUID? = null) {
 		try {
-			repository.insert(ownerId, kind, synastryId, inquiryId)
+			ownTransaction.executeWithoutResult { repository.insert(ownerId, kind, synastryId, inquiryId) }
 		} catch (e: RuntimeException) {
 			// 그 사이 계정 · 궁합 · 문의가 지워졌으면 외래 키에 걸린다. 알림이 없어도 되는 경우다.
 			log.warn("event=notification_insert_failed kind={} reason={}", kind, e.javaClass.simpleName)
