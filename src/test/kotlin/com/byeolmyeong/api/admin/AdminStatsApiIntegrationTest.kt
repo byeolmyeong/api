@@ -56,7 +56,7 @@ class AdminStatsApiIntegrationTest {
 					"synastries": {"total": 0},
 					"synastryReports": {"total": 0, "byStatus": {"DONE": 0, "WRITING": 0, "FAILED": 0}},
 					"directions": {"total": 0, "byTopic": {}},
-					"inquiries": {"total": 0, "byStatus": {"NEW": 0, "IN_PROGRESS": 0, "DONE": 0}}
+					"inquiries": {"total": 0, "byStatus": {"NEW": 0, "IN_PROGRESS": 0, "ANSWERED": 0, "DONE": 0}}
 				}
 				""",
 			),
@@ -102,7 +102,7 @@ class AdminStatsApiIntegrationTest {
 		for ((owner, topic) in listOf(today to "LOVE", threeDays to "LOVE", today to "FUTURE")) {
 			jdbc.update("insert into directions (id, owner_id, topic, target, body) values (?, ?, ?, 'h1', ?::jsonb)", UUID.randomUUID(), owner, topic, text)
 		}
-		for ((index, status) in listOf("NEW", "NEW", "NEW", "IN_PROGRESS", "DONE", "DONE").withIndex()) {
+		for ((index, status) in listOf("NEW", "NEW", "NEW", "IN_PROGRESS", "DONE", "DONE", "ANSWERED").withIndex()) {
 			jdbc.update(
 				"insert into inquiries (id, owner_id, category, body, reply_email, status) values (?, ?, 'BUG', '비밀스러운문의글 입니다 확인', 'hidden@secret-domain.example', ?)",
 				UUID.randomUUID(), if (index % 2 == 0) today else fortyDays, status,
@@ -122,7 +122,7 @@ class AdminStatsApiIntegrationTest {
 					"synastries": {"total": 5},
 					"synastryReports": {"total": 4, "byStatus": {"DONE": 1, "WRITING": 2, "FAILED": 1}},
 					"directions": {"total": 3, "byTopic": {"LOVE": 2, "FUTURE": 1}},
-					"inquiries": {"total": 6, "byStatus": {"NEW": 3, "IN_PROGRESS": 1, "DONE": 2}}
+					"inquiries": {"total": 7, "byStatus": {"NEW": 3, "IN_PROGRESS": 1, "ANSWERED": 1, "DONE": 2}}
 				}
 				""",
 			),
