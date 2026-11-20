@@ -21,6 +21,10 @@ class ShareRepository(private val jdbc: JdbcTemplate) {
 		jdbc.queryForList("select share_id from shares where owner_id = ? and card_hash = ?", String::class.java, ownerId, cardHash).firstOrNull()
 
 	/** 공개 조회: 저장된 카드의 JSON. 소유자를 가리지 않는다(누구나 연다). */
+	/** 카드에 싣는 계정의 닉네임(공유 v2, 결정 036). 옛 계정이면 null. */
+	fun nicknameOf(ownerId: UUID): String? =
+		jdbc.queryForList("select nickname from accounts where id = ?", String::class.java, ownerId).firstOrNull()
+
 	fun findCard(shareId: String): String? =
 		jdbc.queryForList("select card::text from shares where share_id = ?", String::class.java, shareId).firstOrNull()
 

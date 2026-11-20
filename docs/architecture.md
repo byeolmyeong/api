@@ -33,7 +33,7 @@ last_reviewed: 2026-11-12
 - `audit` — 감사 기록(결정 015). 다른 기능과 `auth` 가 낸 `web.AuditEvent` 를 듣고(`AuditRecorder`, 커밋 뒤·자기 트랜잭션·실패는 삼킨다) `audit_logs` 에 넣기만 한다(1년 지난 행은 날마다 한 번 지운다 — 결정 043 의 8). 관리자가 읽는 경로(`GET /admin/audit-logs`)도 여기 있다 — 경로가 `/admin/` 아래라 관리자 세션 검사가 걸리지만 `admin` 의 코드는 쓰지 않는다. 다른 기능은 이 패키지를 모른다.
 - `appconfig` — 앱 설정의 공개 조회(`GET /app-config`)와 점검·강제 업데이트(`AppUpdateInterceptor`: 점검이 켜져 있으면 모든 요청을 503 으로 — 결정 017, 그다음 앱이 보낸 플랫폼·버전 헤더를 보고 낮은 버전을 426 으로 막는다. 세션 검사보다 먼저, `/admin/**`·`/health`·`/app-config` 는 뺀다). `app_configs`·`app_maintenance` 를 읽기만 하고 잠깐 캐시한다. 값을 쓰는 것은 `admin` 이다(결정 016).
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
-- `share` — 공유 카드 4종(요약 해석·궁합 점수·랭킹·다음 변곡점): 만들기·공개 조회·지우기. 공유하는 순간의 공개 글만 `shares` 에 따로 저장하고(스냅샷) 공개 조회는 그 표만 읽는다. 카드의 글은 그 글을 가진 기능에게 이벤트(`ReadingCardRequested` 등)로 묻는다. 이름을 이니셜로, 날짜를 해 + 계절로 줄이는 것도 여기서 한다. 결정: docs/decisions/012-share-cards-snapshot.md
+- `share` — 공유 카드 8종(요약 해석·궁합 점수·랭킹·다음 변곡점, 공유 v2 의 내 별명·나 탭 영역·그날의 하늘·다음 큰 변화 — 결정 036): 만들기·공개 조회·지우기. 공유하는 순간의 공개 글만 `shares` 에 따로 저장하고(스냅샷) 공개 조회는 그 표만 읽는다. 카드의 글은 그 글을 가진 기능에게 이벤트(`ReadingCardRequested` 등)로 묻는다. 이름을 이니셜로, 날짜를 해 + 계절로 줄이는 것도 여기서 한다. 결정: docs/decisions/012-share-cards-snapshot.md
 - `push` — 기기 토큰과 알림 발송.
 - `sky` — 시기 탭의 이번 달(`GET /timing/month`, 결정 032). 요청 때마다 `chart` 로 계산하고(그달의 지나가는 별 · 평생 시기 구간) `generation` 의 문구표 · 시기 표에서 글을 골라 준다. 저장하지 않고 모델을 부르지 않으며 생성 한도에 세지 않는다 — 계정별 분당 요청 수만 센다. 그날의 하늘(계획 S④)도 여기에 둔다.
 
@@ -69,7 +69,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
-| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`·`sky`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 나 탭 풀이 · 시기 풀이가 완성됐다는 `report.MeReportDone` · `report.TimingReportDone`(알림함이 듣는다 — 결정 029 · 035), 궁합이 지워졌다는 `synastry.SynastryDeleted`(`direction` 이 그 궁합의 글을 지운다 — 결정 019), 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)와 관리자가 문의에 처음 답했다는 `admin.InquiryAnswered`(알림함 S⑤ · 푸시 S⑩ 가 듣는다 — 결정 039)와 출생 정보가 바뀌었다는 `profile.BirthProfileChanged`(`reading` · `report` · `sky` 가 옛 차트의 저장분을 지운다 — 결정 041)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015). 관리자의 탈퇴 대행도 공통 패키지의 `web.AccountDeletionRequested` 로 `auth` 에 알린다(공통 `auth` 는 기능의 이벤트 클래스를 알 수 없다 — 결정 043 의 1) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`·`sky`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 나 탭 풀이 · 시기 풀이가 완성됐다는 `report.MeReportDone` · `report.TimingReportDone`(알림함이 듣는다 — 결정 029 · 035), 궁합이 지워졌다는 `synastry.SynastryDeleted`(`direction` 이 그 궁합의 글을 지운다 — 결정 019), 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012, 공유 v2 의 `NicknameCardRequested`(reading)·`MeAreaCardRequested`·`NextBigCardRequested`(report)·`DaySkyCardRequested`(sky) — 결정 036)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)와 관리자가 문의에 처음 답했다는 `admin.InquiryAnswered`(알림함 S⑤ · 푸시 S⑩ 가 듣는다 — 결정 039)와 출생 정보가 바뀌었다는 `profile.BirthProfileChanged`(`reading` · `report` · `sky` 가 옛 차트의 저장분을 지운다 — 결정 041)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015). 관리자의 탈퇴 대행도 공통 패키지의 `web.AccountDeletionRequested` 로 `auth` 에 알린다(공통 `auth` 는 기능의 이벤트 클래스를 알 수 없다 — 결정 043 의 1) | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게 |
 | 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
 | `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
 | `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
@@ -92,7 +92,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | 랭킹 | `Ranking` | 나 기준으로 여러 명과 1:1 궁합을 점수순으로 |
 | 방향성 제시 | `Direction` | 해 볼 만한 것 3개 |
 | 이렇게 풀이한 이유 | `Reason { when, items: BasisItem[] }` | 문단 하나의 근거 구조. 서버가 만든 근거 후보 id 에서 모델이 고르고 서버가 구조로 바꾼다. 문장은 앱이 만든다(결정 031) |
-| 공유 카드 | `ShareCard(kind = READING \| SCORE \| RANKING \| NEXT_TURN)` | 스토리용 카드 |
+| 공유 카드 | `ShareCard(kind = READING \| SCORE \| RANKING \| NEXT_TURN \| NICKNAME \| ME_AREA \| DAY_SKY \| NEXT_BIG)` | 스토리용 카드 |
 | 이번 달 | `MonthSky { themes, days }` | 시기 탭의 이번 달 — "이번 달 내내" 줄(`themes`)과 눈여겨볼 날(`days`, 달력의 점). 서버가 요청 때 계산(결정 032) |
 
 ## API 계약 (앱 저장소와 맞춘다. 바꾸면 이 표를 같은 커밋에서 고친다)
@@ -133,7 +133,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /inquiries` | 세션 | `{ category: BUG \| IDEA \| ACCOUNT \| ETC, body }` · 글 10~1000자 · 옛 앱(`replyEmail` 키를 보냄)은 옛 종류 · 2000자까지 받고 이메일은 무시(결정 039) | 201 `{ id }` · 아래 "문의하기" |
 | `GET /inquiries` | 세션 | 없음 | 200 `[InquiryItem]` 내 문의 전부, 새것부터 · 없으면 `[]` · 아래 "문의하기" |
 | `GET /inquiries/{id}` | 세션 | 없음 | 200 `InquiryItem` · 남의 것 · 없는 것 · UUID 가 아닌 값 404 `NOT_FOUND` |
-| `POST /shares` | 세션 | `{ kind: READING }` · `{ kind: SCORE, synastryId, myName }` · `{ kind: RANKING, relation, showNames? }` · `{ kind: NEXT_TURN }` | 200 `{ shareId, card }` · `card` 는 `ShareCard` · 공유할 글이 없거나 남의 것이면 404 `NOT_FOUND` · 아래 "공유" |
+| `POST /shares` | 세션 | `{ kind: READING }` · `{ kind: SCORE, synastryId, myName }` · `{ kind: RANKING, relation, showNames? }` · `{ kind: NEXT_TURN }` · 공유 v2 `{ kind: NICKNAME }` · `{ kind: ME_AREA, area }` · `{ kind: DAY_SKY, date }` · `{ kind: NEXT_BIG }` | 200 `{ shareId, card }` · `card` 는 `ShareCard` · 공유할 글이 없거나 남의 것이면 404 `NOT_FOUND` · 아래 "공유" |
 | `DELETE /shares/{shareId}` | 세션 | 없음 | 204 · 남의 것·없는 것 404 `NOT_FOUND` |
 | `GET /shared/{shareId}` | 없음 | 없음 | 200 `ShareCard`(요약 해석·궁합 점수·랭킹·다음 변곡점 카드 중 하나, 글과 숫자만) · 없는 식별자 404 `NOT_FOUND` · 429 `RATE_LIMITED` |
 | `PUT /devices/push-token` | 세션 | `{ token }` | 204 |
@@ -271,15 +271,20 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
     - 426 에도 CORS 허용 헤더가 붙는다. 브라우저의 사전 요청(OPTIONS)은 막지 않는다.
   - 관리자가 값을 고치면 503·426 은 그 서버에서 바로, 서버가 여러 대면 길어야 5초(`byeolmyeong.app-config.cache-seconds`) 안에 적용된다. `GET /app-config` 의 응답은 60초 캐시될 수 있다. 값을 쓰는 곳은 "관리자 API" 의 `/admin/app-config` 다.
 - 공유 (2026-11-12 구현, 결정 012. 규칙의 원본은 앱 저장소 release-1.0.0 F6)
-  - `ShareCard` 는 `kind` 로 가리는 네 모양 가운데 하나다. 아래 적힌 키가 전부이고, 값이 없는 키는 보내지 않는다. 출생 정보·근거(`basis`)·본문·소유자·궁합 id·날짜는 어느 카드에도 없다.
+  - `ShareCard` 는 `kind` 로 가리는 여덟 모양 가운데 하나다. 아래 적힌 키가 전부이고, 값이 없는 키는 보내지 않는다. 출생 정보·근거(`basis`)·본문·소유자·궁합 id 는 어느 카드에도 없다. 날짜는 그날의 하늘 카드의 그 날만 있다.
     - `{ kind: "READING", headline, keywords[3] }` — 요약 해석의 한 줄 총평과, 앞의 세 문단 제목.
     - `{ kind: "SCORE", names[2], score, scoreLabel?, headline }` — `names` 는 `[공유하는 사람, 상대]` 순서. `score`·`scoreLabel`·`headline` 은 `Synastry` 의 것과 같다(`scoreLabel` 은 60점 미만일 때만).
     - `{ kind: "RANKING", relation: LOVE | FRIEND | WORK | FAMILY, entries[1~3 × { name, score }] }` — 그 관계 유형의 랭킹(`GET /synastry/ranking` 과 같은 순서)에서 앞의 3명까지. `name` 은 기본이 이니셜이고, 공유할 때 `showNames: true` 였으면 적은 이름 그대로다.
-    - `{ kind: "NEXT_TURN", year, season: SPRING | SUMMER | AUTUMN | WINTER, theme }` — 리포트 시기의 `current.nextMilestone`(오늘 뒤의 첫 마디)의 `date` 를 해와 계절로 줄인 것과 그 마디의 `title`. 3~5월 `SPRING`, 6~8월 `SUMMER`, 9~11월 `AUTUMN`, 12·1·2월 `WINTER`. `year`(정수)는 그 날의 달력 해다(2028년 1월도 12월도 2028 · `WINTER`). 앱이 "2027년 봄" 으로 적는다.
-  - `POST /shares` 요청: `kind` 는 필수. `SCORE` 는 `synastryId`(내 궁합의 `id`)와 `myName`(공유하는 사람을 부를 이름, 앞뒤 공백을 뗀 1~20자 — 서버에 내 이름이 없어 매번 받는다). `RANKING` 은 `relation`(필수)과 `showNames`(boolean, 없으면 `false`). `READING`·`NEXT_TURN` 은 다른 필드가 없다(지금 프로필의 차트 기준). 그 종류가 쓰지 않는 필드는 읽지 않는다.
+    - `{ kind: "NEXT_TURN", year, season: SPRING | SUMMER | AUTUMN | WINTER, theme }` — 리포트 시기의 `current.nextMilestone`(오늘 뒤의 첫 마디)의 `date` 를 해와 계절로 줄인 것과 그 마디의 `title`. 3~5월 `SPRING`, 6~8월 `SUMMER`, 9~11월 `AUTUMN`, 12·1·2월 `WINTER`. `year`(정수)는 그 날의 달력 해다(2028년 1월도 12월도 2028 · `WINTER`). 앱이 "2027년 봄" 으로 적는다. (옛 카드 — 앱이 새로 만들지 않는다. 만든 것은 계속 열린다, 결정 036 의 5)
+    - 공유 v2(결정 036 — 결정 012 의 "날짜 · 차트 요소를 넣지 않는다" 를 이 넷에 한해 대체). `nickname` 은 계정의 닉네임이고 옛 계정이라 없으면 키가 없다.
+    - `{ kind: "NICKNAME", nickname?, sunSign, headline }` — 지금 차트의 요약 해석 v2 의 한 줄 별명(`Reading.headline`)과 그 차트의 해 별자리(`ARIES`…`PISCES`).
+    - `{ kind: "ME_AREA", nickname?, area, title }` — 지금 차트의 완성된(`DONE`) 나 탭 풀이의 그 영역(`PERSONALITY` · `LOVE` · `RELATIONSHIP` · `WORK` · `EMOTION`). `title` 은 연애면 영역 제목, 나머지는 첫 문단 제목.
+    - `{ kind: "DAY_SKY", nickname?, date, title }` — 저장된 그날의 하늘(결정 034)의 제목과 그 날(`YYYY-MM-DD`, 한국 날짜).
+    - `{ kind: "NEXT_BIG", nickname?, year, age, title }` — 지금 차트의 완성된 시기 풀이의 `current.nextMilestone`(오늘 뒤의 첫 마디)의 해 · 만 나이 · 제목(앱이 "2028년 · 만 29세 무렵" 으로 적는다).
+  - `POST /shares` 요청: `kind` 는 필수. `SCORE` 는 `synastryId`(내 궁합의 `id`)와 `myName`(공유하는 사람을 부를 이름, 앞뒤 공백을 뗀 1~20자 — 서버에 내 이름이 없어 매번 받는다). `RANKING` 은 `relation`(필수)과 `showNames`(boolean, 없으면 `false`). `READING`·`NEXT_TURN`·`NICKNAME`·`NEXT_BIG` 은 다른 필드가 없다(지금 프로필의 차트 기준). `ME_AREA` 는 `area`(위 다섯 가운데 하나, 아니거나 없으면 400 `INVALID_AREA`), `DAY_SKY` 는 `date`(`YYYY-MM-DD` 그대로, 아니거나 없으면 400 `INVALID_DATE`). 그 종류가 쓰지 않는 필드는 읽지 않는다.
   - `POST /shares` 응답: 200 `{ shareId, card }`. `card` 는 `GET /shared/{shareId}` 가 주는 것과 같다(앱은 이것으로 이미지를 그리고 `shareId` 로 주소를 만든다). `shareId` 는 무작위 128비트를 URL 용 Base64 로 적은 22자(`A-Z a-z 0-9 - _`)다.
   - 스냅샷: 카드는 공유한 순간의 내용으로 저장되고 그 뒤 글·랭킹·프로필이 바뀌어도 바뀌지 않는다. 같은 내용의 카드를 다시 만들면 새로 만들지 않고 있던 `shareId` 를 준다. 내용이 달라졌으면(랭킹이 바뀜, `showNames`·`myName` 이 다름) 새 `shareId` 다. 예전 공유는 지우기 전까지 열린다. 만료는 없다.
-  - `POST /shares` 오류: 400 `INVALID_REQUEST`(본문이 JSON 이 아님, `SCORE` 에 `synastryId` 없음)·`INVALID_KIND`·`INVALID_NAME`(`myName`)·`INVALID_RELATION` · 401 `UNAUTHORIZED` · 404 `NOT_FOUND`(공유할 것이 없다: 지금 차트의 요약 해석이 없다 / 남의 궁합·없는 궁합·id 모양이 아님 / 그 관계 유형의 궁합이 하나도 없다 / 지금 차트의 완성된(`DONE`) 리포트가 없거나 다음 마디가 없다). 모델을 부르지 않으므로 바로 답한다.
+  - `POST /shares` 오류: 400 `INVALID_REQUEST`(본문이 JSON 이 아님, `SCORE` 에 `synastryId` 없음)·`INVALID_KIND`·`INVALID_NAME`(`myName`)·`INVALID_RELATION`·`INVALID_AREA`·`INVALID_DATE` · 401 `UNAUTHORIZED` · 404 `NOT_FOUND`(공유할 것이 없다: 지금 차트의 요약 해석이 없다 / 남의 궁합·없는 궁합·id 모양이 아님 / 그 관계 유형의 궁합이 하나도 없다 / 지금 차트의 완성된(`DONE`) 리포트가 없거나 다음 마디가 없다 / 공유 v2: 지금 차트의 요약 해석 v2 가 없다 · 완성된 나 탭 풀이가 없다 · 그날의 하늘을 만들지 않았다 · 완성된 시기 풀이가 없거나 오늘 뒤의 마디가 없다). 모델을 부르지 않으므로 바로 답한다.
   - `DELETE /shares/{shareId}`: 내 공유를 지운다. 그 뒤 `GET /shared/{shareId}` 는 404 다. 같은 카드를 다시 만들면 새 `shareId` 가 나온다. 계정을 지우면(`DELETE /account`) 그 사람의 공유가 모두 사라진다.
   - `GET /shared/{shareId}`: 세션 없이 열린다. 저장된 `ShareCard` 를 그대로 준다. 없는(지워진) 식별자는 404 `NOT_FOUND`. 주소별 분당 한도를 넘으면 429 `RATE_LIMITED`. CORS 는 다른 경로와 같다(`ALLOWED_ORIGINS` 에 적힌 앱의 웹 주소만).
   - 이니셜(서버가 만든다): 한글 음절은 첫소리 글자로(지영 → `ㅈㅇ`, 쌍자음은 그대로), 이미 낱자인 한글은 그대로, 그 밖의 글자·숫자는 이어진 덩어리의 첫 글자만 대문자로(`Mike` → `M`, `김 Min` → `ㄱM`), 공백·기호·그림 문자는 뺀다. 남는 것이 없으면 `○`.
@@ -540,7 +545,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `SYNASTRY_REPORT_REQUESTED` | 궁합 리포트를 만들기 시작했을 때 | `SYNASTRY` id | `null` |
   | `SYNASTRY_DELETED` | 궁합을 지웠을 때(`DELETE /synastry/{id}`) | `SYNASTRY` id(이제 없는 id) | `null` |
   | `DIRECTION_GENERATED` | 방향성 제시를 **새로** 만들었을 때. **실패도 남는다**(502, 그때는 대상이 없다) | 궁합 주제만 `SYNASTRY` id | `{ topic: "LOVE" \| "FUTURE" \| "SYNASTRY" }` |
-  | `SHARE_CREATED` | 공유 카드를 **새로** 만들었을 때(같은 내용을 다시 공유한 것은 남지 않는다) | 없음(공유 식별자는 남기지 않는다) | `{ kind: "READING" \| "SCORE" \| "RANKING" \| "NEXT_TURN" }` |
+  | `SHARE_CREATED` | 공유 카드를 **새로** 만들었을 때(같은 내용을 다시 공유한 것은 남지 않는다) | 없음(공유 식별자는 남기지 않는다) | `{ kind: "READING" \| "SCORE" \| "RANKING" \| "NEXT_TURN" \| "NICKNAME" \| "ME_AREA" \| "DAY_SKY" \| "NEXT_BIG" }` |
   | `SHARE_DELETED` | 공유를 지웠을 때 | 없음 | `null` |
   | `INQUIRY_SUBMITTED` | 문의를 보냈을 때 | `INQUIRY` id | `{ category }` |
   | `ACCOUNT_DELETED` | 계정을 지웠을 때 | 없음 | `null` |
@@ -647,7 +652,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 앱 설정(V14, 결정 016): `app_configs`(플랫폼 `ios`·`android` 가 기본 키 — 마이그레이션이 넣은 두 행뿐이다, 최소 버전, 최신 버전 — V24 · 결정 040 · null 허용, 스토어 주소, 안내 글, `block_now` — 최소 버전이 있어야 켤 수 있다(check), 고친 때, 고친 관리자). 점검(V15, 결정 017): `app_maintenance`(행 하나 — 켜짐 여부, 안내 글, 고친 때, 고친 관리자 · V28, 결정 043 의 7: 꺼진 상태에서 켠 때 `started_at` · 켠 관리자 `started_by` — 끄면 null, 켜진 채로 올라간 행은 마지막으로 고친 때 · 관리자로 채웠다).
 - 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
-- `shares`(V10, 결정 012): 공유 식별자(기본 키, 무작위 128비트), 소유자(계정을 지우면 함께 지워진다), 카드 종류, 카드(공개 조회가 그대로 주는 JSON — 공개 필드뿐이다), 카드의 해시(같은 소유자의 같은 내용은 한 행), 만든 때. 랭킹 카드에는 앞의 3명만, 이름을 가렸으면 이니셜만 들어 있다. 다음 변곡점 카드에는 날짜가 아니라 해와 계절이 들어 있다.
+- `shares`(V10, 결정 012 · V33 이 카드 종류에 공유 v2 넷을 더했다 — 결정 036): 공유 식별자(기본 키, 무작위 128비트), 소유자(계정을 지우면 함께 지워진다), 카드 종류, 카드(공개 조회가 그대로 주는 JSON — 공개 필드뿐이다), 카드의 해시(같은 소유자의 같은 내용은 한 행), 만든 때. 랭킹 카드에는 앞의 3명만, 이름을 가렸으면 이니셜만 들어 있다. 다음 변곡점 카드에는 날짜가 아니라 해와 계절이 들어 있다.
 - 지금의 궁합 테이블(직접 입력, V7. 위 줄의 `synastries` 설명보다 이쪽이 맞다): `synastries`(소유자, 부를 이름, 관계 유형, 나 기준 점수, 한 줄 요약, 키워드, 계산할 때의 내 차트 해시) · `synastry_reports`(궁합마다 한 행, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때, 살아 있다는 표시를 마지막으로 적은 때 `active_at` — V9). 초대로 연결된 두 참여자는 초대 때 더한다. 공유 식별자는 `synastries` 에 두지 않는다(`shares`).
 - 직접 입력한 상대의 행성 황경·별자리와 두 차트 사이의 각도 목록도 저장하지 않는다. 이유: 내 차트와 겹쳐 보면 상대의 생일을 좁힐 수 있다(결정 010).
 
