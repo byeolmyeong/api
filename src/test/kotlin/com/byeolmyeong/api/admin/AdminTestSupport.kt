@@ -72,7 +72,7 @@ fun createAdmin(port: Int, token: String, loginId: String, password: String, nam
 /** 첫 관리자만 남기고 관리자 쪽 데이터와 앱 사용자 데이터를 비운다. */
 fun resetAdminData(jdbc: JdbcTemplate) {
 	jdbc.update("delete from faqs")
-	jdbc.update("update app_configs set min_version = null, store_url = null, message = null, block_now = false, updated_by = null")
+	jdbc.update("update app_configs set min_version = null, latest_version = null, store_url = null, message = null, block_now = false, updated_by = null")
 	jdbc.update("update app_maintenance set active = false, message = null, updated_by = null")
 	jdbc.update("delete from accounts")
 	jdbc.update("delete from admin_sessions")

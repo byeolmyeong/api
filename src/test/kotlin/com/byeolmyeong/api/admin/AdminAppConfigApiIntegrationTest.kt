@@ -13,11 +13,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-private val PLATFORM_KEYS = setOf("minVersion", "storeUrl", "message", "blockNow", "updatedAt", "updatedBy")
+private val PLATFORM_KEYS = setOf("minVersion", "latestVersion", "storeUrl", "message", "blockNow", "updatedAt", "updatedBy")
 private const val STORE = "https://apps.apple.com/kr/app/id0000000000"
 private const val MESSAGE = "안내비밀글-새 버전으로 업데이트해 주세요"
 
-/** 앱 설정 편집 `GET /admin/app-config` · `PUT /admin/app-config/{platform}`(결정 016): 모양·검증·캐시 비우기·감사 기록. */
+/** 앱 설정 편집 `GET /admin/app-config` · `PUT /admin/app-config/{platform}`(결정 016 · 040): 모양·검증·캐시 비우기·감사 기록. */
 @AdminIntegrationTest
 class AdminAppConfigApiIntegrationTest {
 
@@ -41,8 +41,13 @@ class AdminAppConfigApiIntegrationTest {
 		jdbc.update("delete from audit_logs")
 	}
 
+	/** 옛 관리 화면이 보내는 네 키(`latestVersion` 없음). */
 	private fun body(minVersion: Any? = "1.2.0", storeUrl: Any? = STORE, message: Any? = MESSAGE, blockNow: Any? = false): Map<String, Any?> =
 		mapOf("minVersion" to minVersion, "storeUrl" to storeUrl, "message" to message, "blockNow" to blockNow)
+
+	/** 새 관리 화면이 보내는 다섯 키(결정 040). */
+	private fun body5(latestVersion: Any?, minVersion: Any? = "1.2.0", blockNow: Any? = false): Map<String, Any?> =
+		body(minVersion = minVersion, blockNow = blockNow) + ("latestVersion" to latestVersion)
 
 	private fun put(platform: String, body: Any?, token: String? = this.token): HttpResponse<String> =
 		http(port, "PUT", "/admin/app-config/$platform", if (body is String) body else json(body), token)
@@ -73,7 +78,7 @@ class AdminAppConfigApiIntegrationTest {
 		for (platform in listOf("ios", "android")) {
 			val config = json[platform]
 			assertEquals(PLATFORM_KEYS, config.propertyNames().toSet())
-			for (key in listOf("minVersion", "storeUrl", "message", "updatedBy")) assertTrue(config[key].isNull, "$platform.$key 는 키가 있고 null 이다")
+			for (key in listOf("minVersion", "latestVersion", "storeUrl", "message", "updatedBy")) assertTrue(config[key].isNull, "$platform.$key 는 키가 있고 null 이다")
 			assertEquals(false, config["blockNow"].asBoolean())
 			assertTrue(config["updatedAt"].asString().matches(Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z""")))
 		}
@@ -98,7 +103,7 @@ class AdminAppConfigApiIntegrationTest {
 		assertEquals(ios, all["ios"])
 		assertTrue(all["android"]["minVersion"].isNull && all["android"]["updatedBy"].isNull, "다른 플랫폼은 그대로다")
 		assertEquals(
-			"""{"ios":{"minVersion":"1.2.0","storeUrl":"$STORE","message":"$MESSAGE","blockNow":true},"android":{"minVersion":null,"storeUrl":null,"message":null,"blockNow":false},"maintenance":{"active":false,"message":null}}""",
+			"""{"ios":{"minVersion":"1.2.0","latestVersion":null,"storeUrl":"$STORE","message":"$MESSAGE","blockNow":true},"android":{"minVersion":null,"latestVersion":null,"storeUrl":null,"message":null,"blockNow":false},"maintenance":{"active":false,"message":null}}""",
 			public(),
 		)
 
@@ -163,6 +168,46 @@ class AdminAppConfigApiIntegrationTest {
 	}
 
 	@Test
+	fun `최신 버전을 넣고 지우며 키가 없으면 그대로 둔다`() {
+		val saved = put("ios", body5("1.4.0"))
+		assertEquals(200, saved.statusCode(), saved.body())
+		assertEquals("1.4.0", saved.json()["latestVersion"].asString())
+		assertTrue("\"latestVersion\":\"1.4.0\"" in public(), "앱의 공개 조회에도 온다")
+		assertTrue(get().json()["android"]["latestVersion"].isNull, "다른 플랫폼은 그대로")
+
+		val kept = put("ios", body(message = "다른 값만 고침"))
+		assertEquals(200, kept.statusCode())
+		assertEquals("1.4.0", kept.json()["latestVersion"].asString(), "키가 없으면 그대로 둔다(옛 관리 화면)")
+
+		assertEquals("1.2", put("ios", body5("1.2", minVersion = "1.2.0")).json()["latestVersion"].asString(), "최소 버전과 같으면 된다 · 보낸 글자 그대로")
+		assertEquals("2.0.0", put("ios", body5("2.0.0", minVersion = null)).json()["latestVersion"].asString(), "최소 버전이 없으면 견주지 않는다")
+		assertTrue(put("ios", body5(null)).json()["latestVersion"].isNull, "null 을 보내야 지워진다")
+		assertTrue("\"latestVersion\":null" in public())
+	}
+
+	@Test
+	fun `틀린 최신 버전과 최소 버전보다 낮은 최신 버전은 거절한다`() {
+		assertEquals(200, put("ios", body5("1.4.0")).statusCode())
+		val saved = get().body()
+
+		for (bad in listOf(1, 1.4, true, listOf("1.4.0"), mapOf("v" to "1"))) assertError(400, "INVALID_REQUEST", put("ios", body5(bad)), "latestVersion=$bad")
+		for (bad in listOf("", " ", "1.2.3.4", "v1.4", "1.4-beta", " 1.4", "1..4", "latest", "1234567890")) {
+			assertError(400, "INVALID_LATEST_VERSION", put("ios", body5(bad)), "latestVersion='$bad'")
+		}
+		assertError(400, "LATEST_BELOW_MIN", put("ios", body5("1.1.9", minVersion = "1.2.0")))
+		assertError(400, "LATEST_BELOW_MIN", put("ios", body5("1.9", minVersion = "1.10")), "숫자로 견준다")
+		assertError(400, "LATEST_BELOW_MIN", put("ios", body(minVersion = "1.5.0")), "키가 없으면 저장된 최신 버전(1.4.0)과 견준다")
+		assertError(400, "LATEST_BELOW_MIN", put("ios", body5("1.1.0", minVersion = "1.2.0", blockNow = true)))
+
+		// 여러 개가 틀리면: INVALID_VERSION → INVALID_LATEST_VERSION → INVALID_STORE_URL
+		assertError(400, "INVALID_VERSION", put("ios", body5("x", minVersion = "y")))
+		assertError(400, "INVALID_LATEST_VERSION", put("ios", body5("x") + ("storeUrl" to "http://x")))
+
+		assertEquals(saved, get().body(), "거절된 요청은 아무것도 바꾸지 않는다")
+		assertEquals(1, jdbc.queryForObject("select count(*) from audit_logs", Int::class.java), "거절된 요청은 감사 기록에도 없다")
+	}
+
+	@Test
 	fun `관리자 세션이 있어야 한다`() {
 		val (_, userToken) = userAccount(jdbc, "config-user")
 		for (bad in listOf(null, userToken, "no-such-token")) {
@@ -204,6 +249,11 @@ class AdminAppConfigApiIntegrationTest {
 		assertEquals(200, put("android", body(minVersion = null)).statusCode())
 		val detail = jdbc.queryForObject("select detail::text from audit_logs", String::class.java)
 		assertEquals(mapper.readTree("""{"platform":"android","blockNow":false}"""), mapper.readTree(detail))
+
+		jdbc.update("delete from audit_logs")
+		assertEquals(200, put("android", body5("1.4.0")).statusCode())
+		val withLatest = jdbc.queryForObject("select detail::text from audit_logs", String::class.java)
+		assertEquals(mapper.readTree("""{"platform":"android","minVersion":"1.2.0","latestVersion":"1.4.0","blockNow":false}"""), mapper.readTree(withLatest))
 
 		val dump = jdbc.queryForList("select row_to_json(a)::text from audit_logs a", String::class.java).joinToString("\n")
 		for (secret in listOf(MESSAGE, "안내비밀글", STORE, "apps.apple.com", "https")) assertFalse(secret in dump, "감사 기록에 있으면 안 되는 값: $secret")

@@ -20,13 +20,13 @@ private const val APP = "http://localhost:8081"
 private const val ADMIN = "http://localhost:5173"
 private const val ADMIN_ID = "config-admin"
 private const val ADMIN_PASSWORD = "config-admin-password"
-private const val EMPTY = """{"minVersion":null,"storeUrl":null,"message":null,"blockNow":false}"""
+private const val EMPTY = """{"minVersion":null,"latestVersion":null,"storeUrl":null,"message":null,"blockNow":false}"""
 private const val UPDATE_REQUIRED = """{"error":"UPDATE_REQUIRED"}"""
 private const val NO_MAINTENANCE = """"maintenance":{"active":false,"message":null}"""
 private const val MAINTENANCE = """{"error":"MAINTENANCE"}"""
 
 fun resetAppConfigs(jdbc: JdbcTemplate) {
-	jdbc.update("update app_configs set min_version = null, store_url = null, message = null, block_now = false, updated_by = null")
+	jdbc.update("update app_configs set min_version = null, latest_version = null, store_url = null, message = null, block_now = false, updated_by = null")
 	jdbc.update("update app_maintenance set active = false, message = null, updated_by = null")
 }
 
@@ -64,8 +64,11 @@ class AppConfigApiIntegrationTest {
 		resetAppConfigs(jdbc)
 	}
 
-	private fun set(platform: String, minVersion: String?, blockNow: Boolean, storeUrl: String? = null, message: String? = null) {
-		jdbc.update("update app_configs set min_version = ?, block_now = ?, store_url = ?, message = ? where platform = ?", minVersion, blockNow, storeUrl, message, platform)
+	private fun set(platform: String, minVersion: String?, blockNow: Boolean, storeUrl: String? = null, message: String? = null, latestVersion: String? = null) {
+		jdbc.update(
+			"update app_configs set min_version = ?, block_now = ?, store_url = ?, message = ?, latest_version = ? where platform = ?",
+			minVersion, blockNow, storeUrl, message, latestVersion, platform,
+		)
 	}
 
 	/** 앱이 보내는 두 헤더를 붙여 부른다. null 인 헤더는 보내지 않는다. */
@@ -102,12 +105,12 @@ class AppConfigApiIntegrationTest {
 
 	@Test
 	fun `넣은 값이 플랫폼마다 그대로 온다`() {
-		set("ios", "1.2.0", true, "https://apps.apple.com/app/id000", "새 버전으로 업데이트해 주세요")
+		set("ios", "1.2.0", true, "https://apps.apple.com/app/id000", "새 버전으로 업데이트해 주세요", latestVersion = "1.4.0")
 		set("android", "2.0", false)
 
 		assertEquals(
-			"""{"ios":{"minVersion":"1.2.0","storeUrl":"https://apps.apple.com/app/id000","message":"새 버전으로 업데이트해 주세요","blockNow":true},""" +
-				""""android":{"minVersion":"2.0","storeUrl":null,"message":null,"blockNow":false},$NO_MAINTENANCE}""",
+			"""{"ios":{"minVersion":"1.2.0","latestVersion":"1.4.0","storeUrl":"https://apps.apple.com/app/id000","message":"새 버전으로 업데이트해 주세요","blockNow":true},""" +
+				""""android":{"minVersion":"2.0","latestVersion":null,"storeUrl":null,"message":null,"blockNow":false},$NO_MAINTENANCE}""",
 			http(port, "GET", "/app-config").body(),
 		)
 	}
