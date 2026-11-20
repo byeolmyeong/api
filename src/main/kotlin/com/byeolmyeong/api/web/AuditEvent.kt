@@ -13,6 +13,8 @@ enum class AuditAction {
 	ADMIN_PASSWORD_REISSUED,
 	// 사용자 정지 · 해제 · 탈퇴 대행(결정 043 의 1 · 044). 대상 USER id, 사유는 남기지 않는다(정지 사유는 account_suspensions)
 	USER_SUSPENDED, USER_UNSUSPENDED, USER_DELETED_BY_ADMIN,
+	// 실패한 자세한 풀이를 다시 만들게 함(결정 043 의 1). 대상 USER id, detail 은 kind 만
+	GENERATION_RETRIED,
 	INQUIRY_VIEWED, INQUIRY_UPDATED,
 	// 문의에 답을 저장함(결정 039). detail 은 first=true|false 만
 	INQUIRY_ANSWERED,
