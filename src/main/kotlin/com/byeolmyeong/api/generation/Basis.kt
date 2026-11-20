@@ -89,8 +89,8 @@ fun basisWords(reason: Reason): List<String> = reason.items.flatMap { item ->
 	}
 }.distinct()
 
-// "천체 또는 상승점·중천" 칸의 글자 열(Body 또는 ChartAngle 의 이름)을 근거 말로.
-private fun pointLabel(name: String): String =
+// "천체 또는 상승점·중천" 칸의 글자 열(Body 또는 ChartAngle 의 이름)을 근거 말로. 그날의 하늘의 "[그날의 통과]" 도 쓴다.
+fun pointLabel(name: String): String =
 	ChartAngle.entries.firstOrNull { it.name == name }?.label ?: Body.valueOf(name).label
 
 /** 궁합 글의 근거로 쓸 수 있는 말: 점수에서 보는 내 쪽 요소(태양·달·수성·금성·화성, 시각을 알면 상승점). */
@@ -145,7 +145,8 @@ val ChartAngle.label: String
 		ChartAngle.MC -> MIDHEAVEN_LABEL
 	}
 
-private val AspectType.feel: String
+/** 각도의 느낌(모델이 읽는 말). 근거 후보와 그날의 하늘의 "[그날의 통과]" 가 같이 쓴다. */
+val AspectType.feel: String
 	get() = when (this) {
 		AspectType.CONJUNCTION -> "한곳에 겹침"
 		AspectType.SEXTILE -> "가볍게 도움"
