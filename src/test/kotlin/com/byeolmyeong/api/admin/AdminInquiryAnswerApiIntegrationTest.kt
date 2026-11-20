@@ -102,7 +102,7 @@ class AdminInquiryAnswerApiIntegrationTest {
 	fun `답을 고치면 글만 바뀌고 이벤트는 다시 나지 않는다`() {
 		val id = seed()
 		val first = patch(id, mapOf("answer" to "처음 답")).json()
-		createAdmin(port, token, "ops-kim", "ops-kim-password", "운영 김")
+		createAdmin(port, token, "ops-kim", "ops-kim-password", jdbc)
 		val theirs = adminToken(port, "ops-kim", "ops-kim-password")
 
 		val edited = patch(id, mapOf("answer" to "고친 답"), theirs)
@@ -111,7 +111,7 @@ class AdminInquiryAnswerApiIntegrationTest {
 		assertEquals("고친 답", json["answer"].asString())
 		assertEquals(first["answeredAt"], json["answeredAt"], "처음 답한 때는 그대로")
 		assertEquals(ROOT_ID, json["answeredBy"]["name"].asString(), "처음 답한 관리자도 그대로")
-		assertEquals("운영 김", json["handledBy"]["name"].asString(), "마지막으로 손댄 관리자는 바뀐다")
+		assertEquals("ops-kim", json["handledBy"]["name"].asString(), "마지막으로 손댄 관리자는 바뀐다")
 		assertEquals(1, answered.events.size, "고칠 때는 이벤트가 없다")
 		assertEquals("고친 답", userView(id)["answer"]["body"].asString())
 
