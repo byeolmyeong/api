@@ -46,6 +46,8 @@ data class AccountResponse(
 	val pushConsent: Boolean,
 	val pushConsentAt: java.time.Instant?,
 	val avatar: Int?,
+	/** 이용 정지(결정 044). 참이면 앱이 정지 화면(앱 결정 065 의 5)을 띄운다. 사유는 주지 않는다. */
+	val suspended: Boolean,
 )
 
 /** `POST /auth/nickname-check`(결정 025). */

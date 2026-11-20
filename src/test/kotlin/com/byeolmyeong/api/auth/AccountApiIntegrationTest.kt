@@ -49,7 +49,7 @@ class AccountApiIntegrationTest {
 		assertEquals(200, response.statusCode())
 		val node = json(response.body())
 		assertEquals(
-			listOf("nickname", "email", "provider", "marketingConsent", "marketingConsentAt", "pushConsent", "pushConsentAt", "avatar"),
+			listOf("nickname", "email", "provider", "marketingConsent", "marketingConsentAt", "pushConsent", "pushConsentAt", "avatar", "suspended"),
 			node.propertyNames().toList(),
 		)
 		assertTrue(node["nickname"].isNull)

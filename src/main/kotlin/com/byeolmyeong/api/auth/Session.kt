@@ -46,10 +46,25 @@ private val PUBLIC_ENDPOINTS = listOf(
 
 private val PATH_MATCHER = AntPathMatcher()
 
-private fun isPublic(request: HttpServletRequest): Boolean {
+/**
+ * 정지된 계정(결정 044 의 2)이 쓸 수 있는 곳: "메서드 + 경로". 문의 셋(잘못된 정지를 바로잡을 연락 길) · 계정 보기(정지 화면을 그린다) ·
+ * 로그아웃 · 계정 삭제(스스로 떠날 수 있다). 여기 없는 요청은 모두 403 `ACCOUNT_SUSPENDED` 다(새 엔드포인트도 기본이 막힘). HEAD 는 GET 과 같다.
+ */
+private val OPEN_WHEN_SUSPENDED = listOf(
+	"POST" to "/inquiries",
+	"GET" to "/inquiries",
+	"GET" to "/inquiries/*",
+	"GET" to "/account",
+	"DELETE" to "/auth/session",
+	"DELETE" to "/account",
+)
+
+private fun matchesAny(endpoints: List<Pair<String, String>>, request: HttpServletRequest): Boolean {
 	val method = if (request.method == "HEAD") "GET" else request.method
-	return PUBLIC_ENDPOINTS.any { (allowed, pattern) -> allowed == method && PATH_MATCHER.match(pattern, request.requestURI) }
+	return endpoints.any { (allowed, pattern) -> allowed == method && PATH_MATCHER.match(pattern, request.requestURI) }
 }
+
+private fun isPublic(request: HttpServletRequest): Boolean = matchesAny(PUBLIC_ENDPOINTS, request)
 
 /**
  * 관리자 API. 사용자 세션 검사는 이 아래를 보지 않는다 — 열어 두는 것이 아니라, 같은 경로 전부를 관리자 세션 검사
@@ -77,7 +92,7 @@ class CurrentOwner(private val request: HttpServletRequest) {
 /**
  * 세션 검사. `Authorization: Bearer <token>` 이 없으면 웹의 쿠키 `bm_session` 을 읽는다(결정 021). 없거나 틀리면 401 `UNAUTHORIZED`.
  * 쿠키로 인증된 GET 이 아닌 요청은 `Origin` 이 앱의 허용 주소(`byeolmyeong.cors.allowed-origins`)여야 하고, 아니면 403 `FORBIDDEN_ORIGIN` —
- * 브라우저는 다른 사이트에서 연 요청에도 쿠키를 실어 보낼 수 있다.
+ * 브라우저는 다른 사이트에서 연 요청에도 쿠키를 실어 보낼 수 있다. 정지된 계정은 [OPEN_WHEN_SUSPENDED] 말고 403 `ACCOUNT_SUSPENDED`(결정 044).
  * 서블릿 필터가 아니라 인터셉터다: 브라우저의 다른 출처 요청에 CORS 허용 헤더가 먼저 붙어야 앱이 401 을 읽을 수 있다.
  */
 @Component
@@ -98,13 +113,12 @@ class SessionInterceptor(
 		if (bearer == null && token != null && request.method !in SAFE_METHODS && request.getHeader("Origin") !in origins) {
 			return reject(response, 403, "FORBIDDEN_ORIGIN")
 		}
-		val owner = token?.let(auth::ownerOf)
-		if (owner != null) {
-			markOwner(request, owner)
-			request.setAttribute(TOKEN_ATTRIBUTE, token)
-			return true
-		}
-		return reject(response, 401, "UNAUTHORIZED")
+		val owner = token?.let(auth::sessionOf) ?: return reject(response, 401, "UNAUTHORIZED")
+		// 정지 검사는 세션 검사 바로 뒤다(점검 503 · 강제 업데이트 426 은 그보다 먼저 — 결정 044 의 4).
+		if (owner.suspended && !matchesAny(OPEN_WHEN_SUSPENDED, request)) return reject(response, 403, "ACCOUNT_SUSPENDED")
+		markOwner(request, owner.accountId)
+		request.setAttribute(TOKEN_ATTRIBUTE, token)
+		return true
 	}
 
 	private fun reject(response: HttpServletResponse, status: Int, code: String): Boolean {

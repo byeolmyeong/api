@@ -37,8 +37,18 @@ data class AdminPlatformConfig(
 	val updatedBy: AdminRef?,
 )
 
-/** 관리자가 보는 점검 상태(결정 017). */
-data class AdminMaintenance(val active: Boolean, val message: String?, val updatedAt: String, val updatedBy: AdminRef?)
+/**
+ * 관리자가 보는 점검 상태(결정 017). [startedAt] · [startedBy] 는 꺼진 상태에서 켠 때와 그 관리자이고 꺼져 있으면 null 이다(결정 043 의 7).
+ * 앱이 읽는 공개 설정(`appconfig.Maintenance`)에는 없다.
+ */
+data class AdminMaintenance(
+	val active: Boolean,
+	val message: String?,
+	val updatedAt: String,
+	val updatedBy: AdminRef?,
+	val startedAt: String?,
+	val startedBy: AdminRef?,
+)
 
 data class AdminAppConfig(val ios: AdminPlatformConfig, val android: AdminPlatformConfig, val maintenance: AdminMaintenance)
 
@@ -192,17 +202,33 @@ class AdminAppConfigRepository(private val jdbc: JdbcTemplate) {
 	}
 
 	fun findMaintenance(): AdminMaintenance = jdbc.query(
-		"select m.active, m.message, m.updated_at, m.updated_by, a.name as updater_name from app_maintenance m left join admin_accounts a on a.id = m.updated_by",
+		"""
+		select m.active, m.message, m.updated_at, m.updated_by, a.name as updater_name, m.started_at, m.started_by, s.name as starter_name
+		from app_maintenance m left join admin_accounts a on a.id = m.updated_by left join admin_accounts s on s.id = m.started_by
+		""",
 	) { rs, _ ->
 		AdminMaintenance(
 			active = rs.getBoolean("active"),
 			message = rs.getString("message"),
 			updatedAt = rs.getObject("updated_at", OffsetDateTime::class.java).utcSeconds(),
 			updatedBy = rs.getObject("updated_by", UUID::class.java)?.let { AdminRef(it, rs.getString("updater_name")) },
+			startedAt = rs.getObject("started_at", OffsetDateTime::class.java)?.utcSeconds(),
+			startedBy = rs.getObject("started_by", UUID::class.java)?.let { AdminRef(it, rs.getString("starter_name")) },
 		)
 	}.single()
 
+	/**
+	 * 시작한 때 · 관리자는 꺼진 상태에서 켤 때만 적고, 켜진 채면 그대로, 끄면 지운다. 오른쪽의 `active` 는 고치기 전의 값이다(한 문장이라 두 요청이 겹쳐도 어긋나지 않는다).
+	 */
 	fun updateMaintenance(adminId: UUID, active: Boolean, message: String?) {
-		jdbc.update("update app_maintenance set active = ?, message = ?, updated_at = now(), updated_by = ?", active, message, adminId)
+		jdbc.update(
+			"""
+			update app_maintenance set
+				started_at = case when not ? then null when active then started_at else now() end,
+				started_by = case when not ? then null when active then started_by else ? end,
+				active = ?, message = ?, updated_at = now(), updated_by = ?
+			""",
+			active, active, adminId, active, message, adminId,
+		)
 	}
 }
