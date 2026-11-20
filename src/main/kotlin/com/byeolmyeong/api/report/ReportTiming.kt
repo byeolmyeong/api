@@ -2,6 +2,7 @@ package com.byeolmyeong.api.report
 
 import com.byeolmyeong.api.birth.KOREA_ZONE
 import com.byeolmyeong.api.chart.ChangeSize
+import com.byeolmyeong.api.chart.Interval
 import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.chart.IntervalKind
 import com.byeolmyeong.api.chart.LifeArea
@@ -9,6 +10,7 @@ import com.byeolmyeong.api.chart.MilestoneKind
 import com.byeolmyeong.api.chart.computeIntervals
 import com.byeolmyeong.api.chart.computeMilestones
 import com.byeolmyeong.api.generation.GenerationRequest
+import com.byeolmyeong.api.generation.Reason
 import com.byeolmyeong.api.generation.WRITING_RULES
 import com.byeolmyeong.api.generation.chartFacts
 import com.byeolmyeong.api.generation.promptResource
@@ -38,7 +40,10 @@ data class TimingMilestone(
 	val body: String,
 )
 
-/** 구간 하나. [id] 는 그 리포트 안에서만 겹치지 않는다. [size] 는 변화 구간에만 있다. */
+/**
+ * 구간 하나. [id] 는 그 리포트 안에서만 겹치지 않는다. [size] 는 변화 구간에만 있다.
+ * [summary] · [detail] · [practices] · [reason] 은 시기 풀이(결정 033)에서 모델이 쓴 구간에만 있다(옛 리포트 · 표의 구간에는 키가 없다).
+ */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class TimingInterval(
 	val id: String,
@@ -49,12 +54,16 @@ data class TimingInterval(
 	val size: ChangeSize?,
 	val title: String,
 	val body: String,
+	val summary: String? = null,
+	val detail: TimingDetail? = null,
+	val practices: List<TimingPractice>? = null,
+	val reason: Reason? = null,
 )
 
 /**
  * 지금 나의 구간. [intervals] 는 [date](오늘)에 걸쳐 있는 구간(언제까지인지는 각 구간의 `to`),
  * [milestone] 은 오늘이 그 기간 안인 마디, [nextInterval]·[nextMilestone] 은 오늘 뒤에 처음 오는 것,
- * [nearestMilestone] 은 오늘에서 가장 가까운 마디(지났든 아니든)다.
+ * [nearestMilestone] 은 오늘에서 가장 가까운 마디(지났든 아니든)다. [mainId] 는 시기 풀이의 대표 구간(결정 033 — 옛 리포트에는 없다).
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class TimingNow(
@@ -64,6 +73,7 @@ data class TimingNow(
 	val nextInterval: TimingInterval?,
 	val nextMilestone: TimingMilestone?,
 	val nearestMilestone: MilestoneKind,
+	val mainId: String? = null,
 )
 
 /** 시기 영역. [current] 는 저장하지 않고 읽을 때 붙인다. [timeKnown] 이 false 면 상승점·중천·하우스·버텍스 구간(운명적 만남 전부)이 없다. */
@@ -87,8 +97,8 @@ data class TimingItem(
 	val toYear: Int get() = to.year
 }
 
-/** 계산한 시기(글은 모두 표의 글)와, 마디·구간마다 모델에게 줄 수 있는 줄. */
-class TimingDraft(val timing: ReportTiming, val items: List<TimingItem>)
+/** 계산한 시기(글은 모두 표의 글)와, 마디·구간마다 모델에게 줄 수 있는 줄, 구간 id 마다 계산한 구간(시기 풀이의 근거를 만든다). */
+class TimingDraft(val timing: ReportTiming, val items: List<TimingItem>, val sources: Map<String, Interval> = emptyMap())
 
 /** 모델이 돌려준 한 줄. 해는 받은 것을 옮겨 적은 값이다. */
 data class TimingText(val id: String, val fromYear: Int, val toYear: Int, val title: String, val body: String)
@@ -120,7 +130,11 @@ fun computeTiming(chart: Chart, birthUtc: Instant): TimingDraft {
 	} + intervals.map { (shown, computed) ->
 		TimingItem(shown.id, milestone = false, shown.from, shown.to, line(shown.id, shown.from, shown.to, timelineFact(computed)))
 	}
-	return TimingDraft(ReportTiming(chart.timeKnown, milestones.map { it.first }, intervals.map { it.first }), items)
+	return TimingDraft(
+		ReportTiming(chart.timeKnown, milestones.map { it.first }, intervals.map { it.first }),
+		items,
+		intervals.associate { (shown, computed) -> shown.id to computed },
+	)
 }
 
 /** 모델에게 맡길 줄: 마디 전부와, [today] 에 걸쳐 있거나 그 뒤 10년 안에 시작하는 구간(시작 순서, 상한까지). */

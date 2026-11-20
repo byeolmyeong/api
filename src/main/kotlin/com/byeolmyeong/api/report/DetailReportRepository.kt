@@ -6,6 +6,9 @@ import tools.jackson.databind.json.JsonMapper
 import java.time.OffsetDateTime
 import java.util.UUID
 
+/** 자세한 풀이의 종류(결정 029). 글자는 `detail_reports.kind` 와 같다. [event] 는 그 종류의 로그 이벤트 이름 앞쪽이다(`me_report_started` 등). */
+enum class DetailReportKind(val event: String) { ME("me_report"), TIMING("timing_report") }
+
 /** 저장된 자세한 풀이 한 행. [stale] 은 `WRITING` 인데 살아 있다는 표시(`active_at`)가 정해진 시간 넘게 끊겼다는 뜻이다. */
 data class StoredDetailReport<T>(val status: ReportStatus, val body: T?, val stale: Boolean)
 
@@ -31,6 +34,16 @@ class DetailReportRepository(private val jdbc: JdbcTemplate, private val mapper:
 				stale = rs.getBoolean("stale"),
 			)
 		},
+		staleSeconds, ownerId, kind.name, chartHash,
+	).firstOrNull()
+
+	/** 본문을 읽지 않고 상태만: `WRITING` 인데 살아 있다는 표시가 [staleSeconds] 초 넘게 끊겼으면 `FAILED`. 행이 없으면 null. */
+	fun status(ownerId: UUID, kind: DetailReportKind, chartHash: String, staleSeconds: Int): ReportStatus? = jdbc.query(
+		"""
+		select case when status = 'WRITING' and active_at < now() - make_interval(secs => ?) then 'FAILED' else status end as status
+		from detail_reports where owner_id = ? and kind = ? and chart_hash = ?
+		""".trimIndent(),
+		{ rs, _ -> ReportStatus.valueOf(rs.getString("status")) },
 		staleSeconds, ownerId, kind.name, chartHash,
 	).firstOrNull()
 

@@ -35,6 +35,8 @@ class ArchitectureTest {
             "$ROOT.report.ReportDone",
             // 나 탭 풀이가 완성됐다(결정 029 의 7) — 알림함(계획 S⑤)이 듣는다
             "$ROOT.report.MeReportDone",
+            // 시기 풀이가 완성됐다(결정 029 의 7) — 알림함(계획 S⑤)이 듣는다
+            "$ROOT.report.TimingReportDone",
             "$ROOT.synastry.InviteAccepted",
             // 궁합이 지워지면 direction 이 그 궁합의 글을 지운다(결정 019)
             "$ROOT.synastry.SynastryDeleted",
