@@ -150,8 +150,8 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 1. (맥, 저장소 `develop`) `scp -i ~/.ssh/byeolmyeong-oci deploy/compose.yaml deploy/swap.sh deploy/restore.sh ubuntu@<IP>:/opt/byeolmyeong/` — 돌고 있는 컨테이너는 그대로다(옛 `api` 는 "고아" 경고가 뜬다). **Caddyfile 은 아직 올리지 않는다**(옛 Caddy 가 그 사이 다시 시작하면 `upstream.caddy` 가 붙어 있지 않아 뜨지 못한다).
 2. (VM) 지금 jar 로 블루를 옛 서버 옆에 띄운다: `chmod +x swap.sh restore.sh && cp app.jar app-blue.jar && docker compose up -d --no-deps api-blue` → `until docker compose exec -T caddy wget -q -O /dev/null http://api-blue:8080/health; do sleep 2; done`
 3. `./swap.sh --init`(받는 쪽 파일을 `api-blue` 로) · `docker compose pull caddy`(고정한 태그를 미리 받아 끊김을 줄인다).
-4. 운영: 관리 화면에서 점검 모드를 켠다. 쓰는 중인 생성이 끝날 때까지 기다린다 — 아래가 `0` 이면 된다(옛 jar 는 끌 때 생성을 기다리지 않는다):
-   `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select (select count(*) from reports where status='WRITING' and active_at > now() - interval '1 minute') + (select count(*) from detail_reports where status='WRITING' and active_at > now() - interval '1 minute') + (select count(*) from synastry_reports where status='WRITING' and active_at > now() - interval '1 minute')"`
+4. 운영: 관리 화면에서 점검 모드를 켠다. 쓰는 중인 생성이 끝날 때까지 기다린다 — 아래가 모두 `| 0` 이면 된다(옛 jar 는 끌 때 생성을 기다리지 않는다). 옛 DB 에 아직 없는 표(예: `detail_reports` 는 V22)는 건너뛴다:
+   `for t in reports detail_reports synastry_reports; do docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select '$t', count(*) from $t where status = 'WRITING' and active_at > now() - interval '1 minute'" 2> /dev/null; done`
 5. (맥) `scp -i ~/.ssh/byeolmyeong-oci deploy/Caddyfile ubuntu@<IP>:/opt/byeolmyeong/` → (VM) Caddy 를 새 마운트 · 태그로 다시 만든다(여기서 몇 초 끊긴다): `docker compose up -d --no-deps caddy` → `curl -s https://<서버 주소>/health` 200 · `docker compose exec -T caddy wget -qO- http://127.0.0.1:2019/config/apps/http/servers | grep -o 'api-blue:8080'`
 6. `echo blue > active_color && cp app-blue.jar app.jar.good`
 7. 옛 서버를 내리고 지운다: `docker stop -t 60 byeolmyeong-api-1 && docker rm byeolmyeong-api-1 && rm -f app.jar app.jar.new`
