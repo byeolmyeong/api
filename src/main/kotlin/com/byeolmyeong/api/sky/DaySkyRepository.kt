@@ -31,4 +31,9 @@ class DaySkyRepository(private val jdbc: JdbcTemplate, private val mapper: JsonM
 			UUID.randomUUID(), ownerId, chartHash, date, mapper.writeValueAsString(body),
 		)
 	}
+
+	/** 그 소유자의 그날의 하늘 가운데 [chartHash] 가 아닌 차트의 것을 지운다(출생 정보 바꾸기 — 결정 041). */
+	fun deleteOtherCharts(ownerId: UUID, chartHash: String) {
+		jdbc.update("delete from day_skies where owner_id = ? and chart_hash <> ?", ownerId, chartHash)
+	}
 }

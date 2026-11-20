@@ -413,20 +413,22 @@ class DaySkyApiIntegrationTest {
 	}
 
 	@Test
-	fun `출생 정보를 바꾸면 새 차트의 글을 만들고 되돌리면 예전 글이 나온다`() {
+	fun `출생 정보를 바꾸면 옛 차트의 글을 지우고 새 차트의 글을 만들며 되돌려도 다시 만든다`() {
 		val token = tokenWithProfile(KNOWN)
 		val original = sky(token, today()).body()
 
 		assertEquals(200, http(port, "PUT", "/profile", UNKNOWN, token).statusCode())
+		assertEquals(0, rows(), "바꾸면 옛 차트의 그날의 하늘을 지운다(결정 041)")
 		val changed = sky(token, today())
 		assertEquals(200, changed.statusCode())
 		assertNotEquals(original, changed.body())
 		assertEquals(2, generator.prompts.size)
-		assertEquals(2, rows(), "옛 행은 남는다")
+		assertEquals(1, rows())
 
 		assertEquals(200, http(port, "PUT", "/profile", KNOWN, token).statusCode())
-		assertEquals(original, sky(token, today()).body())
-		assertEquals(2, generator.prompts.size, "다시 생성하지 않는다")
+		assertEquals(200, sky(token, today()).statusCode())
+		assertEquals(3, generator.prompts.size, "옛 글은 지워졌으니 다시 만든다")
+		assertEquals(1, rows())
 	}
 
 	@Test
