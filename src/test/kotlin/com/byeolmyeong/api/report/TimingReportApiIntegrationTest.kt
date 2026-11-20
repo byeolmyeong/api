@@ -430,6 +430,29 @@ class TimingReportApiIntegrationTest {
 		assertEquals(0, generator.requests.size)
 	}
 
+	@Autowired
+	private lateinit var details: DetailReportService
+
+	@Test
+	@ExtendWith(OutputCaptureExtension::class)
+	fun `끝내기에서 오류가 나면 쓰는 중으로 남기지 않고 바로 FAILED 로 둔다 - 공통 고리`(output: CapturedOutput) {
+		devToken(port)
+		val owner = ownerId()
+		generator.respondMe = { _, _ -> mapper.readTree("{}") }
+		val job = DetailJob(
+			parts = listOf(DetailPart("ONE", GenerationRequest("me_report_test", "지시", "차트", emptyMap()), { it }, { null })),
+			assemble = { error("본문을 만들다 실패") },
+			done = ::MeReportDone,
+		)
+
+		assertEquals(ReportStatus.WRITING, details.request(owner, DetailReportKind.ME, "finish-fails") { job })
+		settle()
+
+		assertEquals(listOf("FAILED"), jdbc.queryForList("select status from detail_reports where chart_hash = 'finish-fails'", String::class.java), "2분 기다리지 않고 바로")
+		assertTrue(output.all.contains("event=me_report_finish_failed error=IllegalStateException"))
+		assertFalse(output.all.contains("본문을 만들다 실패"), "예외의 글은 로그에 남기지 않는다")
+	}
+
 	@Test
 	@ExtendWith(OutputCaptureExtension::class)
 	fun `출생 정보와 프롬프트와 글을 로그에 남기지 않는다`(output: CapturedOutput) {

@@ -170,7 +170,8 @@ class DetailReportService(
 		return null
 	}
 
-	// 일꾼 스레드에서 돈다. 여기서 난 오류는 받을 곳이 없으므로 삼키고 로그만 남긴다(행은 WRITING 인 채 남고, 살아 있다는 표시가 끊겨 멈춘 것으로 보인다).
+	// 일꾼 스레드에서 돈다. 여기서 난 오류는 받을 곳이 없으므로 로그만 남기고, 그 생성의 행을 바로 FAILED 로 돌린다
+	// (2분 기다리지 않고 다시 POST 하면 새로 시작할 수 있게). 그것마저 실패하면 살아 있다는 표시가 끊겨 2분 뒤 멈춘 것으로 보인다.
 	private fun <P : Any> finish(run: DetailReportRun, job: DetailJob<P>, parts: List<P?>, attempts: Int) {
 		val event = run.kind.event
 		try {
@@ -187,6 +188,7 @@ class DetailReportService(
 			}
 		} catch (e: Exception) {
 			log.error("event={}_finish_failed error={}", event, e.javaClass.simpleName)
+			runCatching { repository.fail(run) }
 		} finally {
 			live -= run
 		}
