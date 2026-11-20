@@ -172,6 +172,21 @@ class AdminUsersApiIntegrationTest {
 	}
 
 	@Test
+	fun `살아 있다는 표시가 2분 넘게 끊긴 쓰는 중은 FAILED 로 보인다 — 재생성할 수 있게`() {
+		val (id, _) = user("멈춘풀이")
+		jdbc.update(
+			"insert into detail_reports (id, owner_id, kind, chart_hash, status, active_at) values (?, ?, 'ME', 'h', 'WRITING', now() - interval '3 minutes'), (?, ?, 'TIMING', 'h', 'WRITING', now())",
+			UUID.randomUUID(), id, UUID.randomUUID(), id,
+		)
+
+		val row = get("/admin/users").json()["items"][0]
+		assertEquals(listOf("FAILED", "GENERATING"), listOf(row["reports"]["me"].asString(), row["reports"]["timing"].asString()))
+		val generations = get("/admin/users/$id").json()["generations"].toList().associate { it["kind"].asString() to it["status"].asString() }
+		assertEquals("FAILED", generations["REPORT_ME"])
+		assertEquals("GENERATING", generations["REPORT_TIMING"])
+	}
+
+	@Test
 	fun `없는 사용자는 404 이다`() {
 		assertError(404, "NOT_FOUND", get("/admin/users/${UUID.randomUUID()}"))
 		assertError(404, "NOT_FOUND", get("/admin/users/not-a-uuid"))

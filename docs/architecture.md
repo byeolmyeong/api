@@ -369,7 +369,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - `UserRow` = `{ id, nickname, profileNo, emailMasked, provider, joinedAt, lastSeenAt, reports: { me, timing }, status }`.
   - `id` 는 계정 id(문의의 `owner.userId` 와 같다). `nickname` · `profileNo`(프로필 그림 1~8) 는 옛 계정이면 `null`. `provider` 는 `KAKAO` · `APPLE` · `GOOGLE`(개발 · 테스트 계정은 `DEV` · `TEST`).
   - `lastSeenAt`: 마지막 접속(사용자 세션 요청이 10분에 한 번 적는다 — 결정 043 의 2) 또는 `null`.
-  - `reports.me` · `reports.timing`: 나 탭 풀이 · 시기 풀이의 가장 최근 생성 상태 — `NONE`(없음) · `GENERATING`(쓰는 중) · `DONE` · `FAILED`.
+  - `reports.me` · `reports.timing`: 나 탭 풀이 · 시기 풀이의 가장 최근 생성 상태 — `NONE`(없음) · `GENERATING`(쓰는 중) · `DONE` · `FAILED`. 쓰는 중인데 살아 있다는 표시가 2분 넘게 끊긴 것은 멈춘 것이라 `FAILED`(앱의 풀이 상태와 같다 — 재생성할 수 있다).
   - `status`: `ACTIVE` · `SUSPENDED`.
 - `GET /admin/users`: 가입이 늦은 것부터(같으면 id 가 큰 것부터). 빈 값은 없는 것으로 본다.
   - `q`: 닉네임 일부 또는 이메일 앞부분(대소문자 무시 — 이메일 가운데 글자로는 찾지 않는다). `status`: `ACTIVE` · `SUSPENDED`, 그 밖은 400 `INVALID_STATUS`. `provider`: `KAKAO` · `APPLE` · `GOOGLE`, 그 밖은 400 `INVALID_PROVIDER`.

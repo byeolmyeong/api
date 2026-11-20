@@ -35,6 +35,12 @@ private const val PAGE_SIZE_DEFAULT = 20
 private const val RANGE_DAYS_MAX = 366
 private const val REASON_MAX = 200
 
+/**
+ * 쓰는 중(`WRITING`)인데 살아 있다는 표시가 이만큼 끊기면 멈춘 것 — 앱의 풀이 상태와 같이 `FAILED` 로 보인다(`report.DetailReportService` 와 같은 2분).
+ * 그래야 관리자가 다시 만들 수 있다(재생성은 FAILED 만).
+ */
+private const val STALE_SQL = "(case when d.status = 'WRITING' and d.active_at < now() - interval '2 minutes' then 'FAILED' else d.status end)"
+
 /** 자세한 풀이의 상태(결정 043 의 1). */
 data class UserReports(val me: String, val timing: String)
 
@@ -220,8 +226,8 @@ class AdminUsersRepository(private val jdbc: JdbcTemplate) {
 
 	private val rowSelect = """
 		select a.id, a.nickname, a.avatar, a.email, a.provider, a.created_at, a.last_seen_at, a.suspended_at,
-		       (select d.status from detail_reports d where d.owner_id = a.id and d.kind = 'ME' order by d.started_at desc limit 1) as me_status,
-		       (select d.status from detail_reports d where d.owner_id = a.id and d.kind = 'TIMING' order by d.started_at desc limit 1) as timing_status
+		       (select $STALE_SQL from detail_reports d where d.owner_id = a.id and d.kind = 'ME' order by d.started_at desc limit 1) as me_status,
+		       (select $STALE_SQL from detail_reports d where d.owner_id = a.id and d.kind = 'TIMING' order by d.started_at desc limit 1) as timing_status
 		from accounts a
 	""".trimIndent()
 
@@ -302,7 +308,7 @@ class AdminUsersRepository(private val jdbc: JdbcTemplate) {
 		).firstOrNull()
 		fun report(kind: String, name: String): UserGeneration =
 			jdbc.query(
-				"select status, updated_at from detail_reports where owner_id = ? and kind = ? order by started_at desc limit 1",
+				"select $STALE_SQL as status, d.updated_at from detail_reports d where d.owner_id = ? and d.kind = ? order by d.started_at desc limit 1",
 				{ rs, _ -> UserGeneration(name, reportStatus(rs.getString("status")), rs.getObject("updated_at", OffsetDateTime::class.java).utcSeconds()) },
 				id, kind,
 			).firstOrNull() ?: UserGeneration(name, "NONE", null)
