@@ -164,8 +164,11 @@ jobs:
           # tee 뒤에서도 ssh 의 실패로 이 단계가 실패하게 한다(기본 셸은 pipefail 이 꺼져 있다).
           set -o pipefail
           # TARGET 은 resolve 가 정한 staging·prod 둘 중 하나라 이쪽에서 펼쳐 넘겨도 된다.
+          # 스크립트를 `bash -s` 로 stdin 에서 읽으면, 안에서 stdin 을 읽는 명령(docker compose exec 등)이 남은 스크립트를 먹고
+          # bash 는 0 으로 끝난다(2026-11-20 운영 배포가 백업 뒤 swap.sh 를 건너뛰고 "성공" 했다). 그래서 원격에서 먼저 `cat` 으로
+          # 스크립트 전체를 읽은 뒤 `bash -c` 로 돌린다 — 그때 stdin 은 이미 끝이라 아무도 스크립트를 먹을 수 없다.
           # shellcheck disable=SC2086,SC2029
-          ssh $SSH_OPTS "ubuntu@$DEPLOY_HOST" "TARGET=$TARGET bash -s" <<'EOF' | tee swap.log
+          ssh $SSH_OPTS "ubuntu@$DEPLOY_HOST" "TARGET=$TARGET bash -c \"\$(cat)\"" <<'EOF' | tee swap.log
           set -euo pipefail
           cd /opt/byeolmyeong
           [ -f .env ] || { echo ".env 가 없다(docs/deploy.md)." >&2; exit 1; }
@@ -173,18 +176,20 @@ jobs:
           if [ -f swap.sh.new ]; then mv -f swap.sh.new swap.sh; fi
           chmod +x swap.sh backup.sh restore.sh initdb/*.sh
           # 서버 이미지(JRE)의 새 패치를 받아 둔다. 쉬는 색만 새로 만들어지므로 끊기지 않는다. 받기에 실패하면 있던 이미지로 한다.
-          docker compose pull --quiet api-blue || echo "event=jre_pull_failed (있던 이미지로 계속)"
+          docker compose pull --quiet api-blue < /dev/null || echo "event=jre_pull_failed (있던 이미지로 계속)"
           # 운영: jar 를 바꾸기 전에 DB 를 백업한다. 되돌리기는 jar 만 되돌리므로 마이그레이션 이전으로 돌아갈 곳을 남긴다. 실패하면 배포하지 않는다.
           # Postgres 는 띄우거나 다시 만들지 않는다(결정 046 의 6) — 떠 있지 않으면 멈춘다.
           if [ "$TARGET" = prod ]; then
             docker compose ps --status running --services | grep -qx postgres || { echo "Postgres 가 떠 있지 않다(docker compose ps)." >&2; exit 1; }
-            ./backup.sh predeploy
+            ./backup.sh predeploy < /dev/null
           fi
           # 쉬는 색에 새 jar 를 띄워 /health 200 을 본 뒤에만 받는 쪽을 바꾸고, 옛 색은 하던 일을 끝낸 뒤 내린다.
           # 새 색이 살아나지 않으면 받는 쪽은 옛 색 그대로다(되돌릴 것이 없다).
-          ./swap.sh app.jar.new
+          ./swap.sh app.jar.new < /dev/null
           EOF
           grep -E 'event=swap_(switched|old_stopped|done)' swap.log >> "$GITHUB_STEP_SUMMARY" || true
+          # swap.sh 가 끝까지 돌았는지 본다. 없으면 바꾸지 않은 것이다(밖에서 확인은 옛 서버의 200 도 통과한다).
+          grep -q 'event=swap_done' swap.log || { echo "$TARGET: swap.sh 가 끝까지 돌지 않았다(event=swap_done 없음) — 서버는 바뀌지 않았다" | tee -a "$GITHUB_STEP_SUMMARY" >&2; exit 1; }
 
       - name: 밖에서 확인
         run: |
