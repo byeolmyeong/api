@@ -3,7 +3,7 @@ type: decision
 tags: [약관 동의, 개인정보 처리방침, 가입, 계정]
 status: active
 last_reviewed: 2026-11-19
-superseded_by:
+superseded_by: 045-legal-version-transition.md (3번 "지금 버전과 글자 그대로 같을 때만" — 옛 버전 목록도 받음 · 5번 감사 기록의 버전 — 사람이 보낸 버전). 나머지는 유효
 ---
 # 026. 가입 때 약관 · 처리방침에 동의한 버전과 시각을 남기고, 지금 버전이 아니면 가입을 받지 않는다
 

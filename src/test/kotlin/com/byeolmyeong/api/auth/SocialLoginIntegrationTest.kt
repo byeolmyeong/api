@@ -45,7 +45,9 @@ private const val KAKAO_AUD = "test-kakao-rest-key"
 private const val KAKAO_REDIRECT = "http://localhost:8081/auth/kakao"
 private const val PLACE = 1841277 // 서울(출생지 목록의 id)
 /** 지금 약관 · 처리방침 버전(결정 026, application.properties 의 byeolmyeong.legal.*). */
-private const val TERMS = "2026-11-19"
+private const val TERMS = "2026-11-20"
+/** 함께 받는 옛 약관 · 처리방침 버전(결정 045, application.properties 의 byeolmyeong.legal.*-previous-versions). */
+private const val OLD_TERMS = "2026-11-19"
 private val TEST_KEY: RSAKey = RSAKeyGenerator(2048).keyID("test").generate()
 private val mapper = JsonMapper()
 
@@ -227,13 +229,28 @@ class SocialLoginIntegrationTest {
 	@Test
 	fun `약관 버전이 없거나 지금 버전과 다르면 400 TERMS_REQUIRED 이고 가입권은 남는다 — 같은 가입권으로 다시 보내면 201(결정 026)`() {
 		val ticket = signupToken("terms-bad")
-		for ((terms, privacy) in listOf(null to null, null to TERMS, TERMS to null, "2026-01-01" to TERMS, TERMS to "2026-01-01", "" to "", " $TERMS" to TERMS)) {
+		for ((terms, privacy) in listOf(null to null, null to TERMS, TERMS to null, OLD_TERMS to null, "2026-01-01" to TERMS, TERMS to "2026-01-01", "2026-11-18" to OLD_TERMS, "" to "", " $TERMS" to TERMS)) {
 			val response = signup(ticket, adult(), terms = terms, privacy = privacy)
 			assertEquals(400 to """{"error":"TERMS_REQUIRED"}""", error(response), "terms=$terms privacy=$privacy")
 		}
 		assertEquals(0, count("accounts"), "계정을 만들지 않았다")
 		assertEquals(1, count("signup_tickets"), "가입권을 쓰지 않았다")
 		assertEquals(201, signup(ticket, adult()).statusCode(), "같은 가입권으로 다시 보낼 수 있다")
+	}
+
+	@Test
+	fun `옛 버전(함께 받는 목록)이나 지금 버전과 섞인 조합도 201 이고, 계정과 감사 기록 TERMS_AGREED 에는 보낸 버전이 남는다(결정 045)`() {
+		val sent = listOf(OLD_TERMS to OLD_TERMS, OLD_TERMS to TERMS, TERMS to OLD_TERMS, TERMS to TERMS)
+		for ((i, pair) in sent.withIndex()) {
+			val (terms, privacy) = pair
+			val sub = "terms-sent-$i"
+			assertEquals(201, signup(signupToken(sub), adult(), terms = terms, privacy = privacy).statusCode(), "terms=$terms privacy=$privacy")
+			assertEquals(terms, accountColumn(sub, "terms_version"), "계정에는 보낸 이용약관 버전")
+			assertEquals(privacy, accountColumn(sub, "privacy_version"), "계정에는 보낸 처리방침 버전")
+			val owner = accountColumn(sub, "id").toString()
+			val details = jdbc.queryForList("select detail::text from audit_logs where action = 'TERMS_AGREED' and actor_id = ?", String::class.java, owner)
+			assertEquals(json("""{"termsVersion":"$terms","privacyVersion":"$privacy"}"""), json(details.single()!!), "감사 기록에는 보낸 버전")
+		}
 	}
 
 	@Test

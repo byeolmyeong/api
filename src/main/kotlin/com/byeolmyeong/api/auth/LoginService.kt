@@ -149,8 +149,8 @@ class LoginService(
 	): String {
 		val hash = signupToken?.takeIf { it.isNotBlank() }?.let(auth::hash) ?: throw SignupExpiredException()
 		if (!tickets.isValid(hash)) throw SignupExpiredException()
-		// 지금 약관 · 처리방침에 동의하지 않았으면 가입권을 쓰지 않고 돌려보낸다(앱이 약관 단계로 돌아가 다시 보낸다, 결정 026).
-		if (!legal.agreed(termsVersion, privacyVersion)) throw BadRequestException("TERMS_REQUIRED")
+		// 받는 약관 · 처리방침 판(지금 버전 · 함께 받는 옛 버전)에 동의하지 않았으면 가입권을 쓰지 않고 돌려보낸다(앱이 약관 단계로 돌아가 다시 보낸다, 결정 026 · 045).
+		val agreed = legal.agreed(termsVersion, privacyVersion) ?: throw BadRequestException("TERMS_REQUIRED")
 		// 닉네임 · 프로필이 틀려도 가입권을 쓰지 않고 돌려보낸다(고쳐서 다시 보낸다, 결정 025 · 028).
 		val name = normalizeNickname(nickname) ?: throw BadRequestException("INVALID_NICKNAME")
 		val picture = requireAvatar(avatar)
@@ -175,7 +175,7 @@ class LoginService(
 					birthProfiles.save(accountId, profile)
 					val now = Instant.now()
 					accounts.setNicknameAndConsent(accountId, name, now.takeIf { marketingConsent })
-					accounts.setTermsPushAvatar(accountId, legal.terms, legal.privacy, now, now.takeIf { pushConsent }, picture)
+					accounts.setTermsPushAvatar(accountId, agreed.terms, agreed.privacy, now, now.takeIf { pushConsent }, picture)
 				}
 				ticket.appleToken?.let { appleTokens.save(accountId, it) }
 				Triple(accountId, auth.issueSession(accountId), createdId != null)
@@ -184,9 +184,9 @@ class LoginService(
 		events.publishEvent(AuditEvent(AuditAction.USER_LOGIN, AuditActor.user(accountId)))
 		if (created) {
 			events.publishEvent(AuditEvent(AuditAction.PROFILE_SAVED, AuditActor.user(accountId), detail = mapOf("change" to "CREATED")))
-			// 동의한 판만 남긴다(결정 026). 이메일 · 닉네임은 넣지 않는다.
+			// 사람이 보낸(동의한) 판만 남긴다(결정 026 · 045). 이메일 · 닉네임은 넣지 않는다.
 			events.publishEvent(
-				AuditEvent(AuditAction.TERMS_AGREED, AuditActor.user(accountId), detail = mapOf("termsVersion" to legal.terms, "privacyVersion" to legal.privacy)),
+				AuditEvent(AuditAction.TERMS_AGREED, AuditActor.user(accountId), detail = mapOf("termsVersion" to agreed.terms, "privacyVersion" to agreed.privacy)),
 			)
 		}
 		return session
