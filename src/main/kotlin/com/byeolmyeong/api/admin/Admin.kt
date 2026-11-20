@@ -13,8 +13,11 @@ import java.util.UUID
 
 // 관리자 API(결정 014)가 함께 쓰는 것: 로그인한 관리자, 400·404 가 아닌 거절, 요청 본문을 타입까지 보고 읽는 함수.
 
-/** 로그인한 관리자. 응답의 `{ id, loginId, name }` 이기도 하다. */
-data class Admin(val id: UUID, val loginId: String, val name: String)
+/**
+ * 로그인한 관리자. 응답의 `{ id, loginId, name, mustChangePassword }` 이기도 하다.
+ * [mustChangePassword] 가 참이면 임시 비밀번호로 들어온 것이라 바꾸기 전에는 거의 모든 경로가 403 이다(결정 043 의 5).
+ */
+data class Admin(val id: UUID, val loginId: String, val name: String, val mustChangePassword: Boolean)
 
 /** 400·404 가 아닌 거절(401·409·429). [code] 는 응답의 `error` 가 된다. 메시지에 입력값을 넣지 않는다. */
 class AdminRejectedException(val status: Int, val code: String) : RuntimeException(code)

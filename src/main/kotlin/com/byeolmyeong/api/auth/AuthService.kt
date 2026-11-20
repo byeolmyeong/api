@@ -276,6 +276,9 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 	}
 }
 
+/** 세션 확인 한 번에 읽는 값. */
+private class SessionUse(val accountId: UUID, val expired: Boolean, val stale: Boolean, val unseen: Boolean)
+
 @Repository
 class SessionRepository(private val jdbc: JdbcTemplate) {
 
@@ -286,25 +289,43 @@ class SessionRepository(private val jdbc: JdbcTemplate) {
 	/**
 	 * 살아 있는 세션의 계정. 마지막 사용 후 [days]일이 지났으면 그 행을 지우고 null.
 	 * 마지막 사용이 하루 넘게 지났을 때만 지금으로 고쳐 쓴다(요청마다 쓰지 않게).
+	 * 계정의 마지막 접속은 10분이 지났거나 한국 날짜가 바뀌었을 때만 쓰고, 그때 그날의 접속 줄을 넣는다(결정 043 의 2).
 	 */
 	fun use(tokenHash: String, days: Int): UUID? {
 		val row = jdbc.query(
 			"""
-			select account_id,
-			       last_used_at < now() - make_interval(days => ?) as expired,
-			       last_used_at < now() - interval '1 day' as stale
-			from sessions where token_hash = ?
+			select s.account_id,
+			       s.last_used_at < now() - make_interval(days => ?) as expired,
+			       s.last_used_at < now() - interval '1 day' as stale,
+			       a.last_seen_at is null
+			         or a.last_seen_at < now() - interval '10 minutes'
+			         or (a.last_seen_at at time zone 'Asia/Seoul')::date <> (now() at time zone 'Asia/Seoul')::date as unseen
+			from sessions s join accounts a on a.id = s.account_id
+			where s.token_hash = ?
 			""".trimIndent(),
-			{ rs, _ -> Triple(rs.getObject("account_id", UUID::class.java), rs.getBoolean("expired"), rs.getBoolean("stale")) },
+			{ rs, _ -> SessionUse(rs.getObject("account_id", UUID::class.java), rs.getBoolean("expired"), rs.getBoolean("stale"), rs.getBoolean("unseen")) },
 			days, tokenHash,
 		).firstOrNull() ?: return null
-		val (accountId, expired, stale) = row
-		if (expired) {
+		if (row.expired) {
 			delete(tokenHash)
 			return null
 		}
-		if (stale) jdbc.update("update sessions set last_used_at = now() where token_hash = ?", tokenHash)
-		return accountId
+		if (row.stale) jdbc.update("update sessions set last_used_at = now() where token_hash = ?", tokenHash)
+		if (row.unseen) markSeen(row.accountId)
+		return row.accountId
+	}
+
+	/** 마지막 접속을 지금으로, 그날(한국 날짜) 처음이면 접속 줄 하나. 서버 여러 대가 같이 써도 줄은 하나다. */
+	private fun markSeen(accountId: UUID) {
+		jdbc.update("update accounts set last_seen_at = now() where id = ?", accountId)
+		jdbc.update(
+			"""
+			insert into daily_active (kst_date, account_id, first_hour_kst)
+			values ((now() at time zone 'Asia/Seoul')::date, ?, extract(hour from now() at time zone 'Asia/Seoul')::smallint)
+			on conflict do nothing
+			""".trimIndent(),
+			accountId,
+		)
 	}
 
 	fun delete(tokenHash: String) {

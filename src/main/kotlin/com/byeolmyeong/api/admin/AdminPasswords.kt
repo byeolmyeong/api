@@ -3,16 +3,25 @@ package com.byeolmyeong.api.admin
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.stereotype.Component
+import java.security.SecureRandom
 
 private const val MIN_LENGTH = 10
 
 /** bcrypt 는 72바이트까지만 본다. 넘는 비밀번호는 잘라 받지 않고 거절한다. */
 private const val MAX_BYTES = 72
 
+/** 임시 비밀번호의 글자: 영문 대소문자 · 숫자. */
+private const val TEMPORARY_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
 /** 관리자 비밀번호의 규칙과 해시(bcrypt). 비밀번호 원문은 저장하지도 로그에 남기지도 않는다. */
 @Component
 class AdminPasswords(@Value("\${byeolmyeong.admin.bcrypt-strength}") strength: Int) {
 	private val encoder = BCryptPasswordEncoder(strength)
+	private val random = SecureRandom()
+
+	/** 서버가 만드는 임시 비밀번호(결정 043 의 5): 영문 대소문자 · 숫자 12자를 `xxxx-xxxx-xxxx` 로. 규칙([acceptable])에 맞는다. */
+	fun temporary(): String =
+		(0 until 3).joinToString("-") { (0 until 4).map { TEMPORARY_ALPHABET[random.nextInt(TEMPORARY_ALPHABET.length)] }.joinToString("") }
 
 	/** 없는 아이디에도 같은 계산을 하려고 두는 해시(걸리는 시간으로 아이디가 있는지 알 수 없게). */
 	private val dummyHash = encoder.encode("no-such-admin-placeholder")!!

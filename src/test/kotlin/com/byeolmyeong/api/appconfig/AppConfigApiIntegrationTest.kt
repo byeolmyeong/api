@@ -43,7 +43,6 @@ fun resetAppConfigs(jdbc: JdbcTemplate) {
 		"byeolmyeong.rate-limit.app-config-per-minute=100000",
 		"byeolmyeong.rate-limit.places-per-minute=100000",
 		"byeolmyeong.rate-limit.admin-login-per-ip=100000",
-		"byeolmyeong.rate-limit.admin-login-per-id=100000",
 		"byeolmyeong.admin.bootstrap-id=$ADMIN_ID",
 		"byeolmyeong.admin.bootstrap-password=$ADMIN_PASSWORD",
 		"byeolmyeong.admin.bcrypt-strength=4",

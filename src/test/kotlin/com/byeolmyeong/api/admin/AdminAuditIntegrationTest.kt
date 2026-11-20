@@ -105,7 +105,7 @@ class AdminAuditIntegrationTest {
 
 	@Test
 	fun `비밀번호 변경은 성공만 남고 값은 없다`() {
-		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD)
+		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, jdbc)
 		val second = adminToken(port, SECOND_ID, SECOND_PASSWORD)
 		jdbc.update("delete from audit_logs")
 
@@ -121,7 +121,7 @@ class AdminAuditIntegrationTest {
 
 	@Test
 	fun `관리자 만들기·끄기·켜기가 대상과 함께 남는다`() {
-		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, name = "둘째관리자이름")
+		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, jdbc)
 		var row = single("ADMIN_CREATED")
 		assertEquals(listOf("ADMIN", created.toString(), null), listOf(row["target_type"], row["target_id"], row["detail"]))
 
@@ -260,7 +260,7 @@ class AdminAuditIntegrationTest {
 	@Test
 	fun `관리자가 넣은 글·비밀번호·토큰·이름·이메일은 어느 행에도 없다`() {
 		val inquiry = seedInquiry()
-		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, name = "둘째관리자이름")
+		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, jdbc)
 		val second = adminToken(port, SECOND_ID, SECOND_PASSWORD)
 		login(port, ROOT_ID, "wrong-password-typed")
 		login(port, "typed-password-as-id", "x")
@@ -275,7 +275,7 @@ class AdminAuditIntegrationTest {
 		val dump = jdbc.queryForList("select row_to_json(a)::text from audit_logs a", String::class.java).joinToString("\n")
 		assertEquals(11, dump.lines().size)
 		val secrets = listOf(
-			MEMO, "메모비밀글", INQUIRY_BODY, "문의비밀글", REPLY_EMAIL, "@", QUESTION, "질문비밀글", ANSWER, "답비밀글", "둘째관리자이름",
+			MEMO, "메모비밀글", INQUIRY_BODY, "문의비밀글", REPLY_EMAIL, "@", QUESTION, "질문비밀글", ANSWER, "답비밀글",
 			ROOT_PASSWORD, SECOND_PASSWORD, "brand-new-password-1", "wrong-password-typed", "typed-password-as-id", token, second, sha256(token),
 		)
 		for (secret in secrets) assertFalse(secret in dump, "감사 기록에 있으면 안 되는 값: ${secret.take(6)}…")
