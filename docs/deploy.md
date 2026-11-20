@@ -27,7 +27,7 @@ last_reviewed: 2026-11-18
 
 VM 안: `/opt/byeolmyeong/` 에 `compose.yaml`·`Caddyfile`·`initdb/`·`swap.sh`·`backup.sh`·`restore.sh`·`.env`(서버 컨테이너가 봄)·`db.env`(Postgres 만)·`backup.env`(운영, 백업 스크립트만)·`app-blue.jar`·`app-green.jar`(색마다 jar)·`upstream.caddy`(Caddy 가 보내는 색, `swap.sh` 가 씀)·`active_color`(지금 받는 색)·`app.jar.good`(지금 받는 jar)·`app.jar.prev`(그 앞에 받던 jar, 되돌리기용)·`backups/`. 컨테이너는 `api-blue`·`api-green`(서버, **늘 하나만 받는다**)·`postgres`·`caddy`(HTTPS).
 
-서버를 바꿔 띄우는 것은 `swap.sh` 만 한다(결정 046): 쉬는 색에 jar 를 띄워 `/health` 200 을 본 뒤 Caddy 가 보내는 색을 바꾸고(`caddy reload`, 연결을 끊지 않는다), 옛 색은 받던 요청(최대 120초) · 쓰던 생성(최대 180초)을 끝낸 뒤 내린다. 새 색이 3분 안에 살아나지 않으면 받는 쪽은 옛 색 그대로다. Postgres · Caddy 는 만지지 않는다. **VM 에서 `docker compose up -d` 를 서비스 이름 없이 부르지 않는다**(두 색이 다 뜬다).
+서버를 바꿔 띄우는 것은 `swap.sh` 만 한다(결정 046): 쉬는 색에 jar 를 띄워 `/health` 200 을 본 뒤 Caddy 가 보내는 색을 바꾸고(`caddy reload`, 연결을 끊지 않는다), 옛 색은 받던 요청(최대 120초) · 쓰던 생성(최대 180초)을 끝낸 뒤 내린다. 새 색이 5분 안에 살아나지 않으면 받는 쪽은 옛 색 그대로다. Postgres · Caddy 는 만지지 않는다. **VM 에서 `docker compose up -d` 를 서비스 이름 없이 부르지 않는다**(두 색이 다 뜬다).
 
 ## (가) 처음 한 번 — 순서대로
 
@@ -120,7 +120,7 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 |---|---|
 | 스테이징에 올리기 | 작업 브랜치 → `develop` 으로 PR → CI 통과 확인 → 합치기. Actions 의 `deploy` 가 알아서 올린다 |
 | 운영에 올리기 | 스테이징에서 확인 → `develop` → `main` PR → CI 통과 확인 → 합치기(합치는 것이 "사람의 확인"이다). jar 를 바꾸기 직전에 DB 를 백업한다 |
-| 배포가 실패하면 | 새 색이 3분 안에 `/health` 200 이 아니거나 Caddy 다시 읽기가 실패하면 `swap.sh` 가 새 색을 내리고 실패로 끝난다. **받는 쪽은 옛 색 그대로라 되돌릴 것이 없다**(사용자는 끊김을 보지 않는다). 배포 직전 백업이 실패해도 서버는 그대로 두고 끝난다(설정 파일은 이미 올라가 있다). `step=reload` 면 올라간 Caddyfile 이 틀린 것이다 — 고쳐 다시 배포한다(그대로 두면 Caddy 가 다시 시작할 때 뜨지 못한다). 원인은 `docker compose logs --tail 100 api-<새 색>` 과 Actions 로그의 `event=swap_failed step=…` |
+| 배포가 실패하면 | 새 색이 5분 안에 `/health` 200 이 아니거나 Caddy 다시 읽기가 실패하면 `swap.sh` 가 새 색을 내리고 실패로 끝난다. **받는 쪽은 옛 색 그대로라 되돌릴 것이 없다**(사용자는 끊김을 보지 않는다). 배포 직전 백업이 실패해도 서버는 그대로 두고 끝난다(설정 파일은 이미 올라가 있다). `step=reload` 면 올라간 Caddyfile 이 틀린 것이다 — 고쳐 다시 배포한다(그대로 두면 Caddy 가 다시 시작할 때 뜨지 못한다). 원인은 `docker compose logs --tail 100 api-<새 색>` 과 Actions 로그의 `event=swap_failed step=…` |
 | 되돌리기(바로 앞 버전) | `./swap.sh app.jar.prev` (끊김 없음). `app.jar.prev` 는 받는 jar 가 바뀔 때만 밀려난다 — `--restart` 나 실패한 배포는 건드리지 않는다. 다시 한 번 하면 되돌리기 전 버전으로 돌아간다 |
 | 되돌리기(더 이전 버전) | Actions → `deploy` → Run workflow → 대상·이전 커밋(또는 브랜치). 수동 실행은 빌드·테스트를 다시 돌린다. 끊김 없다. **DB 는 되돌리지 않는다.** 결정 046 앞의 커밋이면 jar 만 바꾸고 그 커밋의 설정 파일은 올리지 않는다(블루 · 그린 VM 을 깬다) |
 | DB 까지 되돌려야 할 때(운영) | ① `./restore.sh backups/byeolmyeong-predeploy-<시각>.dump --into-live` — 한 트랜잭션 안에서 public 스키마를 비우고 덤프를 넣으므로 새 마이그레이션이 만든 표도 남지 않는다. 끝나면 서버는 **멈춘 채로** 둔다(지금 jar 로 뜨면 그 마이그레이션이 다시 적용된다). ② Actions → `deploy` → Run workflow → 대상 `prod`·배포 전 커밋 → 그 jar 로 서버가 뜬다. 마이그레이션은 앞으로만 호환되게 쓴다(열·표를 지우거나 이름을 바꾸는 일은 두 번의 배포로 나눈다) |
