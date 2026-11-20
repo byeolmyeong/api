@@ -4,6 +4,7 @@ import com.byeolmyeong.api.admin.InquiryAnswered
 import com.byeolmyeong.api.reading.ReadingCreated
 import com.byeolmyeong.api.report.MeReportDone
 import com.byeolmyeong.api.report.TimingReportDone
+import com.byeolmyeong.api.sky.TodaySkyDue
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Bean
@@ -14,6 +15,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import org.springframework.stereotype.Component
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
+import org.springframework.context.event.EventListener
 import org.springframework.transaction.event.TransactionPhase
 import org.springframework.transaction.event.TransactionalEventListener
 import java.util.UUID
@@ -152,6 +154,16 @@ class PushEvents(private val push: PushService, @Qualifier("pushExecutor") priva
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
 	fun inquiryAnswered(event: InquiryAnswered) =
 		later(PushKind.INQUIRY_ANSWERED) { push.notify(event.ownerId, PushKind.INQUIRY_ANSWERED, event.inquiryId) }
+
+	/** 오늘의 하늘 아침 알림(결정 042 의 6). `sky` 의 아침 일정이 그날 한 번만 낸다 — 그 일꾼 스레드에서 바로 보낸다. */
+	@EventListener
+	fun todaySkyDue(event: TodaySkyDue) {
+		try {
+			push.send(event.ownerId, PushKind.TODAY_SKY, PushMessages.TODAY_SKY_TITLE, event.title, mapOf("date" to event.date.toString()))
+		} catch (e: RuntimeException) {
+			log.warn("event=push_failed type={} reason={}", PushKind.TODAY_SKY, e.javaClass.simpleName)
+		}
+	}
 
 	private fun later(kind: PushKind, work: () -> Unit) {
 		try {

@@ -41,6 +41,12 @@ class DaySkyService(
 	/** 진행 중인 생성(소유자 · 차트 해시 · 날짜 → 결과). 서버 메모리에만 있고 끝나면 지운다. */
 	private val inFlight = ConcurrentHashMap<String, CompletableFuture<DaySky>>()
 
+	/** 지금 출생 정보로 이미 만들어 둔 [date] 의 그날의 하늘. 없으면(출생 정보도 없으면) null — 만들지 않는다(푸시의 보내기가 쓴다). */
+	fun stored(ownerId: UUID, date: LocalDate): DaySky? {
+		val birth = profiles.chartInput(ownerId) ?: return null
+		return repository.find(ownerId, birth.hash, date)
+	}
+
 	/**
 	 * [ownerId] 의 [date](한국 날짜) 그날의 하늘을 만들거나 저장본을 돌려준다. 저장본이 있으면 모델 · 생성 한도 없이 바로 준다.
 	 * 같은 소유자 · 차트 · 날의 생성이 진행 중이면 그 결과(실패 · 429 포함)를 기다린다.

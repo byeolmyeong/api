@@ -20,3 +20,15 @@ alter table accounts
 	add column today_sky_push boolean,
 	-- 오늘의 하늘 알림을 받는 한국 시각(5분 단위)
 	add column today_sky_time time not null default '08:00';
+
+-- 오늘의 하늘 아침 알림의 하루 한 번(결정 042 의 6). (계정, 한국 날짜)마다 한 줄 — 먼저 넣은 서버만 미리 만들고, 보낸 때를 먼저 적은 서버만 보낸다.
+-- 서버 여러 대 · 재시작에도 같은 날 두 번 가지 않는다. 계정을 지우면 함께 지워진다.
+create table today_sky_pushes (
+	account_id uuid not null references accounts (id) on delete cascade,
+	kst_date date not null,
+	-- 미리 만들기를 맡은 때(그 줄을 넣은 때)
+	created_at timestamptz not null default now(),
+	-- 보낸 때. null 이면 아직
+	sent_at timestamptz,
+	primary key (account_id, kst_date)
+);
