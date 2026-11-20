@@ -30,7 +30,7 @@ last_reviewed: 2026-11-12
 - `direction` — 방향성 제시(해 볼 만한 것 3개). 주제는 이성·미래·궁합이다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형·숫자 검증, 미래 주제의 "지금의 시기" 가리기)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래 주제의 시기는 `chart` 로 직접 계산한다(`report` 의 저장본을 읽지 않는다). 궁합 주제는 상대의 출생 정보를 요청으로 다시 받아 그 안에서만 쓰고(결정 010), 글이 붙는 궁합의 소유자·관계 유형·점수·그때의 내 차트 해시는 `synastries` 표에서 읽기만 한다(`synastry` 의 클래스를 쓰지 않는다). 결정: docs/decisions/009-direction-storage-and-advice-check.md, docs/decisions/011-direction-future-and-synastry.md
 - `inquiry` — 문의하기와 내 문의. 문의 글을 검증해 저장하고(보낸 앱의 헤더도), 내 문의 목록 · 한 건을 답과 함께 준다(답은 `admin` 이 쓴다 — 같은 테이블만 본다). 메일 발송은 없다. 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md · 039-inquiry-answers.md
 - `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(찾기 · 작성자 · 상태 · 메모 · 답 · 임시 저장 · 처리한 관리자 — 처음 답하면 `InquiryAnswered` 를 낸다, 결정 039), 현황 수치(개수 · 비율만)와 접속 차트(결정 043), FAQ 편집, 앱 설정 편집(최소 버전·강제 업데이트, 결정 016). 한 일은 `AdminAudit` 으로 감사 기록에 알린다(결정 015). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
-- `audit` — 감사 기록(결정 015). 다른 기능과 `auth` 가 낸 `web.AuditEvent` 를 듣고(`AuditRecorder`, 커밋 뒤·자기 트랜잭션·실패는 삼킨다) `audit_logs` 에 넣기만 한다. 관리자가 읽는 경로(`GET /admin/audit-logs`)도 여기 있다 — 경로가 `/admin/` 아래라 관리자 세션 검사가 걸리지만 `admin` 의 코드는 쓰지 않는다. 다른 기능은 이 패키지를 모른다.
+- `audit` — 감사 기록(결정 015). 다른 기능과 `auth` 가 낸 `web.AuditEvent` 를 듣고(`AuditRecorder`, 커밋 뒤·자기 트랜잭션·실패는 삼킨다) `audit_logs` 에 넣기만 한다(1년 지난 행은 날마다 한 번 지운다 — 결정 043 의 8). 관리자가 읽는 경로(`GET /admin/audit-logs`)도 여기 있다 — 경로가 `/admin/` 아래라 관리자 세션 검사가 걸리지만 `admin` 의 코드는 쓰지 않는다. 다른 기능은 이 패키지를 모른다.
 - `appconfig` — 앱 설정의 공개 조회(`GET /app-config`)와 점검·강제 업데이트(`AppUpdateInterceptor`: 점검이 켜져 있으면 모든 요청을 503 으로 — 결정 017, 그다음 앱이 보낸 플랫폼·버전 헤더를 보고 낮은 버전을 426 으로 막는다. 세션 검사보다 먼저, `/admin/**`·`/health`·`/app-config` 는 뺀다). `app_configs`·`app_maintenance` 를 읽기만 하고 잠깐 캐시한다. 값을 쓰는 것은 `admin` 이다(결정 016).
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
 - `share` — 공유 카드 4종(요약 해석·궁합 점수·랭킹·다음 변곡점): 만들기·공개 조회·지우기. 공유하는 순간의 공개 글만 `shares` 에 따로 저장하고(스냅샷) 공개 조회는 그 표만 읽는다. 카드의 글은 그 글을 가진 기능에게 이벤트(`ReadingCardRequested` 등)로 묻는다. 이름을 이니셜로, 날짜를 해 + 계절로 줄이는 것도 여기서 한다. 결정: docs/decisions/012-share-cards-snapshot.md
@@ -52,7 +52,7 @@ src/main/kotlin/com/byeolmyeong/api/
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증) · DirectionFuture(미래: 지금의 시기·대상) · DirectionSynastry(궁합: 재료·지시문)
   inquiry/     InquiryController(문의하기 · 내 문의) · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증 · 옛 앱 갈래 · 보낸 앱)
   admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸 · 답 칸만 쓴다) · InquiryAnswered(이벤트) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다 · 접속 차트) · AdminFaqController · AdminFaqService(+ AdminFaqRepository) · AdminAppConfigController(+ AdminAppConfigService · AdminAppConfigRepository) · AppConfigChanged(이벤트) · AdminAudit(감사 기록에 알린다)
-  audit/       AuditRecorder(이벤트를 듣는다) · AuditService(+ AuditRepository — 넣고 읽기만 한다) · AuditLogController(`GET /admin/audit-logs`)
+  audit/       AuditRecorder(이벤트를 듣는다) · AuditService(+ AuditRepository — 넣고 읽고, 1년 지난 행을 날마다 지운다) · AuditLogController(`GET /admin/audit-logs`)
   appconfig/   AppConfigController(+ AppConfigService: 캐시·막을지 판정 · AppConfigRepository) · AppUpdateInterceptor(+ AppUpdateConfig: 순서·빼는 경로)
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
   share/       ShareController · ShareService · ShareRepository · ShareCard(카드의 모양·이니셜·계절) · ShareCardRequested(이벤트 넷)
@@ -324,7 +324,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `PATCH /admin/faqs/{id}` | `{ question?, answer?, published? }` | 200 `Faq` |
 | `DELETE /admin/faqs/{id}` | 없음 | 204 |
 | `PUT /admin/faqs/order` | `{ ids: [id, …] }` | 200 `[Faq]` 새 순서의 전체 목록 |
-| `GET /admin/audit-logs?actorType=&action=&from=&to=&actorRef=&page=&size=` | 쿼리(모두 선택) | 200 `{ items: [AuditLog], page, size, total }` 새것부터 |
+| `GET /admin/audit-logs?actorType=&action=&from=&to=&actorRef=&q=&page=&size=` | 쿼리(모두 선택) | 200 `{ items: [AuditLog], page, size, total }` 새것부터 |
 | `GET /admin/app-config` | 없음 | 200 `AppConfig`(두 플랫폼과 점검) |
 | `PUT /admin/app-config/{platform}` | `{ minVersion, latestVersion, storeUrl, message, blockNow }`(다섯 키 — `latestVersion` 만은 빠지면 그대로) | 200 `PlatformConfig`(바뀐 플랫폼) |
 | `PUT /admin/app-config/maintenance` | `{ active, message }`(두 키 모두) | 200 `Maintenance` |
@@ -487,7 +487,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 처음 글은 서버에 없다(빈 목록). 관리 화면으로 넣는다.
 
 ### 감사 기록
-- 관리자와 앱 사용자의 주요 행동을 "누가 무엇을 언제" 만 남긴 목록이다(결정 015). 읽기만 있다 — 고치거나 지우는 경로가 없다. 이 조회 자체와 다른 목록·수치 조회는 기록되지 않는다.
+- 관리자와 앱 사용자의 주요 행동을 "누가 무엇을 언제" 만 남긴 목록이다(결정 015). 읽기만 있다 — 고치거나 지우는 경로가 없다(1년이 지난 행은 서버가 날마다 지운다 — 아래 "보관"). 이 조회 자체와 다른 목록·수치 조회는 기록되지 않는다.
 - `AuditLog` = `{ id, occurredAt, actorType, actor, action, targetType, targetId, outcome, detail }`.
   - `occurredAt`: 기록된 때(그 일이 끝난 직후).
   - `actorType`: `ADMIN`(관리자) · `USER`(앱 사용자) · `SYSTEM`(로그인하지 않은 채 일어난 일: 실패한 관리자 로그인, 서버가 만든 첫 관리자).
@@ -496,7 +496,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
     - `USER`: 둘 다 `ownerRef`(12자 16진수) — 문의(`Inquiry.ownerRef`)와 같은 값이라 같은 사람의 문의와 행동을 묶어 볼 수 있다. 계정 id·이름·이메일은 어떤 응답에도 없다.
     - 지금은 `ref` 와 `label` 이 같은 글자지만 화면은 둘을 구분해 쓴다(보여 줄 때는 `label`, 거를 때는 `ref`).
   - `action`: 아래 표의 코드. 서버가 모르는 코드가 늘 수 있으므로 화면은 모르는 코드를 글자 그대로 보여 준다.
-  - `targetType`·`targetId`: 무엇에 한 일인지(`"ADMIN"`·`"INQUIRY"`·`"FAQ"`·`"SYNASTRY"`·`"APP_CONFIG"` 와 그 id) 또는 둘 다 `null`. `INQUIRY` 의 id 는 `GET /admin/inquiries/{id}` 의 id, `ADMIN` 의 id 는 `AdminAccount.id`, `FAQ` 의 id 는 `Faq.id` 다. 대상이 그 뒤 지워졌을 수 있다(그때 그 경로는 404).
+  - `targetType`·`targetId`: 무엇에 한 일인지(`"ADMIN"`·`"INQUIRY"`·`"FAQ"`·`"SYNASTRY"`·`"APP_CONFIG"`·`"USER"`·`"PUSH_EVENT"` 와 그 id) 또는 둘 다 `null`. `INQUIRY` 의 id 는 `GET /admin/inquiries/{id}` 의 id, `ADMIN` 의 id 는 `AdminAccount.id`, `FAQ` 의 id 는 `Faq.id`, `USER` 의 id 는 사용자 관리(`GET /admin/users/{id}`, 결정 043 의 1)의 계정 id, `PUSH_EVENT` 의 id 는 광고 푸시(`GET /admin/push/events` 의 `id`, 결정 043 의 6)다. 대상이 그 뒤 지워졌을 수 있다(그때 그 경로는 404).
   - `outcome`: `SUCCESS` · `FAILURE`. `FAILURE` 는 표에 "실패도 남는다" 고 적힌 행동에만 있다. 거절된 요청(400·404·409·429)은 기록되지 않는다.
   - `detail`: 코드 값만 담은 작은 객체 또는 `null`. 키는 행동마다 아래 표와 같다. 글(메모·문의·FAQ)·이름·이메일·출생 정보·비밀번호·토큰은 어디에도 없다.
 - 행동(`action`) — 관리자:
@@ -521,6 +521,12 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `FAQ_REORDERED` | `PUT /admin/faqs/order` | `ADMIN` | 없음 | `{ count }` — 순서를 정한 FAQ 의 수 |
   | `APP_CONFIG_UPDATED` | `PUT /admin/app-config/{platform}`(아래 "앱 설정") | `ADMIN` | `APP_CONFIG` `ios` 또는 `android` | `{ platform, minVersion?, latestVersion?, blockNow }` — `minVersion` · `latestVersion` 은 값이 있을 때만(`latestVersion` 은 키를 보내지 않았으면 그대로 둔 값). 안내 글과 스토어 주소는 없다 |
   | `MAINTENANCE_UPDATED` | `PUT /admin/app-config/maintenance`(아래 "앱 설정" 의 점검) | `ADMIN` | `APP_CONFIG` `maintenance` | `{ active }` — 켰는지 껐는지. 안내 글은 없다 |
+  | `USER_SUSPENDED` · `USER_UNSUSPENDED` | 사용자를 정지했을 때 · 정지를 풀었을 때(`POST /admin/users/{id}/suspend` · `unsuspend`, 결정 043 의 1 · 044) | `ADMIN` | `USER` 그 계정의 id | 경로를 만드는 묶음이 정한다(사유 글은 넣지 않는다) |
+  | `USER_DELETED_BY_ADMIN` | 사용자가 요청해 관리자가 탈퇴를 대행했을 때(`DELETE /admin/users/{id}`) | `ADMIN` | `USER` 그 계정의 id(이제 없는 id) | 경로를 만드는 묶음이 정한다(사유 · 닉네임은 넣지 않는다) |
+  | `GENERATION_RETRIED` | 실패한 생성을 다시 하게 했을 때(`POST /admin/users/{id}/regenerate`) | `ADMIN` | `USER` 그 계정의 id | 경로를 만드는 묶음이 정한다 |
+  | `PUSH_EVENT_SENT` | 광고 푸시를 보냈을 때(`POST /admin/push/events`, 결정 043 의 6) | `ADMIN` | `PUSH_EVENT` 그 발송의 id | 경로를 만드는 묶음이 정한다(제목 · 본문 글은 넣지 않는다) |
+
+  - 아래 다섯 행동(`USER_SUSPENDED` ~ `PUSH_EVENT_SENT`)은 코드(`action` 조건으로 거를 수 있다)만 먼저 더했다. 그 경로가 아직 없어 지금은 남지 않는다 — 경로를 만드는 묶음(계획 S⑪ · S⑩)이 남기고 `detail` 을 이 표에 적는다.
 
 - 행동(`action`) — 앱 사용자(모두 `actorType: USER`):
 
@@ -548,7 +554,9 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `actorType`: `ADMIN`·`USER`·`SYSTEM` 중 하나. 그 밖의 값은 400 `INVALID_ACTOR_TYPE`(소문자도 틀리다).
   - `action`: 위 두 표의 코드 중 하나. 그 밖의 값은 400 `INVALID_ACTION`. 맞는 코드인데 행이 없으면 빈 목록이다.
   - `from`·`to`: **한국 시간의 날짜 `YYYY-MM-DD`** 이고 두 끝을 포함한다 — `from=2026-11-10&to=2026-11-10` 은 한국 시간 11월 10일 00:00:00 부터 23:59:59 까지다. 하나만 줘도 된다. 모양이 다르거나(`2026-11-1`, 시각이 붙은 값) 없는 날(`2026-02-30`)이면 400 `INVALID_DATE`. `from` 이 `to` 보다 늦으면 오류가 아니라 빈 목록이다. 응답의 `occurredAt` 은 UTC 이므로 화면이 한국 시간으로 바꿔 보여 준다.
-  - `actorRef`: 관리자의 로그인 아이디 또는 사용자의 `ownerRef`(`actor.ref` 의 값). 앞뒤 공백과 대소문자를 가리지 않고 **전체가 같은 것만** 준다(일부만 맞는 검색은 없다). 맞는 것이 없으면 빈 목록이다. `SYSTEM` 의 행은 이 조건에 걸리지 않는다.
+  - `actorRef`: 관리자의 로그인 아이디 또는 사용자의 `ownerRef`(`actor.ref` 의 값). 앞뒤 공백과 대소문자를 가리지 않고 **전체가 같은 것만** 준다(일부만 맞는 검색은 없다 — 일부 검색은 `q`). 맞는 것이 없으면 빈 목록이다. `SYSTEM` 의 행은 이 조건에 걸리지 않는다.
+  - `q`(결정 043 의 8): 검색어. 앞뒤 공백을 떼고 대소문자를 가리지 않고 **일부가 맞는** 행을 준다 — `actorType: ADMIN` 의 행은 그때의 로그인 아이디(`actor.label`)에, `actorType: USER` 의 행은 그 사람의 **지금** 닉네임에 견준다. `%`·`_` 같은 글자도 글자 그대로다. 빈 값 · 공백뿐인 값은 없는 것으로 본다. 틀린 값은 없다(400 이 없다).
+    - 닉네임은 감사 기록에 없다(결정 015) — 지금의 계정에서 닉네임으로 계정을 찾아 그 계정의 행을 준다. 그래서 **지워진 계정의 행은 닉네임으로 찾을 수 없고**(`actorRef` 의 `ownerRef` 로는 찾는다), 닉네임을 바꾼 사람은 새 닉네임으로 찾는다. 사용자의 `ownerRef` 나 계정 id 는 `q` 로 찾지 않는다. `SYSTEM` 의 행은 걸리지 않는다.
   - `page`: 0 부터 세는 쪽 번호(기본 0). `size`: 한 쪽의 개수 1~100(기본 20). 정수가 아니거나 범위를 벗어나면 400 `INVALID_PAGE`.
   - 여러 조건이 틀리면 `INVALID_ACTOR_TYPE` → `INVALID_ACTION` → `INVALID_DATE` → `INVALID_PAGE` 순서로 처음 걸린 것 하나다.
   - 응답 `{ items, page, size, total }`: 문의 목록과 같다 — `page`·`size` 는 서버가 쓴 값, `total` 은 조건에 맞는 전체 수, 마지막 쪽을 넘으면 `items` 가 빈 배열이다.
@@ -565,7 +573,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
       "page": 0, "size": 2, "total": 7
     }
     ```
-- 보관 기한이 없다(행이 계속 쌓인다). 수치(`Stats`)에는 감사 기록의 수가 없다.
+- **보관은 1년**(결정 043 의 8 — 결정 015 의 "보관 기한 없음" 을 바꿨다): 서버가 날마다 한국 시각 04:30 에 일어난 지 365일이 지난 행을 지운다(문장 하나 — 서버가 여러 대여도 같다. 로그 `event=audit_retention_deleted count=…`). 그래서 `from` 을 1년보다 앞으로 줘도 그 앞의 행은 없다. 수치(`Stats`)에는 감사 기록의 수가 없다.
 
 ### 앱 설정 (최소 버전·최신 버전·강제 업데이트·점검)
 - 앱(iOS·Android)이 써야 하는 가장 낮은 버전을 플랫폼마다 정하고, 급할 때는 그보다 낮은 버전의 요청을 서버가 막게 한다(결정 016). 업데이트를 권할 최신 버전도 둔다(결정 040). 플랫폼은 `ios`·`android` 둘뿐이고 더하거나 지울 수 없다.
@@ -591,8 +599,9 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 언제 적용되나: 막기(426)는 고친 서버에서 **바로**, 서버가 여러 대면 다른 서버는 길어야 5초 뒤다. 앱이 읽는 공개 조회 `GET /app-config`(위 "API 계약" 의 "앱 설정과 강제 업데이트" — 여기서 `updatedAt`·`updatedBy` 를 뺀 다섯 값)는 60초 캐시될 수 있어 안내 글·주소가 앱에 보이기까지 1분쯤 걸릴 수 있다.
 - 막히는 것과 막히지 않는 것: 앱은 모든 요청에 `X-App-Platform`·`X-App-Version` 헤더를 보낸다. `blockNow` 가 켜진 플랫폼에서 버전이 `minVersion` 보다 낮은 요청만 막힌다. **관리자 API(`/admin/**`)는 어떤 경우에도 막히지 않는다** — 잘못 켰으면 같은 화면에서 끈다. 웹 빌드(헤더 없음)·모르는 플랫폼·읽을 수 없는 버전의 요청도 막히지 않는다. 버전이 `minVersion` 과 같으면 막히지 않는다.
   - 화면에 권하는 확인: `blockNow` 를 켜기 전에 "`minVersion` 미만의 앱은 업데이트 전까지 아무것도 할 수 없게 된다" 를 한 번 묻는다. `minVersion` 을 스토어에 아직 없는 버전으로 넣으면 그 플랫폼의 모든 사용자가 막힌다(서버는 스토어에 그 버전이 있는지 모른다).
-- **점검**(결정 017): `Maintenance` = `{ active, message, updatedAt, updatedBy }`.
-  - `active`: `true` 면 **앱과 웹의 모든 요청이 503 `MAINTENANCE` 로 막힌다**(사용자는 점검 화면만 본다). 플랫폼·버전과 상관없고 강제 업데이트보다 먼저다. `message`: 점검 화면에 보여 줄 글 또는 `null`(앱의 기본 글). `updatedAt`·`updatedBy`: 플랫폼 설정과 같은 뜻이다(아무도 고치지 않았으면 `updatedBy: null`). 처음에는 `{ "active": false, "message": null, "updatedAt": "…", "updatedBy": null }` 다.
+- **점검**(결정 017): `Maintenance` = `{ active, message, updatedAt, updatedBy, startedAt, startedBy }`.
+  - `active`: `true` 면 **앱과 웹의 모든 요청이 503 `MAINTENANCE` 로 막힌다**(사용자는 점검 화면만 본다). 플랫폼·버전과 상관없고 강제 업데이트보다 먼저다. `message`: 점검 화면에 보여 줄 글 또는 `null`(앱의 기본 글). `updatedAt`·`updatedBy`: 플랫폼 설정과 같은 뜻이다(아무도 고치지 않았으면 `updatedBy: null`). 처음에는 `{ "active": false, "message": null, "updatedAt": "…", "updatedBy": null, "startedAt": null, "startedBy": null }` 다.
+  - `startedAt` · `startedBy`(결정 043 의 7 — 관리 화면 모든 화면 위의 띠): 점검을 **꺼진 상태에서 켠** 때(UTC 글자)와 그 관리자 `{ id, name }`. 켜진 채로 글만 바꾸면(다른 관리자가 해도) 그대로이고 `updatedAt` · `updatedBy` 만 바뀐다. 끄면 둘 다 `null` 이다(꺼진 채로 다시 꺼도 `null`). 이 둘은 관리자 쪽에만 있다 — 앱이 읽는 `GET /app-config` 의 `maintenance` 는 `{ active, message }` 그대로다.
   - `PUT /admin/app-config/maintenance`: 본문 `{ "active": boolean, "message": string | null }` — **두 키를 모두 보낸다**. 200 바뀐 `Maintenance`. `message` 는 앞뒤 공백을 뗀 200자 이하(코드 포인트)이고 `null`·빈 글·공백뿐인 글이면 지워진다(`null`). 끌 때 `message` 를 남겨 둬도 된다(다음에 켤 때 쓴다 — 꺼져 있는 동안 앱은 보여 주지 않는다).
     - 400 `INVALID_REQUEST`: 본문이 객체가 아니거나, 두 키 가운데 하나라도 없거나, 타입이 틀리다(`active` 가 불리언이 아니다 — `null`·`"true"`·`1` 도 틀리다. `message` 가 글자도 `null` 도 아니다). 400 `INVALID_MESSAGE`: 공백을 뗀 뒤 200자를 넘는다. 둘 다 틀리면 `INVALID_REQUEST`. 거절된 요청은 아무것도 바꾸지 않는다.
   - 켜고 끄는 것은 고친 서버에서 **바로**, 서버가 여러 대면 길어야 5초 뒤에 적용된다. **관리자 API(`/admin/**`)는 점검 중에도 열려 있다** — 같은 화면에서 끈다. 앱이 읽는 `GET /app-config` 의 `maintenance`(`active`·`message` 만)는 60초 캐시될 수 있다.
@@ -604,7 +613,8 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
     { "active": true, "message": "새벽 2시부터 4시까지 점검해요." }
 
     200
-    { "active": true, "message": "새벽 2시부터 4시까지 점검해요.", "updatedAt": "2026-11-12T17:00:00Z", "updatedBy": { "id": "5f0c…", "name": "root-admin" } }
+    { "active": true, "message": "새벽 2시부터 4시까지 점검해요.", "updatedAt": "2026-11-12T17:00:00Z", "updatedBy": { "id": "5f0c…", "name": "root-admin" },
+      "startedAt": "2026-11-12T17:00:00Z", "startedBy": { "id": "5f0c…", "name": "root-admin" } }
     ```
 - 고칠 때마다 감사 기록 `APP_CONFIG_UPDATED` 가 남는다(위 "감사 기록": 플랫폼·최소 버전·최신 버전·`blockNow` 만, 안내 글과 주소는 없다). 관리 화면의 출처는 `GET /app-config` 를 부를 수 없다(CORS) — 화면은 `GET /admin/app-config` 를 쓴다.
 - 예:
@@ -633,8 +643,8 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 마이그레이션은 배포 중 옛 jar 와 새 jar 가 같은 DB 를 함께 쓴다는 전제로 쓴다: 열 · 표 지우기 · 이름 바꾸기 · 기존 열에 NOT NULL 더하기는 두 번의 배포로 나누고, 두 번 돌면 안 되는 `@Scheduled` 는 `pg_try_advisory_lock` 으로 한 서버만 돌게 한다(결정 046, `.claude/rules/two-servers-overlap.md`).
 - 소유자를 가리키는 테이블은 모두 `on delete cascade` 다: 계정을 지우면 문의도 함께 지워진다. 문의는 관리자 API(`/admin/inquiries`)로 읽고 처리한다(결정 014).
 - 관리자 쪽 테이블(V12, 결정 014): `admin_accounts`(로그인 아이디 unique·소문자, bcrypt 해시, 표시 이름, 활성 여부, 만든 때 · V26, 결정 043 의 5: 임시 비밀번호라 바꿔야 하는지 `must_change_password` · 마지막 로그인 `last_login_at`) · `admin_sessions`(토큰 해시, 관리자, 끝나는 때) · `faqs`(질문, 답, 순서, 공개 여부, 고친 때, 고친 관리자). `inquiries` 에는 처리 칸 넷이 더해졌다: 상태(`NEW`·`IN_PROGRESS`·`DONE`, 기본 `NEW` — V23 이 `ANSWERED` 를 더했다)·관리자 메모·처리한 관리자·처리한 때. 관리자 테이블은 `accounts`·`sessions` 와 아무 관계가 없고, 관리자는 지우지 않는다(끄기만 한다).
-- 감사 기록(V13, 결정 015): `audit_logs`(일어난 때, 행위자 종류 `ADMIN`·`USER`·`SYSTEM`, 행위자 id — 계정 id 의 글자, 행위자 표시 — 관리자는 그때의 로그인 아이디·사용자는 `ownerRef`, 행동 코드, 대상 종류·id, 결과 `SUCCESS`·`FAILURE`, 덧붙임 `detail` — 코드 값만 담는 작은 JSON). **계정을 가리키는 외래 키가 없다: 계정을 지워도 이 행들은 남는다**(위 줄의 "모두 `on delete cascade`" 의 유일한 예외). 그래서 출생 정보·이름·이메일·사용자가 쓴 글·비밀번호·토큰·주소는 어느 칸에도 없다. 넣기만 하고 보관 기한은 아직 없다.
-- 앱 설정(V14, 결정 016): `app_configs`(플랫폼 `ios`·`android` 가 기본 키 — 마이그레이션이 넣은 두 행뿐이다, 최소 버전, 최신 버전 — V24 · 결정 040 · null 허용, 스토어 주소, 안내 글, `block_now` — 최소 버전이 있어야 켤 수 있다(check), 고친 때, 고친 관리자). 점검(V15, 결정 017): `app_maintenance`(행 하나 — 켜짐 여부, 안내 글, 고친 때, 고친 관리자).
+- 감사 기록(V13, 결정 015): `audit_logs`(일어난 때, 행위자 종류 `ADMIN`·`USER`·`SYSTEM`, 행위자 id — 계정 id 의 글자, 행위자 표시 — 관리자는 그때의 로그인 아이디·사용자는 `ownerRef`, 행동 코드, 대상 종류·id, 결과 `SUCCESS`·`FAILURE`, 덧붙임 `detail` — 코드 값만 담는 작은 JSON). **계정을 가리키는 외래 키가 없다: 계정을 지워도 이 행들은 남는다**(위 줄의 "모두 `on delete cascade`" 의 유일한 예외). 그래서 출생 정보·이름·이메일·사용자가 쓴 글·비밀번호·토큰·주소는 어느 칸에도 없다. 넣기만 하고, 일어난 지 365일이 지난 행은 날마다 한 번 지운다(결정 043 의 8 — 계정을 지운 사람의 행도 1년 뒤에는 없다).
+- 앱 설정(V14, 결정 016): `app_configs`(플랫폼 `ios`·`android` 가 기본 키 — 마이그레이션이 넣은 두 행뿐이다, 최소 버전, 최신 버전 — V24 · 결정 040 · null 허용, 스토어 주소, 안내 글, `block_now` — 최소 버전이 있어야 켤 수 있다(check), 고친 때, 고친 관리자). 점검(V15, 결정 017): `app_maintenance`(행 하나 — 켜짐 여부, 안내 글, 고친 때, 고친 관리자 · V28, 결정 043 의 7: 꺼진 상태에서 켠 때 `started_at` · 켠 관리자 `started_by` — 끄면 null, 켜진 채로 올라간 행은 마지막으로 고친 때 · 관리자로 채웠다).
 - 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
 - `shares`(V10, 결정 012): 공유 식별자(기본 키, 무작위 128비트), 소유자(계정을 지우면 함께 지워진다), 카드 종류, 카드(공개 조회가 그대로 주는 JSON — 공개 필드뿐이다), 카드의 해시(같은 소유자의 같은 내용은 한 행), 만든 때. 랭킹 카드에는 앞의 3명만, 이름을 가렸으면 이니셜만 들어 있다. 다음 변곡점 카드에는 날짜가 아니라 해와 계절이 들어 있다.
