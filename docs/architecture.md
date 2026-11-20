@@ -20,7 +20,7 @@ last_reviewed: 2026-11-12
 ## 모듈 (패키지) — 기능별. 결정: docs/decisions/004-module-boundaries-archunit.md
 - `chart` — 계산. 순수 함수만 둔다(입력: UTC 시각·위경도 → 출력: 차트·변곡점 구간·궁합 점수·일 방식 막대·그날 · 그달의 지나가는 별). DB·HTTP·AI·Spring 을 모른다. 이유: 계산 정확도가 제품의 신뢰이고 기준값 테스트로 혼자 검증돼야 한다.
 - `birth` — 출생지 목록과 시각 변환(`java.time` 의 시간대 이력), 그리고 저장된 출생 정보를 읽고 쓰는 한 곳(`BirthProfileService`). 저장된 출생 정보에서 차트 입력과 "같은 차트" 를 가리는 해시(`ChartInput`)를 얻는 곳도 여기다. 해석·리포트·궁합이 모두 소유자의 출생 정보를 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다.
-- `web` — HTTP 공통: 오류 응답 모양(`ErrorResponse`·`BadRequestException`·`NotFoundException`), 출생 정보 요청 검증(`BirthRequestParser`), 요청 속도 제한, CORS(앱의 주소와 관리 화면의 주소를 경로로 나눈다), 지금의 `POST /charts` 컨트롤러. 감사 기록을 남겨 달라는 이벤트의 타입(`AuditEvent`·`AuditAction`·`AuditActor`)과 관리자에게 사용자를 가리키는 말(`ownerRef`)도 여기 둔다 — 기능 패키지와 `auth` 가 모두 써야 하는데 둘 다 쓸 수 있는 곳이 여기뿐이다(결정 015). 앱 버전을 읽고 견주는 순수 함수(`parseAppVersion`, 결정 016)도 여기 있다 — 최소 버전을 넣는 `admin` 과 요청의 버전을 보는 `appconfig` 가 같이 쓴다. `auth` 를 모른다.
+- `web` — HTTP 공통: 오류 응답 모양(`ErrorResponse`·`BadRequestException`·`NotFoundException`), 출생 정보 요청 검증(`BirthRequestParser`), 요청 속도 제한, CORS(앱의 주소와 관리 화면의 주소를 경로로 나눈다), 지금의 `POST /charts` 컨트롤러. 감사 기록을 남겨 달라는 이벤트의 타입(`AuditEvent`·`AuditAction`·`AuditActor`)과 관리자에게 사용자를 가리키는 말(`ownerRef`)도 여기 둔다 — 기능 패키지와 `auth` 가 모두 써야 하는데 둘 다 쓸 수 있는 곳이 여기뿐이다(결정 015). 앱 버전을 읽고 견주는 순수 함수(`parseAppVersion`, 결정 016)도 여기 있다 — 최소 버전을 넣는 `admin` 과 요청의 버전을 보는 `appconfig` 가 같이 쓴다. "지금" 을 주는 시계 빈(`ClockConfig`, 한국 시간대 — 테스트가 고정 시계로 바꿔 끼운다)도 여기 있다. `auth` 를 모른다.
 - `auth` — 세션 발급·검증, 세션 검사(`SessionInterceptor`: 로그인 전에 쓰는 곳을 "메서드 + 경로"(`PUBLIC_ENDPOINTS`)로 정하고, 거기 없는 요청은 모두 세션 필요 — 같은 경로라도 열지 않은 메서드는 세션이 있어야 한다. HEAD 는 GET 과 같이 연다. `/admin/**` 는 보지 않는다 — 관리자 세션 검사가 맡는다), 소유자를 얻는 한 곳(`CurrentOwner`), 개발용 로그인(`POST /auth/dev`, 결정 005), 계정 삭제(`DELETE /account` — 지우기 전에 카카오 연결 끊기·애플 토큰 철회), 구글·애플·카카오 토큰 검증·가입권·만 14세 판정·쿠키 세션·세션 만료·애플 서버 알림(결정 021).
 - `profile` — 내 출생 정보 저장·조회의 HTTP 입구(`GET`·`PUT /profile`). 저장 자체는 `birth.BirthProfileService` 가 한다.
 - `generation` — 글 생성 공통: 공급자를 가리는 인터페이스 `TextGenerator`(지시문·차트 글·JSON 구조를 받아 JSON 을 돌려준다)와 그 Claude 구현, 계산한 것을 프롬프트 글로 옮기는 것(차트 `chartFacts`, 시기 한 줄 `timelineFact`, 두 차트 사이의 연결 `synastryFactsText`), 근거(`Basis.kt`: 옛 근거 말 `basisVocabulary`, 근거 후보 `basisCandidates` → 구조 `BasisItem`·`Reason`, 이 풀이에 쓰인 별 `starsOf` — 결정 031). 시기의 표의 글(`TimingThemes.kt` — 마디 · 구간의 제목 · 본문, 리포트 · 시기 풀이 · 이번 달이 같은 이름을 쓴다, 결정 032 · 033). 이번 달 문구표(`MonthPhrases.kt` — 지나가는 별 × 내 별 × 결의 칩 · 문구, 날짜와 조합의 CRC32 로 고른다 · 이번 달과 그날의 하늘이 같이 쓴다, 결정 032 · 034). 해석·리포트·궁합 글·방향성 제시가 같이 쓰는데 기능 패키지는 서로 의존할 수 없어서 여기에 둔다. `chart` 만 안다(소유자·저장·HTTP 를 모른다).
@@ -29,7 +29,7 @@ last_reviewed: 2026-11-12
 - `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹, 궁합 리포트(202 로 답하고 뒤에서 영역마다 쓴다). 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 010). 초대·수락은 아직 없다(태스크 9 의 나머지).
 - `direction` — 방향성 제시(해 볼 만한 것 3개). 주제는 이성·미래·궁합이다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형·숫자 검증, 미래 주제의 "지금의 시기" 가리기)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래 주제의 시기는 `chart` 로 직접 계산한다(`report` 의 저장본을 읽지 않는다). 궁합 주제는 상대의 출생 정보를 요청으로 다시 받아 그 안에서만 쓰고(결정 010), 글이 붙는 궁합의 소유자·관계 유형·점수·그때의 내 차트 해시는 `synastries` 표에서 읽기만 한다(`synastry` 의 클래스를 쓰지 않는다). 결정: docs/decisions/009-direction-storage-and-advice-check.md, docs/decisions/011-direction-future-and-synastry.md
 - `inquiry` — 문의하기와 내 문의. 문의 글을 검증해 저장하고(보낸 앱의 헤더도), 내 문의 목록 · 한 건을 답과 함께 준다(답은 `admin` 이 쓴다 — 같은 테이블만 본다). 메일 발송은 없다. 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md · 039-inquiry-answers.md
-- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(찾기 · 작성자 · 상태 · 메모 · 답 · 임시 저장 · 처리한 관리자 — 처음 답하면 `InquiryAnswered` 를 낸다, 결정 039), 현황 수치(개수만), FAQ 편집, 앱 설정 편집(최소 버전·강제 업데이트, 결정 016). 한 일은 `AdminAudit` 으로 감사 기록에 알린다(결정 015). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
+- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(찾기 · 작성자 · 상태 · 메모 · 답 · 임시 저장 · 처리한 관리자 — 처음 답하면 `InquiryAnswered` 를 낸다, 결정 039), 현황 수치(개수 · 비율만)와 접속 차트(결정 043), FAQ 편집, 앱 설정 편집(최소 버전·강제 업데이트, 결정 016). 한 일은 `AdminAudit` 으로 감사 기록에 알린다(결정 015). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
 - `audit` — 감사 기록(결정 015). 다른 기능과 `auth` 가 낸 `web.AuditEvent` 를 듣고(`AuditRecorder`, 커밋 뒤·자기 트랜잭션·실패는 삼킨다) `audit_logs` 에 넣기만 한다. 관리자가 읽는 경로(`GET /admin/audit-logs`)도 여기 있다 — 경로가 `/admin/` 아래라 관리자 세션 검사가 걸리지만 `admin` 의 코드는 쓰지 않는다. 다른 기능은 이 패키지를 모른다.
 - `appconfig` — 앱 설정의 공개 조회(`GET /app-config`)와 점검·강제 업데이트(`AppUpdateInterceptor`: 점검이 켜져 있으면 모든 요청을 503 으로 — 결정 017, 그다음 앱이 보낸 플랫폼·버전 헤더를 보고 낮은 버전을 426 으로 막는다. 세션 검사보다 먼저, `/admin/**`·`/health`·`/app-config` 는 뺀다). `app_configs`·`app_maintenance` 를 읽기만 하고 잠깐 캐시한다. 값을 쓰는 것은 `admin` 이다(결정 016).
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
@@ -42,7 +42,7 @@ last_reviewed: 2026-11-12
 src/main/kotlin/com/byeolmyeong/api/
   chart/       Positions · Houses · Aspects(+ 상승점·중천과의 각도) · Points · Rulers(다스리는 별, 전통 지배성) · Timeline(마디·구간) · SynastryScore · WorkStyle(일 방식 막대 셋, 결정 038) · Transits(그날 · 그달 지나가는 별 — 눈여겨볼 날 · 그날의 하늘 근거, 결정 032 · 034)   ← 순수 계산
   birth/       Places · BirthTime · BirthProfile(Service·Repository · ChartInput) · PlacesController
-  web/         ErrorResponse · BirthRequest(Parser: 검증, 요청의 출생 정보 → 차트 입력) · RateLimiter · CorsConfig · ChartController · AuditEvent(감사 기록 이벤트·행동 코드·행위자) · OwnerRef · AppVersion(버전 읽기·견주기)
+  web/         ErrorResponse · BirthRequest(Parser: 검증, 요청의 출생 정보 → 차트 입력) · RateLimiter · CorsConfig · ChartController · AuditEvent(감사 기록 이벤트·행동 코드·행위자) · OwnerRef · AppVersion(버전 읽기·견주기) · ClockConfig(시계 빈)
   auth/        AuthController · AuthService · AccountRepository · SessionRepository · Session(CurrentOwner · SessionInterceptor) · SessionCookie(웹 쿠키 bm_session, 결정 021) · ProviderToken(Provider · ProviderTokenVerifier · 공급자 셋의 검증기 설정) · KakaoOAuth(+ KakaoOAuthClient — 웹 인가 코드 교환 · 탈퇴 때 연결 끊기) · LoginService(+ SignupTicketRepository · AppleTokenRepository — 로그인 · 가입권 · 가입) · AppleSignIn(+ AppleSignInClient — 애플 토큰 교환 · 철회 · 서버 알림 확인) · Age(만 14세 · 한국 날짜) · AuthErrors(로그인 · 가입 오류 응답)
   profile/     ProfileController
   generation/  TextGenerator(인터페이스) · ClaudeTextGenerator · ChartFacts · TimelineFacts(시기 한 줄의 글) · TimingThemes(시기의 표의 글 — 구간 이름의 단일 출처) · MonthPhrases(이번 달 문구표 — 눈여겨볼 날의 칩 · 문구, 결정 032) · SynastryFacts(두 차트 사이 연결의 글) · Basis · Advice(실천 한 줄의 검사)
@@ -51,7 +51,7 @@ src/main/kotlin/com/byeolmyeong/api/
   synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · SynastryDeleted(이벤트) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증) · DirectionFuture(미래: 지금의 시기·대상) · DirectionSynastry(궁합: 재료·지시문)
   inquiry/     InquiryController(문의하기 · 내 문의) · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증 · 옛 앱 갈래 · 보낸 앱)
-  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸 · 답 칸만 쓴다) · InquiryAnswered(이벤트) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다) · AdminFaqController · AdminFaqService(+ AdminFaqRepository) · AdminAppConfigController(+ AdminAppConfigService · AdminAppConfigRepository) · AppConfigChanged(이벤트) · AdminAudit(감사 기록에 알린다)
+  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸 · 답 칸만 쓴다) · InquiryAnswered(이벤트) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다 · 접속 차트) · AdminFaqController · AdminFaqService(+ AdminFaqRepository) · AdminAppConfigController(+ AdminAppConfigService · AdminAppConfigRepository) · AppConfigChanged(이벤트) · AdminAudit(감사 기록에 알린다)
   audit/       AuditRecorder(이벤트를 듣는다) · AuditService(+ AuditRepository — 넣고 읽기만 한다) · AuditLogController(`GET /admin/audit-logs`)
   appconfig/   AppConfigController(+ AppConfigService: 캐시·막을지 판정 · AppConfigRepository) · AppUpdateInterceptor(+ AppUpdateConfig: 순서·빼는 경로)
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
@@ -318,6 +318,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /admin/users/{id}/unsuspend` | `{ reason }` | 200 `UserDetail` |
 | `DELETE /admin/users/{id}` | `{ reason, confirmNickname }` | 204 |
 | `GET /admin/stats` | 없음 | 200 `Stats` |
+| `GET /admin/stats/active?range=today\|week\|month` | 쿼리 `range`(꼭 있어야 한다) | 200 `ActiveChart` |
 | `GET /admin/faqs` | 없음 | 200 `[Faq]` 보이는 순서대로(공개하지 않은 것 포함) |
 | `POST /admin/faqs` | `{ question, answer, published? }` | 201 `Faq` |
 | `PATCH /admin/faqs/{id}` | `{ question?, answer?, published? }` | 200 `Faq` |
@@ -417,7 +418,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 문의는 지울 수 없고 글·종류·이메일은 고칠 수 없다. 앱 사용자가 계정을 지우면 그 사람의 문의는 처리한 것까지 모두 함께 지워진다(목록에서 사라지고 한 건 조회는 404).
 
 ### 현황 수치
-- `GET /admin/stats` → `Stats`. 부를 때마다 DB 에서 새로 센다(캐시 없음). 모든 수는 0 이상의 정수다. 개수뿐이고 사람별 행·출생 정보·글은 없다.
+- `GET /admin/stats` → `Stats`. 부를 때마다 DB 에서 새로 센다(캐시 없음). 수는 0 이상의 정수다(비율 둘 · 시각 하나 · 아직 셀 수 없는 칸의 `null` 말고). 개수뿐이고 사람별 행·출생 정보·이메일·글은 없다.
   ```
   {
     "generatedAt": "2026-11-12T04:05:06Z",
@@ -428,9 +429,40 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
     "synastries":      { "total": 0 },
     "synastryReports": { "total": 0, "byStatus": { "DONE": 0, "WRITING": 0, "FAILED": 0 } },
     "directions":      { "total": 0, "byTopic": { "LOVE": 0 } },
-    "inquiries":       { "total": 0, "byStatus": { "NEW": 0, "IN_PROGRESS": 0, "ANSWERED": 0, "DONE": 0 } }
+    "inquiries":       { "total": 0, "byStatus": { "NEW": 0, "IN_PROGRESS": 0, "ANSWERED": 0, "DONE": 0 } },
+    "users":           { "total": 0, "joinedToday": 0, "joined7d": 0 },
+    "nicknames":       { "total": 0 },
+    "detailReports":   { "me": 0, "timing": 0, "generating": 0 },
+    "failuresToday":   { "nickname": null, "report": 0 },
+    "inquiryQueue":    { "waiting": 0, "oldestWaitingAt": null },
+    "consents":        { "pushRate": 0.0, "marketingRate": 0.0, "adReachable": 0 },
+    "todaySky":        null,
+    "pushToday":       null
   }
   ```
+  - **현황 v2**(결정 043 의 3): `users` 부터 아래 칸은 더해진 것이다 — 위의 칸(`accounts` ~ `inquiries`)은 그대로 있다(지금 관리 화면이 쓴다). "오늘" 은 **한국 날짜**(Asia/Seoul, 자정 = UTC 15:00)이고 `generatedAt` 과 같은 때로 센다.
+    - `users`: 앱 사용자 계정 — `total` 전체(`accounts.total` 과 같다), `joinedToday` 오늘 가입, `joined7d` 오늘 포함 최근 7일(한국 날짜) 가입(`accounts.last7Days` 는 지금부터 168시간이라 다를 수 있다). 사용자 목록 위의 "이번 주 가입" 은 `joined7d` 다.
+    - `nicknames.total`: 별명(요약 해석 v2, `readings` 의 `SUMMARY_V2`)이 있는 계정 수. 옛 `SUMMARY` 만 있는 계정은 세지 않는다.
+    - `detailReports`: 자세한 풀이(`detail_reports`) — `me` 완성된 나 탭 풀이 · `timing` 완성된 시기 풀이(`DONE`) · `generating` 쓰는 중(`WRITING`, 두 종류 합). **결정 043 은 이 칸을 `reports` 라 불렀는데, 이미 있는 옛 리포트의 `reports` 칸과 겹쳐 이름을 `detailReports` 로 바꿨다.** 서버가 꺼져 멈춘 생성도 `WRITING` 으로 센다(위 리포트와 같다).
+    - `failuresToday`: 오늘의 생성 실패 — `report` 는 오늘 `FAILED` 로 바뀐 자세한 풀이 수(지금도 `FAILED` 인 것, 다시 요청해 쓰는 중 · 완성이 되면 빠진다). `nickname` 은 별명 생성의 실패가 저장되지 않아 **셀 수 없으므로 언제나 `null`** 이다(0 이 아니다 — 감사 기록의 `READING_GENERATED` `FAILURE` 로 본다).
+    - `inquiryQueue`: 답을 기다리는 문의 — 답이 없고(`answer` 없음) 상태가 `DONE` 이 아닌 것의 수 `waiting` 과 그 가운데 가장 오래된 것의 만든 때 `oldestWaitingAt`(UTC 글자, 없으면 `null`). **결정 043 은 이 칸을 `inquiries` 라 불렀는데, 이미 있는 `inquiries` 칸과 겹쳐 이름을 `inquiryQueue` 로 바꿨다.**
+    - `consents`: `pushRate` · `marketingRate` 는 전체 계정 가운데 푸시 · 마케팅 수신에 동의한 계정의 비율(0~1, 소수 셋째 자리 반올림 — 예 `0.667`, 계정이 없으면 `0.0`, JSON 실수). `adReachable` 은 둘 다 동의했고 정지되지 않은 계정 수 — 기기 등록은 아직 거르지 않는다(푸시 묶음이 더한다. 그때 `GET /admin/push/audience` 의 수와 같아진다).
+    - `todaySky` · `pushToday`: 셀 테이블이 아직 없어 **언제나 `null`** 이다. 계획 S④(오늘의 하늘) · S⑩(푸시 발송) 뒤에 결정 043 의 모양(`{ today, onDemand, prebuilt }` · `{ sent, failed }`)으로 채운다. 화면은 `null` 이면 "아직 없음" 으로 보인다.
+- `GET /admin/stats/active?range=` → `ActiveChart` = `{ range, points: [{ label, value }], total, average, previousTotal }`(결정 043 의 4). 원본은 `daily_active`(그날 처음 접속한 계정마다 한 줄 — 아래 "데이터"). 부를 때마다 새로 센다. "오늘" 은 한국 날짜다.
+  - `range`: `today` · `week` · `month` 중 하나(소문자). 없거나 빈 글이거나 그 밖의 값(`TODAY` 도)이면 400 `INVALID_RANGE`.
+  - `today`: 점 24개, `label` `"00"` ~ `"23"`(한국 시각의 시), `value` 는 그 시에 그날 처음 접속한 사람 수(아직 오지 않은 시는 0). 앞 기간은 어제.
+  - `week`: 오늘 포함 최근 7일의 일별 점 7개, `label` `"YYYY-MM-DD"`(한국 날짜), `value` 는 그날 접속한 사람 수. 앞 기간은 그 앞 7일.
+  - `month`: 이번 달 1일부터 오늘까지의 일별 점(1일이면 1개). 앞 기간은 지난달 1일부터 지난달의 같은 날까지(지난달에 그날이 없으면 말일까지 — 3월 31일이면 2월 1일 ~ 28일).
+  - 빈 시 · 빈 날도 점이 있고 `value` 는 0 이다. 점은 시 · 날짜 순서다.
+  - `total`: 기간 안에 한 번이라도 접속한 고유 계정 수(점의 합이 아니다 — 여러 날 들어온 사람은 한 번). `average`: 점의 `value` 평균(소수 첫째 자리 반올림, JSON 실수 — `today` 는 24로 나눈다). `previousTotal`: 앞 기간의 고유 접속자 수.
+  - 계정이 지워지면 그 사람의 줄도 지워져 지난 수가 줄 수 있다(누적이 아니다). 사용자 목록 위의 수치(오늘 · 이번 주 · 이번 달 접속자)는 각 `range` 의 `total` 이다.
+  - 예:
+    ```
+    GET /admin/stats/active?range=week
+    { "range": "week",
+      "points": [ { "label": "2026-11-14", "value": 1 }, …, { "label": "2026-11-20", "value": 4 } ],
+      "total": 5, "average": 1.0, "previousTotal": 2 }
+    ```
   - `generatedAt`: 센 때. `accounts`: 앱 사용자 계정(관리자는 세지 않는다) — 전체, 지금부터 7일(168시간) 안에 만든 것, 30일 안에 만든 것(`last30Days` 는 `last7Days` 를 포함한다). 개발용 로그인 계정도 센다.
   - `profiles`: 출생 정보를 저장한 계정 수. `readings`: 요약 해석. `reports`: 심층 리포트. `synastries`: 궁합. `synastryReports`: 궁합 리포트. `directions`: 방향성 제시. `inquiries`: 문의.
   - `byStatus` 는 적힌 키가 언제나 모두 있고(없으면 0) 합이 `total` 이다. `byTopic` 은 DB 에 있는 주제만 온다(지금은 `LOVE` 하나. 글이 하나도 없으면 `{}`, 주제가 늘면 키가 늘어난다 — 화면은 키를 돌면서 그린다).
