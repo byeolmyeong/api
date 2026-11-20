@@ -146,7 +146,7 @@ last_reviewed: 2026-11-20
 - 하지 말 것: 지점(교점 · 릴리스 · 행운점 · 버텍스)을 출생 근거 후보에 넣지 않는다. 이유: 시안 용어 사전에 없다(결정 031 의 4).
 - 검증: 단위 테스트 — 시각 모름 차트에 house · ASC · MC · CLUSTER 후보 0개, id 겹침 0, CLUSTER 는 3개 이상만, 염소자리 달 → `R-MOON` 의 ruler SATURN(빨강 먼저)
 
-#### 2. s1-advice-check · 상태: 대기
+#### 2. s1-advice-check · 상태: 완료
 - 읽을 것: 결정 037, `direction/Direction.kt` 의 `adviceProblem`
 - 할 것: 실천 검사를 `generation` 의 함수 하나로 옮기고 끝맺음을 "기" 로 넓힌다(금지 표현은 그대로). 궁합 방향성이 그 함수를 쓰게 한다. `writing-rules.md` 에 한 줄.
 - 하지 말 것: 금지 표현 목록을 줄이지 않는다.
@@ -304,3 +304,4 @@ last_reviewed: 2026-11-20
 ## 실행 기록
 - 0: 결정 029~038 · 대체 표시 · 이 계획(2026-11-20). develop · 원격 브랜치 모두 029~ · V22~ 없음 확인.
 - 1: 근거 후보 없음 → `chart/Rulers.kt`(전통 지배성) · `computeAngleAspects`(상승점 · 중천과의 각도) · `generation` 의 `BasisItem`(5종) · `Reason` · `Star` · `basisCandidates`(P · C · A · R, 순서 고정) · `starsOf` · `chartFacts(chart, candidates)` 끝 "[근거 후보]". `RulersTest` 1 · `AspectsTest` 7(새 2) · `BasisCandidatesTest` 13 · `ArchitectureTest` 10 초록(빨강: 컴파일 실패 먼저). 계획과 다른 점: `R-ASC` 를 두려고 `RULER.body` 를 `Body | Angle` 로 넓힘(결정 031 의 4 가 상승점을 넣는데 1 의 타입이 `Body` 라서) · `chartFacts` 는 후보를 받을 때만 "[근거 후보]", 아니면 옛 "[근거로 쓸 수 있는 말]"(리포트 · 방향성이 S⑦ 까지 낱말을 쓴다).
+- 2: 실천 검사가 `direction/Direction.kt` 안 · "보기" 끝맺음 → `generation/Advice.kt` 의 `adviceProblem(practiceTitles, texts)` 하나 · "기" 끝맺음(앞뒤 공백을 떼고, 마침표 · 느낌표면 실패, 금지 표현 목록 그대로). `direction` 은 어느 글을 보는지만 정하는 한 줄로 그 함수를 부른다. `writing-rules.md` 에 "실천은 '~기' 로 끝나는 한 줄"(40자 안팎). `AdviceTest` 4(전하기 통과 · 전해요 실패 · 보기 통과 · 단정 10꼴 실패) · `DirectionDraftTest` 5 · `DirectionFutureTest` 6 그대로 초록(빨강: 컴파일 실패 먼저). 계약 표 `Direction` 줄 · 글 생성 규칙의 방향성 줄 고침.
