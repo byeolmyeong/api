@@ -115,13 +115,10 @@ private fun firstIndex(transit: SkyTransit, size: Int): Int {
 private fun phraseAt(transit: SkyTransit, cell: String, index: Int): DayPhrase =
 	DayPhrase("$cell.${index + 1}", MONTH_PHRASES.getValue(cell)[index], dayCategory(transit.mover, transit.target))
 
-/** 그날 · 그 조합의 문구 하나(초안 7절). 그날의 하늘이 눈여겨볼 날이면 이번 달 목록과 같은 말이다. */
-fun dayPhrase(transit: SkyTransit): DayPhrase {
-	val cell = usedCell(transit)
-	return phraseAt(transit, cell, firstIndex(transit, MONTH_PHRASES.getValue(cell).size))
-}
-
-/** 한 달의 눈여겨볼 날(날짜 순)의 문구. 같은 글자가 다시 나오면 뒤의 것을 그 칸의 다음 번호로 바꾼다(끝이면 처음으로). */
+/**
+ * 한 달의 눈여겨볼 날(날짜 순)의 문구(초안 7절). 같은 글자가 다시 나오면 뒤의 것을 그 칸의 다음 번호로 바꾼다(끝이면 처음으로).
+ * 그날의 하늘(계획 S④)이 눈여겨볼 날의 제목을 쓸 때도 그달의 이 값(`monthPhrases(notableDays)`)에서 가져와야 이번 달 목록과 같은 말이 된다.
+ */
 fun monthPhrases(days: List<SkyTransit>): List<DayPhrase> {
 	val used = mutableSetOf<String>()
 	return days.map { transit ->

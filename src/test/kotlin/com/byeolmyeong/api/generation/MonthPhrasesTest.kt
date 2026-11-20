@@ -17,6 +17,9 @@ class MonthPhrasesTest {
 	private fun transit(date: String, mover: Body, target: String, type: AspectType) =
 		SkyTransit(LocalDate.parse(date), mover, target, type, orb = 0.1, score = 20.0)
 
+	/** 그날 하나만 든 달의 문구 — 겹침 피하기가 걸리지 않으므로 초안 7절의 첫 번호다. */
+	private fun onlyDay(transit: SkyTransit): DayPhrase = monthPhrases(listOf(transit)).single()
+
 	/** 초안 7절의 번호: CRC32("{날짜}|{지나가는 별}.{내 별}.{결}") mod 문구 수 + 1. */
 	private fun expectedNumber(date: String, combination: String, size: Int): Int {
 		val crc = CRC32().apply { update("$date|$combination".toByteArray(Charsets.UTF_8)) }.value
@@ -58,9 +61,9 @@ class MonthPhrasesTest {
 		assertEquals(DayCategory.PEOPLE, dayCategory(Body.MARS, "VENUS"))
 		assertEquals(DayCategory.MIND, dayCategory(Body.JUPITER, "PLUTO"))
 		assertEquals(DayCategory.WORK, dayCategory(Body.SUN, "MC"))
-		val trine = dayPhrase(transit("2026-11-21", Body.MERCURY, "SUN", AspectType.TRINE))
+		val trine = onlyDay(transit("2026-11-21", Body.MERCURY, "SUN", AspectType.TRINE))
 		assertEquals(DayCategory.PEOPLE, trine.category)
-		assertEquals(trine.category, dayPhrase(transit("2026-11-21", Body.MERCURY, "SUN", AspectType.SQUARE)).category)
+		assertEquals(trine.category, onlyDay(transit("2026-11-21", Body.MERCURY, "SUN", AspectType.SQUARE)).category)
 	}
 
 	@Test
@@ -73,31 +76,31 @@ class MonthPhrasesTest {
 	}
 
 	@Test
-	fun `같은 날 · 같은 조합은 늘 같은 문구이고 번호는 CRC32 로 정해진다`() {
+	fun `같은 날 · 같은 조합은 늘 같은 문구이고 첫 번호는 CRC32 로 정해진다`() {
 		val day = transit("2026-11-21", Body.MERCURY, "SUN", AspectType.TRINE)
-		val phrase = dayPhrase(day)
-		assertEquals(phrase, dayPhrase(day))
+		val phrase = onlyDay(day)
+		assertEquals(phrase, onlyDay(day))
 		val cell = MONTH_PHRASES.getValue("MERCURY.SUN.HARMONY")
 		val number = expectedNumber("2026-11-21", "MERCURY.SUN.HARMONY", cell.size)
 		assertEquals("MERCURY.SUN.HARMONY.$number", phrase.id)
 		assertEquals(cell[number - 1], phrase.text)
 		// 육분도 같은 칸(어울림)
-		assertEquals(phrase, dayPhrase(transit("2026-11-21", Body.MERCURY, "SUN", AspectType.SEXTILE)))
+		assertEquals(phrase, onlyDay(transit("2026-11-21", Body.MERCURY, "SUN", AspectType.SEXTILE)))
 		// 날이 바뀌면 대개 다른 문구다(한 달 안에 여러 번호가 나온다)
-		val numbers = (1..30).map { dayPhrase(transit("2026-11-%02d".format(it), Body.MERCURY, "SUN", AspectType.TRINE)).id }.toSet()
+		val numbers = (1..30).map { onlyDay(transit("2026-11-%02d".format(it), Body.MERCURY, "SUN", AspectType.TRINE)).id }.toSet()
 		assertTrue(numbers.size > 1)
 	}
 
 	@Test
 	fun `조합 칸이 비면 지나가는 별 × 결의 기본 문구를 쓴다 - 번호의 해시는 조합으로`() {
 		val day = transit("2026-12-03", Body.SUN, "URANUS", AspectType.CONJUNCTION)
-		val phrase = dayPhrase(day)
+		val phrase = onlyDay(day)
 		val cell = MONTH_PHRASES.getValue("SUN.ANY.CONJ")
 		val number = expectedNumber("2026-12-03", "SUN.URANUS.CONJ", cell.size)
 		assertEquals("SUN.ANY.CONJ.$number", phrase.id)
 		assertEquals(cell[number - 1], phrase.text)
 		assertEquals(DayCategory.MIND, phrase.category, "칩은 3절 표 그대로")
-		assertEquals("SUN.ANY.HARMONY", dayPhrase(transit("2026-12-03", Body.SUN, "ASC", AspectType.TRINE)).id.substringBeforeLast("."))
+		assertEquals("SUN.ANY.HARMONY", onlyDay(transit("2026-12-03", Body.SUN, "ASC", AspectType.TRINE)).id.substringBeforeLast("."))
 	}
 
 	@Test
@@ -116,7 +119,7 @@ class MonthPhrasesTest {
 		assertEquals("MERCURY.SUN.HARMONY.$number", phrases[0].id)
 		assertEquals("MERCURY.SUN.HARMONY.${number % cell.size + 1}", phrases[1].id, "다음 번호(끝이면 1)")
 		assertNotEquals(phrases[0].text, phrases[1].text)
-		assertEquals(dayPhrase(other), phrases[2])
+		assertEquals(onlyDay(other), phrases[2])
 		assertEquals(phrases.map { it.text }.distinct(), phrases.map { it.text }, "한 달의 문구 겹침 0")
 	}
 }
