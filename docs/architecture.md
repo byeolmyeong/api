@@ -284,7 +284,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `GET /shared/{shareId}`: 세션 없이 열린다. 저장된 `ShareCard` 를 그대로 준다. 없는(지워진) 식별자는 404 `NOT_FOUND`. 주소별 분당 한도를 넘으면 429 `RATE_LIMITED`. CORS 는 다른 경로와 같다(`ALLOWED_ORIGINS` 에 적힌 앱의 웹 주소만).
   - 이니셜(서버가 만든다): 한글 음절은 첫소리 글자로(지영 → `ㅈㅇ`, 쌍자음은 그대로), 이미 낱자인 한글은 그대로, 그 밖의 글자·숫자는 이어진 덩어리의 첫 글자만 대문자로(`Mike` → `M`, `김 Min` → `ㄱM`), 공백·기호·그림 문자는 뺀다. 남는 것이 없으면 `○`.
 
-## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016·017·018·039·040)
+## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016·017·018·039·040·043)
 관리 화면(웹)이 부르는 API 다. 앱은 부르지 않는다. 경로는 모두 `/admin/` 아래다.
 
 ### 공통
@@ -292,7 +292,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 인증: `POST /admin/auth/login` 말고는 모두 요청 헤더 `Authorization: Bearer <token>` 이 필요하다. `token` 은 로그인 응답의 값이다. 헤더가 없거나, 토큰이 틀리거나, 세션이 끝났거나(로그인 뒤 12시간), 로그아웃했거나, 그 관리자가 꺼졌으면 **401 `{ "error": "UNAUTHORIZED" }`** 다. `/admin/` 아래의 없는 경로도 토큰 없이는 401 이다. 화면은 401 을 받으면 토큰을 버리고 로그인 화면으로 보낸다.
 - 관리자 세션은 앱 사용자의 세션과 완전히 따로다: 앱 사용자의 토큰으로 `/admin/**` 를 부르면 401, 관리자 토큰으로 앱의 경로(`/profile` 등)를 부르면 401 이다.
 - 세션 수명: 로그인한 때부터 12시간(응답의 `expiresAt`). 쓰는 동안 늘어나지 않고, 갱신 경로는 없다(다시 로그인한다). 한 관리자가 여러 곳에서 동시에 로그인할 수 있다. 서버는 토큰 원문을 저장하지 않는다(해시만). 쿠키는 쓰지 않는다.
-- 오류 응답은 언제나 `{ "error": "<코드>" }` 하나다(입력값·설명 글 없음). 코드는 경로마다 아래에 적었다. 공통: 400 `INVALID_REQUEST`(본문이 없거나 JSON 객체가 아니거나, 필드의 타입이 틀리다 — 글자 자리에 숫자·배열·객체·불리언 등) · 401 `UNAUTHORIZED` · 404 `NOT_FOUND`(경로의 id 가 UUID 가 아니거나 그런 것이 없다) · 429 `RATE_LIMITED`.
+- 오류 응답은 언제나 `{ "error": "<코드>" }` 하나다(입력값·설명 글 없음). 코드는 경로마다 아래에 적었다. 공통: 400 `INVALID_REQUEST`(본문이 없거나 JSON 객체가 아니거나, 필드의 타입이 틀리다 — 글자 자리에 숫자·배열·객체·불리언 등) · 401 `UNAUTHORIZED` · 403 `PASSWORD_CHANGE_REQUIRED`(임시 비밀번호로 들어온 관리자 — 아래 "로그인·세션") · 404 `NOT_FOUND`(경로의 id 가 UUID 가 아니거나 그런 것이 없다) · 429 `RATE_LIMITED`.
 - 응답의 값이 없는 필드는 키를 빼지 않고 `null` 로 보낸다(앱 쪽 계약과 다르다). 요청에서 읽지 않는 키는 무시한다.
 - 시각은 모두 UTC 의 `YYYY-MM-DDTHH:mm:ssZ` 글자다(예 `2026-11-12T04:05:06Z`). id 는 UUID 글자다.
 - 글자 수는 유니코드 코드 포인트로 센다(한글 한 글자가 1, 이모지 한 개도 1 — JavaScript 의 `.length` 가 아니라 `[...text].length`).
@@ -305,9 +305,10 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /admin/me` | 없음 | 200 `Admin` |
 | `PUT /admin/me/password` | `{ currentPassword, newPassword }` | 204 |
 | `GET /admin/admins` | 없음 | 200 `[AdminAccount]` 먼저 만든 관리자부터 |
-| `POST /admin/admins` | `{ loginId, name, password }` | 201 `AdminAccount` |
+| `POST /admin/admins` | `{ loginId }` | 201 `{ admin: AdminAccount, temporaryPassword }` |
 | `PATCH /admin/admins/{id}` | `{ active }` | 200 `AdminAccount` |
-| `PUT /admin/admins/{id}/password` | `{ password }` | 204 |
+| `POST /admin/admins/{id}/password-reset` | 없음 | 200 `{ temporaryPassword }` |
+| `PUT /admin/admins/{id}/password`(화면은 쓰지 않는다 — S⑦ 정리 때 지운다) | `{ password }` | 204 |
 | `GET /admin/inquiries?status=&category=&q=&page=&size=` | 쿼리(모두 선택) | 200 `{ items: [Inquiry], page, size, total }` 새것부터 |
 | `GET /admin/inquiries/{id}` | 없음 | 200 `Inquiry` |
 | `PATCH /admin/inquiries/{id}` | `{ status?, memo?, answer?, answerDraft? }` | 200 `Inquiry` |
@@ -323,25 +324,33 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `PUT /admin/app-config/maintenance` | `{ active, message }`(두 키 모두) | 200 `Maintenance` |
 
 ### 로그인·세션
-- `Admin` = `{ id, loginId, name }`. `AdminAccount` = `{ id, loginId, name, active, createdAt }`. 비밀번호와 그 해시는 어떤 응답에도 없다.
+- `Admin` = `{ id, loginId, name, mustChangePassword }`. `AdminAccount` = `{ id, loginId, name, active, createdAt, lastLoginAt }` — `lastLoginAt` 은 마지막으로 로그인에 성공한 때 또는 `null`(한 번도 없음). 비밀번호와 그 해시는 어떤 응답에도 없다. 임시 비밀번호는 그것을 만든 응답(추가 · 재발급)에서만 한 번 나간다.
 - `POST /admin/auth/login`: `loginId` 는 앞뒤 공백과 대소문자를 가리지 않는다. `password` 는 글자 그대로 본다.
   - 200 `{ token, expiresAt, admin }`. `token` 을 화면이 보관해 이후 요청의 `Authorization: Bearer <token>` 에 넣는다. `expiresAt` 은 이 세션이 끝나는 때다.
   - 401 `INVALID_CREDENTIALS`: 없는 아이디, 틀린 비밀번호, 꺼진 관리자 — 셋을 구분해 주지 않는다. 관리자가 한 명도 없는 서버에서도 이 답이다.
   - 400 `INVALID_REQUEST`: `loginId`·`password` 가 없거나 `null` 이거나 글자가 아니다.
-  - 429 `RATE_LIMITED`: 로그인 시도는 10분(서버 시계의 10분 단위 창)에 아이디별 5번·주소(IP)별 20번까지다. 성공한 로그인도 센다. 넘으면 맞는 비밀번호여도 그 창이 끝날 때까지 429 다.
+  - 429 `RATE_LIMITED`: 로그인 시도는 10분(서버 시계의 10분 단위 창)에 주소(IP)별 20번까지다. 성공한 로그인도 센다. 넘으면 맞는 비밀번호여도 그 창이 끝날 때까지 429 다. **아이디별 잠금은 없다**(결정 043 의 5) — 한 아이디로 여러 번 틀려도 그 아이디가 막히지 않는다.
+  - `admin.mustChangePassword: true` 면 서버가 만든 임시 비밀번호(추가 · 재발급)로 들어온 것이다. 바꾸기 전에는 `PUT /admin/me/password` · `POST /admin/auth/logout` · `GET /admin/me` 말고는 모두(없는 경로도) **403 `PASSWORD_CHANGE_REQUIRED`** 다. 화면은 이때 비밀번호 바꾸기 화면만 연다. `GET /admin/me` 도 같은 값을 준다.
 - `POST /admin/auth/logout`: 이 요청의 토큰만 끝낸다(같은 관리자의 다른 세션은 그대로). 204. 그 뒤 그 토큰은 401 이다.
 - `PUT /admin/me/password`: 자기 비밀번호를 바꾼다(남의 것은 "관리자 관리" 의 `PUT /admin/admins/{id}/password`). 204. 바꾸면 이 요청의 세션은 그대로이고 **같은 관리자의 다른 세션은 모두 끝난다**.
-  - 400 `INVALID_CURRENT_PASSWORD`(지금 비밀번호가 틀리다) · `INVALID_PASSWORD`(새 비밀번호가 규칙에 안 맞다) · `INVALID_REQUEST`(둘 중 하나가 없거나 글자가 아니다) · 429 `RATE_LIMITED`(지금 비밀번호 확인도 아이디별 로그인 시도에 같이 센다).
-- 비밀번호 규칙: 10자 이상, UTF-8 로 72바이트 이하(영문·숫자·기호만이면 72자, 한글만이면 24자까지). 앞뒤 공백을 떼지 않는다. 그 밖의 조합 규칙은 없다.
+  - 임시 비밀번호로 들어온 동안은 `currentPassword` 가 그 임시 비밀번호다. 바꾸면 `mustChangePassword` 가 풀려 이 세션으로 모든 경로를 쓸 수 있다.
+  - 400 `INVALID_CURRENT_PASSWORD`(지금 비밀번호가 틀리다) · `INVALID_PASSWORD`(새 비밀번호가 규칙에 안 맞다) · `SAME_AS_TEMPORARY`(임시 비밀번호로 들어온 동안 새 비밀번호가 임시 비밀번호와 같다) · `INVALID_REQUEST`(둘 중 하나가 없거나 글자가 아니다) · 429 `RATE_LIMITED`(지금 비밀번호 확인은 10분에 아이디별 5번까지).
+- 비밀번호 규칙: 10자 이상, UTF-8 로 72바이트 이하(영문·숫자·기호만이면 72자, 한글만이면 24자까지). 앞뒤 공백을 떼지 않는다. 그 밖의 조합 규칙은 서버에 없다(화면의 "영문 · 숫자 조합" 체크는 화면 규칙).
 
 ### 관리자 관리
-- 역할 구분은 없다. 관리자는 누구나 다른 관리자를 만들고 끄고 켤 수 있다. 관리자를 지우거나 이름·아이디를 고치는 경로는 없다. 남의 비밀번호는 다시 정해 줄 수 있다(아래 `PUT /admin/admins/{id}/password`, 결정 018).
-- `POST /admin/admins`: `loginId` 는 앞뒤 공백을 떼고 소문자로 바꾼 뒤 소문자·숫자·`.`·`_`·`-` 3~32자(첫 글자는 소문자나 숫자). `name` 은 앞뒤 공백을 뗀 1~40자. `password` 는 위 규칙(처음 비밀번호이고, 받은 관리자가 `PUT /admin/me/password` 로 바꾼다). 201 `AdminAccount`(`active: true`).
-  - 400 `INVALID_LOGIN_ID` · `INVALID_NAME` · `INVALID_PASSWORD`(없거나 `null` 이어도 이 코드. 여러 개가 틀리면 이 순서로 처음 걸린 것 하나) · `INVALID_REQUEST`(타입이 틀리다) · 409 `LOGIN_ID_TAKEN`(이미 있는 아이디 — 꺼진 관리자의 아이디도 다시 쓸 수 없다).
+- 역할 구분은 없다. 관리자는 누구나 다른 관리자를 만들고 끄고 켤 수 있다. 관리자를 지우거나 이름·아이디를 고치는 경로는 없다. 남의 비밀번호는 임시 비밀번호로 재발급한다(아래 `POST /admin/admins/{id}/password-reset`, 결정 043 의 5).
+- `POST /admin/admins`: 본문 `{ loginId }` 만 읽는다(`name` · `password` 는 와도 무시한다). `loginId` 는 앞뒤 공백을 떼고 소문자로 바꾼 뒤 소문자·숫자·`.`·`_`·`-` 3~32자(첫 글자는 소문자나 숫자). 이름(`name`)은 이 아이디 그대로다. 201 `{ admin: AdminAccount, temporaryPassword }` — `admin.active: true`, `admin.lastLoginAt: null`.
+  - `temporaryPassword`: 서버가 만든 임시 비밀번호 — 영문 대소문자 · 숫자 12자를 `xxxx-xxxx-xxxx` 로 묶은 14글자. **이 응답에서 한 번만** 보인다(다시 볼 길이 없다 — 화면은 복사 버튼과 함께 보이고 창을 닫으면 사라진다). 받은 관리자가 이것으로 로그인하면 `mustChangePassword: true` 다.
+  - 400 `INVALID_LOGIN_ID`(없거나 `null` 이어도 이 코드) · `INVALID_REQUEST`(본문이 객체가 아니거나 `loginId` 가 글자가 아니다) · 409 `LOGIN_ID_TAKEN`(이미 있는 아이디 — 꺼진 관리자의 아이디도 다시 쓸 수 없다).
+- `POST /admin/admins/{id}/password-reset`: **다른** 관리자에게 새 임시 비밀번호를 만들어 준다(본문 없음). 200 `{ temporaryPassword }`(위와 같은 꼴, 이 응답에서 한 번만).
+  - 그 관리자의 세션이 모두 끝나고(다음 요청부터 401) 예전 비밀번호로는 로그인할 수 없다. 새 임시 비밀번호로 로그인하면 `mustChangePassword: true` 다. 요청한 관리자의 세션은 그대로다.
+  - 꺼진 관리자에게도 된다. 켜지지는 않는다.
+  - 409 `SELF_NOT_ALLOWED`(`id` 가 자기 자신 — 자기 것은 `PUT /admin/me/password`) · 404 `NOT_FOUND`(그런 관리자가 없거나 `id` 가 UUID 가 아니다). 순서: UUID 가 아니면 404 → 자기 자신이면 409 → 없는 관리자면 404.
+  - 감사 기록 `ADMIN_PASSWORD_REISSUED`(누가 누구의 것을 — 비밀번호는 없다).
 - `PATCH /admin/admins/{id}`: `{ "active": false }` 로 끄고 `{ "active": true }` 로 켠다. 200 바뀐 `AdminAccount`. 이미 그 상태여도 200 이다.
   - 끄면 그 관리자의 세션이 모두 지워져 그 사람의 다음 요청부터 401 이고, 로그인도 401 `INVALID_CREDENTIALS` 다. 다시 켜면 로그인할 수 있다(예전 토큰은 되살아나지 않는다). 그 관리자가 남긴 처리 기록은 그대로다.
   - 409 `CANNOT_DEACTIVATE_SELF`(자기 자신은 끌 수 없다) · 409 `LAST_ACTIVE_ADMIN`(마지막 남은 활성 관리자는 끌 수 없다 — 두 관리자가 동시에 서로를 끌 때만 나온다) · 400 `INVALID_REQUEST`(`active` 가 없거나 `null` 이거나 불리언이 아니다 — `"false"`·`0` 도 틀리다) · 404 `NOT_FOUND`.
-- `PUT /admin/admins/{id}/password`: **다른** 관리자의 비밀번호를 다시 정한다(비밀번호를 잊은 관리자에게 쓴다). 본문 `{ "password": string }`, 규칙은 위 "비밀번호 규칙" 과 같다. 204(본문 없음). 지금 비밀번호는 묻지 않는다.
+- `PUT /admin/admins/{id}/password`: (결정 018 · 화면은 더 쓰지 않고 S⑦ 정리 때 지운다 — 위 재발급을 쓴다) **다른** 관리자의 비밀번호를 다시 정한다(비밀번호를 잊은 관리자에게 쓴다). 본문 `{ "password": string }`, 규칙은 위 "비밀번호 규칙" 과 같다. 204(본문 없음). 지금 비밀번호는 묻지 않는다.
   - **그 관리자의 세션이 모두 끝난다**(그 사람의 다음 요청부터 401). 예전 비밀번호로는 로그인할 수 없다. 요청한 관리자의 세션은 그대로다.
   - 새 비밀번호는 서버가 알려 주지 않는다 — 정한 관리자가 직접 전하고, 받은 관리자는 로그인해 `PUT /admin/me/password` 로 바꾼다(화면이 그렇게 안내한다).
   - 꺼진 관리자에게도 된다. 켜지지는 않는다(켜려면 `PATCH /admin/admins/{id}`).
@@ -440,7 +449,8 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   |---|---|---|---|---|
   | `ADMIN_LOGIN` | 관리자 로그인. **실패도 남는다**(401 `INVALID_CREDENTIALS`): 그때는 `actorType: SYSTEM`·`actor: null`·`outcome: FAILURE` 이고 시도한 아이디는 남지 않는다. 형식이 틀린 요청(400)과 제한에 걸린 요청(429)은 남지 않는다 | `ADMIN` / `SYSTEM` | 없음 | `null` |
   | `ADMIN_LOGOUT` | `POST /admin/auth/logout` | `ADMIN` | 없음 | `null` |
-  | `ADMIN_PASSWORD_CHANGED` | `PUT /admin/me/password` 성공 | `ADMIN` | 없음 | `null` |
+  | `ADMIN_PASSWORD_CHANGED` | `PUT /admin/me/password` 성공(임시 비밀번호를 바꾼 것도) | `ADMIN` | 없음 | `null` |
+  | `ADMIN_PASSWORD_REISSUED` | `POST /admin/admins/{id}/password-reset` 성공(다른 관리자에게 임시 비밀번호를 다시 만들어 줬다) | `ADMIN`(재발급한 관리자) | `ADMIN` 그 관리자의 id | `null` |
   | `ADMIN_PASSWORD_RESET` | `PUT /admin/admins/{id}/password` 성공(다른 관리자의 비밀번호를 다시 정했다) | `ADMIN`(정해 준 관리자) | `ADMIN` 그 관리자의 id | `null` |
   | `ADMIN_CREATED` | `POST /admin/admins` | `ADMIN` | `ADMIN` 만든 관리자의 id | `null` |
   | `ADMIN_DEACTIVATED` · `ADMIN_REACTIVATED` | `PATCH /admin/admins/{id}` 로 끄거나 켰을 때. 이미 그 상태였으면 남지 않는다 | `ADMIN` | `ADMIN` 그 관리자의 id | `null` |
@@ -566,7 +576,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - `accounts`(공급자, 공급자 사용자 식별자 unique, 이메일 — V19, 결정 024 · 닉네임(`lower(nickname)` 유일) · 마케팅 수신 동의 일시 — V20, 결정 025 · 이용약관 · 처리방침의 동의 버전과 시각 · 푸시 수신 동의 일시 · 프로필 번호 1~8 — V21, 결정 026 · 027 · 028. V19 뒤의 칸은 모두 null 허용이고 옛 계정은 비어 있다 · 마지막 접속 `last_seen_at` — V25, 결정 043 의 2: 사용자 세션으로 온 요청이 10분이 지났거나 한국 날짜가 바뀌었을 때만 쓴다) · `daily_active`(V25: 한국 날짜 · 계정 기본 키, 그날 처음 접속한 한국 시각의 시 0~23 — 그날 처음 접속할 때 한 줄, 접속 차트가 센다. 감사 기록과 따로다) · `sessions`(토큰 해시, 마지막 사용 시각 — V16, 90일 지나면 끝난다 · 결정 021) · `signup_tickets`(V17: 가입권 해시, 공급자, 공급자 사용자 식별자, 끝나는 때 — 30분 · 1회용, 결정 021 · V18: 애플 클라이언트 · refresh token · V19: 이메일) · `apple_tokens`(V18: 계정, 클라이언트 ID, refresh token — 탈퇴 때 철회, 결정 021) · `profiles`(출생 정보. 태어난 곳은 시각을 알 때만 있다) · `readings`(소유자, 종류 — `SUMMARY_V2`(요약 해석 v2, 본문 `{ headline, sections[{ title, body, reason }], strengths, cautions }` — 결정 030 · 031) · 옛 `SUMMARY`(읽지 않는다 · 지우지 않는다), 차트 해시, 본문, 만든 때 `created_at`(응답의 `createdAt`), 더 쓰지 않는 공유 식별자 `share_id` — 결정 012) · `reports`(소유자·차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만 — 네 영역의 글과 시기(`timing`: 마디·구간의 날짜와 글, "지금" 은 없음), 생성을 시작한 때(그 생성의 표식)·살아 있다는 표시를 마지막으로 적은 때(`active_at`, V9)·상태가 바뀐 때) · `detail_reports`(V22, 결정 029 — `reports` 와 같은 꼴: 소유자 · 종류(`ME` 나 탭 풀이 · `TIMING` 시기 풀이) · 차트 해시 unique, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만 — `ME` 는 `MeReport`(별 · 일 방식 수치까지), `TIMING` 은 `TimingReport`(마디 · 구간의 날짜와 글 · 맡긴 구간의 칸, "지금" 과 대표 구간은 없음), 생성을 시작한 때 · `active_at` · 상태가 바뀐 때) · `synastries`(두 참여자 또는 한 참여자 + 직접 입력, 관계 유형, 나 기준 점수, 부를 이름, 키워드, 본문, 공유 식별자) · `invites`(초대 식별자, 만료, 상태) · `directions`(소유자·주제·대상 unique, 본문. 대상의 뜻은 주제가 정한다: `LOVE` 는 차트 해시, `FUTURE` 는 `차트 해시|지금의 시기가 같은 동안의 첫날|마지막 날`, `SYNASTRY` 는 궁합 id — 결정 009·011. 궁합 주제의 행에도 상대의 출생 정보·행성 위치·연결은 없다) · `inquiries`(V11: 소유자, 종류, 글, 답장 받을 이메일 — 없으면 null(2026-11-20 뒤로는 언제나 null), 만든 때 · V23: 답 · 처음 답한 때와 관리자 · 답의 임시 저장 · 보낸 앱의 플랫폼과 버전 — 모두 null 허용, 결정 039. 기기 이름·주소는 없다 — 결정 013) · `push_tokens`.
 - 마이그레이션은 배포 중 옛 jar 와 새 jar 가 같은 DB 를 함께 쓴다는 전제로 쓴다: 열 · 표 지우기 · 이름 바꾸기 · 기존 열에 NOT NULL 더하기는 두 번의 배포로 나누고, 두 번 돌면 안 되는 `@Scheduled` 는 `pg_try_advisory_lock` 으로 한 서버만 돌게 한다(결정 046, `.claude/rules/two-servers-overlap.md`).
 - 소유자를 가리키는 테이블은 모두 `on delete cascade` 다: 계정을 지우면 문의도 함께 지워진다. 문의는 관리자 API(`/admin/inquiries`)로 읽고 처리한다(결정 014).
-- 관리자 쪽 테이블(V12, 결정 014): `admin_accounts`(로그인 아이디 unique·소문자, bcrypt 해시, 표시 이름, 활성 여부, 만든 때) · `admin_sessions`(토큰 해시, 관리자, 끝나는 때) · `faqs`(질문, 답, 순서, 공개 여부, 고친 때, 고친 관리자). `inquiries` 에는 처리 칸 넷이 더해졌다: 상태(`NEW`·`IN_PROGRESS`·`DONE`, 기본 `NEW` — V23 이 `ANSWERED` 를 더했다)·관리자 메모·처리한 관리자·처리한 때. 관리자 테이블은 `accounts`·`sessions` 와 아무 관계가 없고, 관리자는 지우지 않는다(끄기만 한다).
+- 관리자 쪽 테이블(V12, 결정 014): `admin_accounts`(로그인 아이디 unique·소문자, bcrypt 해시, 표시 이름, 활성 여부, 만든 때 · V26, 결정 043 의 5: 임시 비밀번호라 바꿔야 하는지 `must_change_password` · 마지막 로그인 `last_login_at`) · `admin_sessions`(토큰 해시, 관리자, 끝나는 때) · `faqs`(질문, 답, 순서, 공개 여부, 고친 때, 고친 관리자). `inquiries` 에는 처리 칸 넷이 더해졌다: 상태(`NEW`·`IN_PROGRESS`·`DONE`, 기본 `NEW` — V23 이 `ANSWERED` 를 더했다)·관리자 메모·처리한 관리자·처리한 때. 관리자 테이블은 `accounts`·`sessions` 와 아무 관계가 없고, 관리자는 지우지 않는다(끄기만 한다).
 - 감사 기록(V13, 결정 015): `audit_logs`(일어난 때, 행위자 종류 `ADMIN`·`USER`·`SYSTEM`, 행위자 id — 계정 id 의 글자, 행위자 표시 — 관리자는 그때의 로그인 아이디·사용자는 `ownerRef`, 행동 코드, 대상 종류·id, 결과 `SUCCESS`·`FAILURE`, 덧붙임 `detail` — 코드 값만 담는 작은 JSON). **계정을 가리키는 외래 키가 없다: 계정을 지워도 이 행들은 남는다**(위 줄의 "모두 `on delete cascade`" 의 유일한 예외). 그래서 출생 정보·이름·이메일·사용자가 쓴 글·비밀번호·토큰·주소는 어느 칸에도 없다. 넣기만 하고 보관 기한은 아직 없다.
 - 앱 설정(V14, 결정 016): `app_configs`(플랫폼 `ios`·`android` 가 기본 키 — 마이그레이션이 넣은 두 행뿐이다, 최소 버전, 최신 버전 — V24 · 결정 040 · null 허용, 스토어 주소, 안내 글, `block_now` — 최소 버전이 있어야 켤 수 있다(check), 고친 때, 고친 관리자). 점검(V15, 결정 017): `app_maintenance`(행 하나 — 켜짐 여부, 안내 글, 고친 때, 고친 관리자).
 - 직접 입력한 궁합 상대의 출생 정보는 저장하지 않는다. 계산한 뒤 버리고 글만 남긴다.

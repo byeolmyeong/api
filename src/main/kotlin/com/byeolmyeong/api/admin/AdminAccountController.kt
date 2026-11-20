@@ -26,17 +26,17 @@ class AdminAccountController(
 	@GetMapping("/admin/admins")
 	fun list(): List<AdminAccount> = accounts.list()
 
+	/** 아이디만 받는다(결정 043 의 5). 이름은 아이디 그대로, 비밀번호는 서버가 만든 임시 비밀번호 — 이 응답에서 한 번만 보인다. */
 	@PostMapping("/admin/admins")
-	fun create(@RequestBody body: JsonNode): ResponseEntity<AdminAccount> {
-		body.requireObject()
-		val loginId = body.textOrNull("loginId")?.let(::normalizeLoginId)
-		val name = body.textOrNull("name")?.trim()
-		val password = body.textOrNull("password")
+	fun create(@RequestBody body: JsonNode): ResponseEntity<CreatedAdmin> {
+		val loginId = body.requireObject().textOrNull("loginId")?.let(::normalizeLoginId)
 		if (loginId == null || !validLoginId(loginId)) throw BadRequestException("INVALID_LOGIN_ID")
-		if (name == null || !validName(name)) throw BadRequestException("INVALID_NAME")
-		if (password == null || !passwords.acceptable(password)) throw BadRequestException("INVALID_PASSWORD")
-		return ResponseEntity.status(201).body(accounts.create(loginId, name, password))
+		return ResponseEntity.status(201).body(accounts.create(loginId))
 	}
+
+	/** 다른 관리자에게 새 임시 비밀번호(결정 043 의 5). 그 관리자의 세션은 모두 끝나고 다음 로그인 때 바꿔야 한다. */
+	@PostMapping("/admin/admins/{id}/password-reset")
+	fun reissue(@PathVariable id: String): ReissuedPassword = accounts.reissue(current.get().id, pathId(id))
 
 	@PatchMapping("/admin/admins/{id}")
 	fun setActive(@PathVariable id: String, @RequestBody body: JsonNode): AdminAccount {

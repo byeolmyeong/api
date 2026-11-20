@@ -257,12 +257,12 @@ class AdminInquiryApiIntegrationTest {
 		assertEquals(json, http(port, "GET", "/admin/inquiries/$id", token = token).json())
 
 		// 다른 관리자가 상태만 바꾼다: 메모는 그대로, 처리한 관리자는 그 사람이 된다.
-		createAdmin(port, token, "ops-kim", "ops-kim-password", "운영 김")
+		createAdmin(port, token, "ops-kim", "ops-kim-password", jdbc)
 		val theirs = adminToken(port, "ops-kim", "ops-kim-password")
 		val second = patch(id, """{"status":"DONE"}""", theirs).json()
 		assertEquals("DONE", second["status"].asString())
 		assertEquals("메일로 답함.\n환불 안내", second["memo"].asString())
-		assertEquals("운영 김", second["handledBy"]["name"].asString())
+		assertEquals("ops-kim", second["handledBy"]["name"].asString())
 
 		// 메모만 바꾼다: 상태는 그대로. 어느 쪽으로든 되돌릴 수 있다.
 		val third = patch(id, """{"memo":"다시 확인 필요"}""").json()

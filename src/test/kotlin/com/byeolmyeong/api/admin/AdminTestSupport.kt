@@ -6,6 +6,7 @@ import com.byeolmyeong.api.http
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
 import java.net.http.HttpResponse
@@ -62,11 +63,18 @@ fun adminToken(port: Int, loginId: String = ROOT_ID, password: String = ROOT_PAS
 	return response.json()["token"].asString()
 }
 
-/** 관리자를 API 로 하나 더 만들고 그 id 를 준다. */
-fun createAdmin(port: Int, token: String, loginId: String, password: String, name: String = loginId): UUID {
-	val response = http(port, "POST", "/admin/admins", json(mapOf("loginId" to loginId, "name" to name, "password" to password)), token)
+private val testEncoder = BCryptPasswordEncoder(4)
+
+/**
+ * 관리자를 API 로 하나 더 만들고(임시 비밀번호 — 결정 043 의 5) 비밀번호를 [password] 로, 첫 로그인 변경은 끝난 것으로 DB 에 바로 둔다.
+ * 첫 로그인 변경 흐름은 따로 본다(AdminTemporaryPasswordApiIntegrationTest). 이름은 아이디 그대로다.
+ */
+fun createAdmin(port: Int, token: String, loginId: String, password: String, jdbc: JdbcTemplate): UUID {
+	val response = http(port, "POST", "/admin/admins", json(mapOf("loginId" to loginId)), token)
 	check(response.statusCode() == 201) { "관리자 만들기 실패: ${response.statusCode()} ${response.body()}" }
-	return UUID.fromString(response.json()["id"].asString())
+	val id = UUID.fromString(response.json()["admin"]["id"].asString())
+	jdbc.update("update admin_accounts set password_hash = ?, must_change_password = false where id = ?", testEncoder.encode(password), id)
+	return id
 }
 
 /** 첫 관리자만 남기고 관리자 쪽 데이터와 앱 사용자 데이터를 비운다. */

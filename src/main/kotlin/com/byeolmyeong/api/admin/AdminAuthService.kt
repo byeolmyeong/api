@@ -52,12 +52,12 @@ class AdminAuthService(
 	private val idLimiter = RateLimiter(perId, LOGIN_WINDOW_MILLIS, System::currentTimeMillis)
 
 	/**
-	 * 없는 아이디·틀린 비밀번호·꺼진 관리자는 모두 401 `INVALID_CREDENTIALS` 다. 시도는 주소별·아이디별로 센다(성공도 센다).
-	 * 주소별 한도에 걸린 요청은 아이디별 수를 올리지 않는다.
+	 * 없는 아이디·틀린 비밀번호·꺼진 관리자는 모두 401 `INVALID_CREDENTIALS` 다. 시도는 주소별로만 센다(성공도 센다).
+	 * 아이디별 잠금은 두지 않는다(결정 043 의 5 — 여러 번 틀려도 그 아이디가 막히지 않는다).
 	 */
 	fun login(loginId: String, password: String, address: String): AdminLogin {
 		val id = normalizeLoginId(loginId)
-		if (!ipLimiter.tryAcquire(address) || !idLimiter.tryAcquire(id.take(LIMIT_KEY_LENGTH))) {
+		if (!ipLimiter.tryAcquire(address)) {
 			log.warn("event=admin_login_rate_limited")
 			throw AdminRejectedException(429, "RATE_LIMITED")
 		}
@@ -72,9 +72,10 @@ class AdminAuthService(
 		sessions.deleteExpired()
 		val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(TOKEN_BYTES).also(random::nextBytes))
 		val expiresAt = sessions.insert(hash(token), account.id, sessionHours)
+		accounts.recordLogin(account.id)
 		log.info("event=admin_login_succeeded")
 		events.publishEvent(AuditEvent(AuditAction.ADMIN_LOGIN, AuditActor.admin(account.id, account.loginId)))
-		return AdminLogin(token, expiresAt, Admin(account.id, account.loginId, account.name))
+		return AdminLogin(token, expiresAt, Admin(account.id, account.loginId, account.name, account.mustChangePassword))
 	}
 
 	/** 토큰의 관리자. 없는 토큰이거나 끝났거나 꺼진 관리자면 null. */
@@ -86,7 +87,10 @@ class AdminAuthService(
 		audit.record(AuditAction.ADMIN_LOGOUT)
 	}
 
-	/** 자기 비밀번호를 바꾼다. 이 요청의 세션([token])은 남기고 자기의 다른 세션은 지운다. 지금 비밀번호 확인도 아이디별 제한에 든다. */
+	/**
+	 * 자기 비밀번호를 바꾼다. 이 요청의 세션([token])은 남기고 자기의 다른 세션은 지운다. 지금 비밀번호 확인은 아이디별 제한에 든다.
+	 * 임시 비밀번호로 들어온 동안([Admin.mustChangePassword])은 새 비밀번호가 임시 비밀번호와 같으면 400 `SAME_AS_TEMPORARY`, 바꾸면 풀린다.
+	 */
 	fun changePassword(admin: Admin, token: String, currentPassword: String, newPassword: String) {
 		if (!idLimiter.tryAcquire(admin.loginId.take(LIMIT_KEY_LENGTH))) throw AdminRejectedException(429, "RATE_LIMITED")
 		if (!passwords.matches(currentPassword, accounts.findByLoginId(admin.loginId)?.passwordHash)) {
@@ -94,7 +98,8 @@ class AdminAuthService(
 			throw BadRequestException("INVALID_CURRENT_PASSWORD")
 		}
 		if (!passwords.acceptable(newPassword)) throw BadRequestException("INVALID_PASSWORD")
-		accounts.updatePassword(admin.id, passwords.hash(newPassword))
+		if (admin.mustChangePassword && newPassword == currentPassword) throw BadRequestException("SAME_AS_TEMPORARY")
+		accounts.updatePassword(admin.id, passwords.hash(newPassword), mustChangePassword = false)
 		sessions.deleteOthers(admin.id, hash(token))
 		log.info("event=admin_password_changed")
 		audit.record(AuditAction.ADMIN_PASSWORD_CHANGED)
@@ -117,10 +122,10 @@ class AdminSessionRepository(private val jdbc: JdbcTemplate) {
 	fun findAdmin(tokenHash: String): Admin? =
 		jdbc.query(
 			"""
-			select a.id, a.login_id, a.name from admin_sessions s join admin_accounts a on a.id = s.admin_id
+			select a.id, a.login_id, a.name, a.must_change_password from admin_sessions s join admin_accounts a on a.id = s.admin_id
 			where s.token_hash = ? and s.expires_at > now() and a.active
 			""",
-			{ rs, _ -> Admin(rs.getObject("id", UUID::class.java), rs.getString("login_id"), rs.getString("name")) },
+			{ rs, _ -> Admin(rs.getObject("id", UUID::class.java), rs.getString("login_id"), rs.getString("name"), rs.getBoolean("must_change_password")) },
 			tokenHash,
 		).firstOrNull()
 

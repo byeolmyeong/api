@@ -74,7 +74,7 @@ class AdminAuthApiIntegrationTest {
 		assertEquals(200, response.statusCode())
 		val json = response.json()
 		assertEquals(setOf("token", "expiresAt", "admin"), json.propertyNames().toSet())
-		assertEquals(setOf("id", "loginId", "name"), json["admin"].propertyNames().toSet(), "비밀번호·해시는 응답에 없다")
+		assertEquals(setOf("id", "loginId", "name", "mustChangePassword"), json["admin"].propertyNames().toSet(), "비밀번호·해시는 응답에 없다")
 		assertEquals(ROOT_ID, json["admin"]["loginId"].asString())
 		assertEquals(jdbc.queryForObject("select id from admin_accounts", UUID::class.java).toString(), json["admin"]["id"].asString())
 
@@ -204,7 +204,7 @@ class AdminAuthApiIntegrationTest {
 	fun `me 는 로그인한 관리자를 준다`() {
 		val response = http(port, "GET", "/admin/me", token = adminToken(port))
 		assertEquals(200, response.statusCode())
-		assertEquals(setOf("id", "loginId", "name"), response.json().propertyNames().toSet())
+		assertEquals(setOf("id", "loginId", "name", "mustChangePassword"), response.json().propertyNames().toSet())
 		assertEquals(ROOT_ID, response.json()["loginId"].asString())
 	}
 
@@ -248,66 +248,24 @@ class AdminAuthApiIntegrationTest {
 	// ── 관리자 관리 ──
 
 	@Test
-	fun `관리자를 만들고 목록에서 본다`() {
+	fun `관리자 목록은 먼저 만든 관리자부터이고 해시는 없다`() {
 		val token = adminToken(port)
-		val created = http(port, "POST", "/admin/admins", json(mapOf("loginId" to " Ops.Kim-2 ", "name" to "  운영 김  ", "password" to "ops-kim-password")), token)
-
-		assertEquals(201, created.statusCode())
-		val admin = created.json()
-		assertEquals(setOf("id", "loginId", "name", "active", "createdAt"), admin.propertyNames().toSet())
-		assertEquals("ops.kim-2", admin["loginId"].asString(), "아이디는 소문자로, 앞뒤 공백을 떼어 저장한다")
-		assertEquals("운영 김", admin["name"].asString())
-		assertEquals(true, admin["active"].asBoolean())
+		createAdmin(port, token, "ops.kim-2", "ops-kim-password", jdbc)
 
 		val list = http(port, "GET", "/admin/admins", token = token)
 		assertEquals(200, list.statusCode())
 		assertEquals(listOf(ROOT_ID, "ops.kim-2"), list.json().toList().map { it["loginId"].asString() }, "먼저 만든 관리자부터")
-		assertEquals(setOf("id", "loginId", "name", "active", "createdAt"), list.json()[0].propertyNames().toSet())
+		assertEquals(setOf("id", "loginId", "name", "active", "createdAt", "lastLoginAt"), list.json()[0].propertyNames().toSet())
 		assertFalse(list.body().contains("$2"), "해시는 응답에 없다")
 
 		val theirs = adminToken(port, "OPS.kim-2", "ops-kim-password")
-		assertEquals("운영 김", http(port, "GET", "/admin/me", token = theirs).json()["name"].asString())
-		val hash = jdbc.queryForObject("select password_hash from admin_accounts where login_id = 'ops.kim-2'", String::class.java)!!
-		assertTrue(hash.startsWith("$2") && !hash.contains("ops-kim-password"))
-	}
-
-	@Test
-	fun `관리자를 만들 때 아이디·이름·비밀번호를 검증한다`() {
-		val token = adminToken(port)
-		fun create(loginId: Any?, name: Any?, password: Any?) =
-			http(port, "POST", "/admin/admins", json(mapOf("loginId" to loginId, "name" to name, "password" to password)), token)
-
-		fun assertRejected(code: String, loginId: Any?, name: Any?, password: Any?) {
-			val response = create(loginId, name, password)
-			assertEquals(400, response.statusCode(), "$code: $loginId / $name")
-			assertEquals("""{"error":"$code"}""", response.body())
-		}
-		val ok = "valid-password"
-		for (id in listOf(null, "", "ab", "a".repeat(33), "has space", "한글아이디", "-starts-with-dash", "semi;colon", "a@b")) {
-			assertRejected("INVALID_LOGIN_ID", id, "이름", ok)
-		}
-		for (name in listOf(null, "", "   ", "가".repeat(41), "이름\u0000")) assertRejected("INVALID_NAME", "new-admin", name, ok)
-		for (password in listOf(null, "", "123456789", "가".repeat(9), "x".repeat(73), "가".repeat(25))) {
-			assertRejected("INVALID_PASSWORD", "new-admin", "이름", password)
-		}
-		for (body in listOf("[]", "null", "{", """{"loginId":1,"name":"이름","password":"$ok"}""", """{"loginId":"new-admin","name":["이름"],"password":"$ok"}""", """{"loginId":"new-admin","name":"이름","password":1234567890}""")) {
-			val response = http(port, "POST", "/admin/admins", body, token)
-			assertEquals(400, response.statusCode(), body)
-			assertEquals("""{"error":"INVALID_REQUEST"}""", response.body())
-		}
-		assertEquals(1, count("select count(*) from admin_accounts"))
-
-		assertEquals(201, create("abc", "가".repeat(40), "1234567890").statusCode(), "경계: 아이디 3자, 이름 40자, 비밀번호 10자")
-		assertEquals(201, create("a".repeat(32), "이", "x".repeat(72)).statusCode(), "경계: 아이디 32자, 비밀번호 72바이트")
-		assertEquals(201, create("hangul-pw", "이", "가".repeat(24)).statusCode(), "한글 24자는 72바이트다")
-		assertEquals(200, login(port, "hangul-pw", "가".repeat(24)).statusCode())
-		assertEquals(200, login(port, "a".repeat(32), "x".repeat(72)).statusCode())
+		assertEquals("ops.kim-2", http(port, "GET", "/admin/me", token = theirs).json()["name"].asString(), "이름은 아이디 그대로다")
 	}
 
 	@Test
 	fun `이미 있는 아이디로는 만들 수 없다`() {
 		val token = adminToken(port)
-		createAdmin(port, token, "ops-kim", "ops-kim-password")
+		createAdmin(port, token, "ops-kim", "ops-kim-password", jdbc)
 
 		for (id in listOf("ops-kim", "OPS-KIM", ROOT_ID)) {
 			val response = http(port, "POST", "/admin/admins", json(mapOf("loginId" to id, "name" to "다른 이름", "password" to "another-password")), token)
@@ -321,7 +279,7 @@ class AdminAuthApiIntegrationTest {
 	@Test
 	fun `관리자를 끄면 그 관리자의 세션이 지워지고 로그인도 안 된다 다시 켜면 된다`() {
 		val root = adminToken(port)
-		val id = createAdmin(port, root, "ops-kim", "ops-kim-password")
+		val id = createAdmin(port, root, "ops-kim", "ops-kim-password", jdbc)
 		val theirs = adminToken(port, "ops-kim", "ops-kim-password")
 		adminToken(port, "ops-kim", "ops-kim-password")
 		assertEquals(200, http(port, "GET", "/admin/me", token = theirs).statusCode())
@@ -350,7 +308,7 @@ class AdminAuthApiIntegrationTest {
 	@Test
 	fun `꺼진 관리자의 세션이 DB 에 남아 있어도 통하지 않는다`() {
 		val root = adminToken(port)
-		val id = createAdmin(port, root, "ops-kim", "ops-kim-password")
+		val id = createAdmin(port, root, "ops-kim", "ops-kim-password", jdbc)
 		val theirs = adminToken(port, "ops-kim", "ops-kim-password")
 
 		jdbc.update("update admin_accounts set active = false where id = ?", id)
@@ -363,7 +321,7 @@ class AdminAuthApiIntegrationTest {
 	fun `자기 자신은 끌 수 없다`() {
 		val root = adminToken(port)
 		val rootId = http(port, "GET", "/admin/me", token = root).json()["id"].asString()
-		createAdmin(port, root, "ops-kim", "ops-kim-password")
+		createAdmin(port, root, "ops-kim", "ops-kim-password", jdbc)
 
 		val response = http(port, "PATCH", "/admin/admins/$rootId", """{"active":false}""", root)
 		assertEquals(409, response.statusCode())
@@ -377,7 +335,7 @@ class AdminAuthApiIntegrationTest {
 	fun `마지막 남은 활성 관리자는 끌 수 없다`() {
 		val root = adminToken(port)
 		val rootId = UUID.fromString(http(port, "GET", "/admin/me", token = root).json()["id"].asString())
-		val otherId = createAdmin(port, root, "ops-kim", "ops-kim-password")
+		val otherId = createAdmin(port, root, "ops-kim", "ops-kim-password", jdbc)
 		// 두 관리자가 동시에 서로를 끄는 경우: 한쪽이 먼저 꺼진 뒤에 다른 쪽의 요청이 닿는다.
 		jdbc.update("update admin_accounts set active = false where id = ?", otherId)
 
@@ -391,7 +349,7 @@ class AdminAuthApiIntegrationTest {
 	@Test
 	fun `없는 관리자와 틀린 본문`() {
 		val root = adminToken(port)
-		val id = createAdmin(port, root, "ops-kim", "ops-kim-password")
+		val id = createAdmin(port, root, "ops-kim", "ops-kim-password", jdbc)
 
 		for (path in listOf("/admin/admins/${UUID.randomUUID()}", "/admin/admins/not-a-uuid", "/admin/admins/1")) {
 			val response = http(port, "PATCH", path, """{"active":false}""", root)
@@ -411,7 +369,7 @@ class AdminAuthApiIntegrationTest {
 	@Test
 	fun `내 비밀번호를 바꾸면 예전 비밀번호와 내 다른 세션은 끝난다`() {
 		val root = adminToken(port)
-		createAdmin(port, root, "ops-kim", "ops-kim-password")
+		createAdmin(port, root, "ops-kim", "ops-kim-password", jdbc)
 		val current = adminToken(port, "ops-kim", "ops-kim-password")
 		val other = adminToken(port, "ops-kim", "ops-kim-password")
 		fun change(currentPassword: Any?, newPassword: Any?, token: String = current) =
@@ -455,12 +413,12 @@ class AdminAuthApiIntegrationTest {
 		val secretWrong = "never-log-wrong-guess"
 		val root = adminToken(port)
 
+		createAdmin(port, root, "ops-kim", secretPassword, jdbc)
 		val responses = mutableListOf(
-			http(port, "POST", "/admin/admins", json(mapOf("loginId" to "ops-kim", "name" to "운영 김", "password" to secretPassword)), root),
-			http(port, "POST", "/admin/admins", json(mapOf("loginId" to "ops-kim", "name" to "운영 김", "password" to secretPassword)), root), // 409
-			http(port, "POST", "/admin/admins", json(mapOf("loginId" to "bad id", "name" to "운영 김", "password" to secretPassword)), root), // 400
-			http(port, "POST", "/admin/admins", """{"loginId":"ops-lee","name":"이","password":["$secretPassword"]}""", root), // 타입
-			http(port, "POST", "/admin/admins", """{"loginId":"ops-lee","name":"이","password":"$secretPassword"""", root), // 깨진 JSON
+			http(port, "POST", "/admin/admins", json(mapOf("loginId" to "ops-kim", "password" to secretPassword)), root), // 409
+			http(port, "POST", "/admin/admins", json(mapOf("loginId" to "bad id", "password" to secretPassword)), root), // 400
+			http(port, "POST", "/admin/admins", """{"loginId":["ops-lee"],"password":"$secretPassword"}""", root), // 타입
+			http(port, "POST", "/admin/admins", """{"loginId":"ops-lee","password":"$secretPassword"""", root), // 깨진 JSON
 			login(port, "ops-kim", secretWrong),
 			login(port, "no-such-admin", secretWrong),
 			http(port, "POST", "/admin/auth/login", """{"loginId":"ops-kim","password":["$secretWrong"]}"""),
@@ -474,7 +432,7 @@ class AdminAuthApiIntegrationTest {
 		responses += http(port, "GET", "/admin/me", token = "$token-wrong")
 		responses += http(port, "POST", "/admin/auth/logout", token = token)
 		accounts.bootstrap("boot-admin", secretPassword)
-		assertEquals(listOf(201, 409, 400, 400, 400, 401, 401, 400, 200, 400, 204, 200, 401, 204), responses.map { it.statusCode() })
+		assertEquals(listOf(409, 400, 400, 400, 401, 401, 400, 200, 400, 204, 200, 401, 204), responses.map { it.statusCode() })
 
 		val hashes = jdbc.queryForList("select password_hash from admin_accounts", String::class.java).filterNotNull()
 		val answered = responses.joinToString("\n") { it.body() }

@@ -105,7 +105,7 @@ class AdminAuditIntegrationTest {
 
 	@Test
 	fun `비밀번호 변경은 성공만 남고 값은 없다`() {
-		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD)
+		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, jdbc)
 		val second = adminToken(port, SECOND_ID, SECOND_PASSWORD)
 		jdbc.update("delete from audit_logs")
 
@@ -121,7 +121,7 @@ class AdminAuditIntegrationTest {
 
 	@Test
 	fun `관리자 만들기·끄기·켜기가 대상과 함께 남는다`() {
-		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, name = "둘째관리자이름")
+		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, jdbc)
 		var row = single("ADMIN_CREATED")
 		assertEquals(listOf("ADMIN", created.toString(), null), listOf(row["target_type"], row["target_id"], row["detail"]))
 
@@ -260,7 +260,7 @@ class AdminAuditIntegrationTest {
 	@Test
 	fun `관리자가 넣은 글·비밀번호·토큰·이름·이메일은 어느 행에도 없다`() {
 		val inquiry = seedInquiry()
-		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, name = "둘째관리자이름")
+		val created = createAdmin(port, token, SECOND_ID, SECOND_PASSWORD, jdbc)
 		val second = adminToken(port, SECOND_ID, SECOND_PASSWORD)
 		login(port, ROOT_ID, "wrong-password-typed")
 		login(port, "typed-password-as-id", "x")
