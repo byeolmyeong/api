@@ -18,8 +18,12 @@ fun promptResource(name: String): String {
 /** 모든 글에 공통인 글쓰기 규칙(말투·용어 금지·단정 금지·근거). 글마다의 지시문 앞에 붙인다. */
 val WRITING_RULES: String by lazy { promptResource("writing-rules.md") }
 
-/** 서버가 계산한 차트를 모델이 읽을 글로 옮긴다. 시각을 모르면 하우스·상승점·중천이 들어가지 않는다. */
-fun chartFacts(chart: Chart): String {
+/**
+ * 서버가 계산한 차트를 모델이 읽을 글로 옮긴다. 시각을 모르면 하우스·상승점·중천이 들어가지 않는다.
+ * [candidates] 를 주면 끝에 "[근거 후보]"(id: 설명, 결정 031)를, 없으면 옛 "[근거로 쓸 수 있는 말]" 을 붙인다 —
+ * 근거를 낱말로 받는 옛 글(리포트 · 방향성 제시)이 남아 있는 동안만 둘이다(계획 S⑦).
+ */
+fun chartFacts(chart: Chart, candidates: List<BasisCandidate>? = null): String {
 	fun placed(name: String, sign: String, house: Int?) = "$name: $sign" + (house?.let { " · ${houseLabel(it)}" } ?: "")
 	val lines = mutableListOf("[천체]")
 	lines += chart.positions.map { placed(it.body.label, it.sign.label, it.house) }
@@ -46,8 +50,13 @@ fun chartFacts(chart: Chart): String {
 	lines += "[한곳에 겹친 천체 쌍]"
 	lines += pairs(chart, AspectType.CONJUNCTION)
 	lines += ""
-	lines += "[근거로 쓸 수 있는 말]"
-	lines += basisVocabulary(chart).joinToString(", ")
+	if (candidates == null) {
+		lines += "[근거로 쓸 수 있는 말]"
+		lines += basisVocabulary(chart).joinToString(", ")
+	} else {
+		lines += "[근거 후보]"
+		lines += candidates.map { "${it.id}: ${it.text}" }
+	}
 	return lines.joinToString("\n")
 }
 

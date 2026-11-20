@@ -82,4 +82,36 @@ class AspectsTest {
 		assertEquals(AspectType.CONJUNCTION, aspects.first { it.a == Body.MOON && it.b == Body.SUN }.type)
 		assertNull(aspects.firstOrNull { it.a == Body.SUN && it.b == Body.MOON }) // 45도는 다섯 종류에 없다
 	}
+
+	@Test
+	fun `천체와 상승점 중천 사이의 각도를 같은 허용 범위로 찾는다`() {
+		val houses = Houses(ascendant = 125.0, midheaven = 35.0, vertex = 0.0, cusps = emptyList())
+		val positions = listOf(
+			position(Body.SUN, 128.0), // 상승점과 3도 차 합, 중천과 93도 차 사분(오차 3)
+			position(Body.MOON, 217.0), // 상승점과 92도 사분(오차 2), 중천과 182도 충(오차 2)
+			position(Body.MARS, 80.0), // 상승점과 45도, 중천과 45도 — 다섯 종류에 없다
+		)
+
+		val aspects = computeAngleAspects(positions, houses)
+
+		assertEquals(
+			setOf(
+				AngleAspect(Body.SUN, ChartAngle.ASC, AspectType.CONJUNCTION, 3.0),
+				AngleAspect(Body.SUN, ChartAngle.MC, AspectType.SQUARE, 3.0),
+				AngleAspect(Body.MOON, ChartAngle.ASC, AspectType.SQUARE, 2.0),
+				AngleAspect(Body.MOON, ChartAngle.MC, AspectType.OPPOSITION, 2.0),
+			),
+			aspects.map { it.copy(orb = Math.round(it.orb * 1e6) / 1e6) }.toSet(),
+		)
+		val edge = computeAngleAspects(listOf(position(Body.SUN, 125.0 + AspectType.CONJUNCTION.maxOrb + 0.01)), houses)
+		assertTrue(edge.none { it.angle == ChartAngle.ASC }, "허용 범위 밖")
+	}
+
+	@Test
+	fun `0도를 넘어가는 상승점과의 합을 찾는다`() {
+		val houses = Houses(ascendant = 358.0, midheaven = 270.0, vertex = 0.0, cusps = emptyList())
+		val aspect = computeAngleAspects(listOf(position(Body.SUN, 2.0)), houses).single { it.angle == ChartAngle.ASC }
+		assertEquals(AspectType.CONJUNCTION, aspect.type)
+		assertEquals(4.0, aspect.orb, 1e-9)
+	}
 }

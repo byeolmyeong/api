@@ -54,7 +54,7 @@ last_reviewed: 2026-11-20
   - `{ "kind": "PLACEMENT", "body": Body | Angle, "sign": Sign, "house"?: 1..12 }`
   - `{ "kind": "CLUSTER", "house": 1..12, "bodies": [Body, …] }`(3개 이상)
   - `{ "kind": "ASPECT", "a": Body | Angle, "b": Body | Angle, "type": AspectType }`
-  - `{ "kind": "RULER", "body": Body, "ruler": Body }`
+  - `{ "kind": "RULER", "body": Body | "ASC", "ruler": Body }`(`ASC` 는 상승점의 별자리를 다스리는 별 — 결정 031 의 4, 시각을 알 때만)
   - `{ "kind": "TRANSIT", "mover": Body, "target"?: Body | Angle | "VERTEX", "type"?: AspectType, "house"?: 1..12 }`(target + type, 또는 house)
   - 시각을 모르면 `house` 키 · `CLUSTER` · `ASC` · `MC` · `VERTEX` · 하우스 통과가 나오지 않는다(값이 null 인 키를 보내지 않는다).
 - `Reason` = `{ "when": "BIRTH" | "NOW" | "DAY", "items": [BasisItem](1~2) }`. `TRANSIT` 은 `NOW` · `DAY` 에만, 나머지는 `BIRTH` 에만.
@@ -139,7 +139,7 @@ last_reviewed: 2026-11-20
 
 ### S① 근거 구조 · 요약 해석 v2 · "~기" (결정 031 · 030 의 4 · 037)
 
-#### 1. s1-basis-candidates · 상태: 대기
+#### 1. s1-basis-candidates · 상태: 완료
 - 읽을 것: 결정 031, `generation/Basis.kt` · `ChartFacts.kt`, `chart/Aspects.kt`
 - 할 것: `chart/Rulers.kt`(전통 지배성 — 별자리 → 다스리는 별), `generation` 에 `BasisItem` · `Reason` · `Star` 타입, `basisCandidates(chart)`(id → BasisItem 표, 순서 고정), id 를 `BasisItem` 으로 바꾸기, 그 영역 reason 들에서 `Star` 1~3 만들기. `chartFacts` 끝에 "[근거 후보]"(id · 짧은 설명 — 용어는 모델에게만) 블록.
 - 주는 것: 후보 id 꼴(`P-SUN` · `P-ASC` · `C-5` · `A-SATURN-SUN-SQUARE` · `R-MOON` · `T-…`)
@@ -303,3 +303,4 @@ last_reviewed: 2026-11-20
 
 ## 실행 기록
 - 0: 결정 029~038 · 대체 표시 · 이 계획(2026-11-20). develop · 원격 브랜치 모두 029~ · V22~ 없음 확인.
+- 1: 근거 후보 없음 → `chart/Rulers.kt`(전통 지배성) · `computeAngleAspects`(상승점 · 중천과의 각도) · `generation` 의 `BasisItem`(5종) · `Reason` · `Star` · `basisCandidates`(P · C · A · R, 순서 고정) · `starsOf` · `chartFacts(chart, candidates)` 끝 "[근거 후보]". `RulersTest` 1 · `AspectsTest` 7(새 2) · `BasisCandidatesTest` 13 · `ArchitectureTest` 10 초록(빨강: 컴파일 실패 먼저). 계획과 다른 점: `R-ASC` 를 두려고 `RULER.body` 를 `Body | Angle` 로 넓힘(결정 031 의 4 가 상승점을 넣는데 1 의 타입이 `Body` 라서) · `chartFacts` 는 후보를 받을 때만 "[근거 후보]", 아니면 옛 "[근거로 쓸 수 있는 말]"(리포트 · 방향성이 S⑦ 까지 낱말을 쓴다).
