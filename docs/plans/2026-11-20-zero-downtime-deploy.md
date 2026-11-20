@@ -43,30 +43,30 @@ last_reviewed: 2026-11-20
 
 ## 태스크
 
-### 1. decision-046 · 상태: 대기
+### 1. decision-046 · 상태: 완료
 - 읽을 것: 이 계획, 서버 결정 020 · 022, `deploy/compose.yaml` · `deploy/Caddyfile` · `.github/workflows/deploy.yml`
 - 할 것: 서버 결정 046 "배포 · 설정 바꾸기는 블루 · 그린으로 끊김 없이" — 위 "내 결정" 여섯 줄 + 마이그레이션 규칙. 020 앞머리에 "배포 방식은 046" 표시.
 - 검증: 파일 하나 · 020 앞머리.
 
-### 2. graceful-shutdown · 상태: 대기
+### 2. graceful-shutdown · 상태: 완료
 - 읽을 것: `application.properties`, `report/ReportService.kt`(일꾼 · 심장 박동) · `MeReportService.kt` · 시기 · `synastry/SynastryService.kt` 의 일꾼, `@Scheduled` 모두
 - 할 것: `server.shutdown=graceful` · `spring.lifecycle.timeout-per-shutdown-phase=30s`. 생성 일꾼(`ThreadPoolTaskExecutor`) 모두 `setWaitForTasksToCompleteOnShutdown(true)` · `setAwaitTerminationSeconds(180)`. 끝낼 때 일꾼이 기다리는 동안에도 심장 박동이 계속 적히게(박동 일정이 먼저 멈추지 않게 — 필요하면 박동을 일꾼 종료 뒤로). 두 서버가 잠깐 같이 떠 있어도 겹치면 안 되는 `@Scheduled` 가 있는지 보고, 있으면 DB 잠금(`pg_try_advisory_lock`)으로 하나만 돌게.
 - 하지 말 것: 생성 중인 일을 끊고 다시 시작하게 만들지 않는다.
 - 검증: 통합 테스트 — 생성 도중 컨텍스트를 닫으면 끝까지 쓰고 저장한 뒤 닫힌다 · 닫히는 동안 새 요청은 받지 않는다. `./gradlew build`.
 
-### 3. compose-blue-green · 상태: 대기
+### 3. compose-blue-green · 상태: 완료
 - 읽을 것: 태스크 1, `deploy/compose.yaml` · `deploy/Caddyfile`
 - 할 것: `api` → `api-blue` · `api-green`(같은 설정, jar 는 `./app-blue.jar` · `./app-green.jar`, `stop_grace_period: 200s`, `JAVA_TOOL_OPTIONS`, 상태 검사는 Caddy 가 함). Caddyfile 은 `import upstream.caddy` 로 받는 쪽만 가져온다 — `upstream.caddy` 예: `reverse_proxy api-green:8080 { health_uri /health  health_interval 2s  lb_try_duration 15s }`. Postgres · Caddy 이미지 태그를 고정(`postgres:17.x` · `caddy:2.x` 지금 쓰는 패치).
 - 주는 것: 서비스 이름 `api-blue` · `api-green`, 파일 `upstream.caddy` · `active_color`(지금 받는 색).
 - 검증: 로컬에서 `docker compose config` 통과 · 두 색을 번갈아 띄워 Caddy 가 붙는지.
 
-### 4. swap-script · 상태: 대기
+### 4. swap-script · 상태: 완료(스테이징 검증 전)
 - 읽을 것: 태스크 3
 - 할 것: `deploy/swap.sh [jar 경로 | --restart]` — ① 지금 색(`active_color`, 없으면 지금 떠 있는 것)과 쉬는 색을 정한다 ② 새 jar 를 쉬는 색 파일로(`--restart` 면 지금 jar 그대로 — `.env` 만 바꿨을 때) ③ `docker compose up -d api-<쉬는 색>` ④ Caddy 컨테이너 안에서 `wget -qO- http://api-<쉬는 색>:8080/health` 가 200 일 때까지(최대 3분, 아니면 쉬는 색을 내리고 실패로 끝 — 받는 쪽은 그대로) ⑤ `upstream.caddy` 를 쉬는 색으로 쓰고 `caddy reload` ⑥ 5초 뒤 `docker compose stop api-<옛 색>`(차분한 종료, 최대 200초) ⑦ `active_color` 기록 · 새 jar 를 `app.jar.good` 으로. 모든 단계 `event=swap_*` 로그.
 - 하지 말 것: 받는 쪽을 바꾸기 전에 옛 색을 내리지 않는다. Postgres · Caddy 를 다시 만들지 않는다.
 - 검증: 스테이징 VM 에서 0.1초마다 `/health` 와 가벼운 공개 경로(`GET /app-config`)를 부르며 `swap.sh` 두 번(새 jar · `--restart`) → 실패 0(로그로 센 표 첨부).
 
-### 5. workflow-and-runbook · 상태: 대기
+### 5. workflow-and-runbook · 상태: 완료(스테이징 검증 전)
 - 읽을 것: 태스크 4, `.github/workflows/deploy.yml` · `docs/deploy.md` · `deploy/bootstrap-vm.sh`
 - 할 것: "바꿔 띄우기" 를 `swap.sh /opt/byeolmyeong/app.jar.new` 로. `docker compose pull` · `up -d --remove-orphans` 를 앱 배포에서 뺀다. 되돌리기 = `swap.sh app.jar.good`(이것도 끊김 없이). 처음 한 번 옮겨 가기(지금 `api` → `api-blue`)는 끊김이 한 번 있으므로 점검 모드를 켜고 하는 손 절차를 `docs/deploy.md` 에. 운영 절차표의 "`.env` 를 바꾼 뒤" 를 `./swap.sh --restart` 로, "Postgres · Caddy 업데이트" 줄을 새로(점검 모드 → pull → up → 끔). `docs/architecture.md` 의 배포 줄.
 - 검증: 스테이징 배포 한 번(Actions) 동안 태스크 4 의 요청 고리 실패 0 · 운영은 소유자가 `main` 에 합칠 때.
@@ -91,3 +91,29 @@ last_reviewed: 2026-11-20
 - VM 메모리가 모자라면 JVM 상한을 낮추거나 스왑을 늘린다.
 
 ## 실행 기록
+- 2026-11-20 (무중단 배포 세션) 태스크 1~5 를 브랜치 `feat/zero-downtime-deploy` 에서 만들었다. 계획과 다르게 고른 것(결정 046 에 근거):
+  - JVM 힙 상한 `-Xmx256m`(계획 320m) — 1GB VM 에서 JVM 이 스스로 고르던 값과 같아 지금 동작을 그대로 두고, 겹칠 때 더 커지지 않게.
+  - 웹 단계 `timeout-per-shutdown-phase=120s`(계획 30초) · `stop_grace_period: 320s`(계획 200s) — 요약 해석 · 직접 입력 궁합 · 방향성은 요청 안에서 모델을 부른다(한 번 최대 120초). 30초면 옛 색에 걸린 그 요청이 끊긴다. 320 = 120 + 180 + 여유.
+  - 생성 기다리기는 일꾼 스스로의 종료(빈을 없앨 때)가 아니라 그 앞의 수명 단계(`ReportExecutorDrain`, 웹 서버 차분한 종료 바로 다음)에서 한다. 빈을 없앨 때는 서비스의 박동 일정이 이미 취소돼 있다. 박동 일정이 닫기 시작할 때 먼저 멈추지 않게 `spring.task.scheduling.shutdown.await-termination=true`. Boot 4.1 은 `server.shutdown` 기본값이 이미 graceful 이지만 적어 둔다.
+  - swap.sh 는 지금 색을 `active_color` 가 아니라 Caddy 관리 API 의 살아 있는 설정으로 정하고, 바꾼 뒤에도 그것으로 확인한다. Caddy 가 쓰는 색인지 모르면 아무 색도 내리지 않는다.
+  - 배포 워크플로는 옮기지 않은 VM 에는 아무것도 올리지 않는다. 결정 046 앞의 커밋을 올리면 jar 만 바꾼다. 처음 옮겨 가기에 Caddy 를 다시 만들어야 해서(새 마운트) 몇 초 끊긴다.
+  - `@Scheduled` 중 두 서버가 겹치면 안 되는 것은 지금 develop 에 없다(박동 셋뿐). 규칙만 결정 046 의 5 에 적었다(오늘의 하늘 · 푸시는 그 계획에서 DB 잠금).
+- 검증(로컬): 통합 테스트 `GracefulShutdownIntegrationTest` — 고치기 전 코드에서 "닫는 동안 살아 있다는 표시가 멈췄다" 로 실패, 고친 뒤 통과(로그 순서: 웹 서버 차분한 종료 → `report_drain_started active=5` → `report_done` → `report_drain_done`). shellcheck 경고 0.
+- 리허설(로컬 Docker, VM 과 같은 배치 · 리눅스 컨테이너에서 swap.sh, 0.1초 요청 고리 — `/health` 0.1초 · `/app-config` 0.6초, 요청마다 새 연결):
+
+  | 경우 | 요청 | 실패 | 비고 |
+  |---|---|---|---|
+  | 옛 방식에서 옮겨 가기(문서 1~7) | 383 | 10 | Caddy 를 다시 만드는 순간 약 1.5초(예상한 한 번 끊김) |
+  | `swap.sh --restart` | 398 | 0 | 새 색 25초 만에 살아남 |
+  | `swap.sh app.jar.new` | 502 | 0 | |
+  | 다시 읽기 실패(Caddyfile 일부러 틀림) | 419 | 0 | `swap_failed step=reload`, 받는 쪽 그대로 · 새 색 내림 |
+  | 뜨지 않는 jar | 1415 | 0 | 3분 뒤 `swap_failed step=health`, 받는 쪽 그대로 |
+  | 새 VM 에 처음 띄우기(문서) | — | — | `swap_done active=green` |
+
+  리허설에서 찾은 것: 컨테이너 안의 `localhost` 가 `::1` 로 풀려 Caddy 관리 API(127.0.0.1:2019 에만 듣는다)에 닿지 않았다 → `127.0.0.1` 로 고침.
+- 독립 리뷰(reviewer, 깨끗한 컨텍스트) 반영 — 차단 0 · 수정 5 · 제안 10, 모두 코드로 확인 뒤 고침:
+  - swap.sh: 다시 읽기가 실패로 끝나도 Caddy 가 실제로 쓰는 색을 다시 읽고 정한다(적용된 뒤 exec 만 실패하면 새 색을 내려 전부 502 가 될 수 있었다). 되돌리기는 `app.jar.prev`(받는 jar 가 바뀔 때만 밀려남) — `app.jar.good` 은 늘 지금 jar 라 되돌리기가 아니었다. 받는 쪽 파일은 `swap.sh --init` 한 곳에서만 쓴다.
+  - 생성 기다리기를 `ReportExecutorDrain` 한 곳으로(일꾼 빈의 기다림 시간을 없앰) — 180초를 넘기면 박동 없이 한 번 더 기다렸다.
+  - 워크플로: SSH keepalive, swap.sh 는 다른 이름으로 올려 `mv`, 서버 이미지(JRE)는 배포 때 받는다(실패해도 계속).
+  - 문서: 두 서버가 겹치는 동안의 규칙을 `.claude/rules/two-servers-overlap.md` · architecture.md 데이터 절에, 020 의 대체 범위(1 · 2 · 4번)를 바로, 옮겨 가기에서 Caddyfile 은 Caddy 를 다시 만들기 직전에 올린다, 옮기기 전에 합쳐진 배포는 수동 실행으로 다시.
+  - 가짜 docker 로 swap.sh 경우 8가지(처음 · 배포 · --restart · 뜨지 않는 jar · 다시 읽기는 적용됐는데 exec 실패 · 다시 읽기 실패 · prev 되돌리기 · --init 두 번)를 돌려 받는 쪽 · jar 기록이 맞는지 봤다.
