@@ -1,12 +1,14 @@
 package com.byeolmyeong.api.push
 
 import com.byeolmyeong.api.admin.InquiryAnswered
+import com.byeolmyeong.api.admin.PushEventRequested
 import com.byeolmyeong.api.reading.ReadingCreated
 import com.byeolmyeong.api.report.MeReportDone
 import com.byeolmyeong.api.report.TimingReportDone
 import com.byeolmyeong.api.sky.TodaySkyDue
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.task.TaskRejectedException
@@ -25,6 +27,9 @@ private const val ANSWER_PREVIEW = 60
 
 /** 결정 042 의 4 의 종류(앱이 `data.type` 으로 받아 갈 곳을 고른다). */
 enum class PushKind { TODAY_SKY, READING_DONE, ME_REPORT_DONE, TIMING_REPORT_DONE, INQUIRY_ANSWERED, EVENT }
+
+/** 광고 푸시 한 번의 결과(사람 수로 센다): 대상 · 기기 하나라도 받은 사람 · 하나도 못 받은 사람. */
+data class BroadcastResult(val recipients: Int, val succeeded: Int, val failed: Int)
 
 /** 한 번 보낸 결과(sent · skipped · failed 를 나눈다). */
 data class PushResult(val devices: Int, val sent: Int, val failed: Int, val skipped: Int)
@@ -74,6 +79,23 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 		return send(accountId, kind, title, body, data)
 	}
 
+	/**
+	 * 광고 푸시(결정 043 의 6 · 042 의 7): 푸시 · 마케팅 둘 다 동의 + 기기 + 정지 아님인 사람의 기기 모두에 같은 글을 보낸다.
+	 * 글의 "(광고) " · 수신 거부 줄은 admin 이 붙여 둔다. [target] 은 앱이 누른 뒤 갈 화면 키. 야간 · 하루 한 번은 admin 이 막는다.
+	 */
+	fun broadcast(title: String, body: String, target: String): BroadcastResult {
+		val devices = repository.adAudienceDevices()
+		if (devices.isEmpty()) return BroadcastResult(0, 0, 0)
+		val outcomes = expo.send(devices.map { PushMessage(it.second, title, body, mapOf("type" to PushKind.EVENT.name, "target" to target)) })
+		val gone = devices.filterIndexed { i, _ -> outcomes.getOrNull(i) == PushOutcome.DEVICE_NOT_REGISTERED }.map { it.second }
+		if (gone.isNotEmpty()) repository.deleteTokens(gone)
+		val byAccount = devices.indices.groupBy({ devices[it].first }, { outcomes.getOrNull(it) })
+		val succeeded = byAccount.count { (_, results) -> results.any { it == PushOutcome.OK } }
+		val result = BroadcastResult(byAccount.size, succeeded, byAccount.size - succeeded)
+		log.info("event=push_broadcast recipients={} succeeded={} failed={} removed={}", result.recipients, result.succeeded, result.failed, gone.size)
+		return result
+	}
+
 	/** 그 계정의 기기 모두에 같은 알림을 보낸다. */
 	fun send(accountId: UUID, kind: PushKind, title: String, body: String, data: Map<String, String> = emptyMap()): PushResult {
 		val tokens = repository.tokens(accountId)
@@ -108,6 +130,15 @@ class PushRepository(private val jdbc: JdbcTemplate) {
 		String::class.java, accountId,
 	).filterNotNull()
 
+	/** 광고 대상의 (계정, 기기 토큰): 푸시 · 마케팅 둘 다 동의 + 정지 아님(결정 027 의 4 · 044 의 3). */
+	fun adAudienceDevices(): List<Pair<UUID, String>> = jdbc.query(
+		"""
+		select d.account_id, d.expo_token from push_devices d join accounts a on a.id = d.account_id
+		where a.push_consented_at is not null and a.marketing_consented_at is not null and a.suspended_at is null
+		order by d.account_id, d.created_at, d.expo_token
+		""".trimIndent(),
+	) { rs, _ -> rs.getObject("account_id", UUID::class.java) to rs.getString("expo_token") }
+
 	fun deleteTokens(tokens: List<String>) {
 		jdbc.batchUpdate("delete from push_devices where expo_token = ?", tokens.map { arrayOf<Any>(it) })
 	}
@@ -139,7 +170,11 @@ class PushExecutorConfig {
  * 실패는 삼키고 로그만 남긴다 — 이벤트를 낸 일은 그대로 끝난다.
  */
 @Component
-class PushEvents(private val push: PushService, @Qualifier("pushExecutor") private val executor: ThreadPoolTaskExecutor) {
+class PushEvents(
+	private val push: PushService,
+	private val events: ApplicationEventPublisher,
+	@Qualifier("pushExecutor") private val executor: ThreadPoolTaskExecutor,
+) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
@@ -154,6 +189,13 @@ class PushEvents(private val push: PushService, @Qualifier("pushExecutor") priva
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
 	fun inquiryAnswered(event: InquiryAnswered) =
 		later(PushKind.INQUIRY_ANSWERED) { push.notify(event.ownerId, PushKind.INQUIRY_ANSWERED, event.inquiryId) }
+
+	/** 광고 푸시(결정 043 의 6). admin 이 발송 내역 행을 만든 뒤(커밋 뒤) 낸다 — 일꾼이 보내고 결과를 `PushEventSent` 로 알린다. */
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+	fun pushEventRequested(event: PushEventRequested) = later(PushKind.EVENT) {
+		val result = push.broadcast(event.title, event.body, event.target)
+		events.publishEvent(PushEventSent(event.eventId, result.recipients, result.succeeded, result.failed))
+	}
 
 	/** 오늘의 하늘 아침 알림(결정 042 의 6). `sky` 의 아침 일정이 그날 한 번만 낸다 — 그 일꾼 스레드에서 바로 보낸다. */
 	@EventListener
