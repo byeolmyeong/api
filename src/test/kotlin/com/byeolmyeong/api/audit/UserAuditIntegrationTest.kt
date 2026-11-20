@@ -333,7 +333,7 @@ class UserAuditIntegrationTest {
 	fun `계정 삭제가 남고 그 계정의 기록은 지워지지 않는다`() {
 		saveProfile()
 		assertEquals(200, post("/readings").statusCode())
-		assertEquals(201, post("/inquiries", mapper.writeValueAsString(mapOf("category" to "OTHER", "body" to INQUIRY_BODY))).statusCode())
+		assertEquals(201, post("/inquiries", mapper.writeValueAsString(mapOf("category" to "ETC", "body" to INQUIRY_BODY))).statusCode())
 
 		assertEquals(204, http(port, "DELETE", "/account", token = token).statusCode())
 

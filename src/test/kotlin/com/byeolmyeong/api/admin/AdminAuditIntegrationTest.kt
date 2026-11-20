@@ -195,6 +195,26 @@ class AdminAuditIntegrationTest {
 	}
 
 	@Test
+	fun `문의 답은 처음인지만 남고 메모와 함께면 두 줄, 임시 저장은 바꿨다는 표시만 남는다`() {
+		val inquiry = seedInquiry()
+		assertEquals(200, http(port, "PATCH", "/admin/inquiries/$inquiry", json(mapOf("answerDraft" to "임시답비밀글")), token).statusCode())
+		assertEquals("""{"memoChanged": false, "draftChanged": true}""", single("INQUIRY_UPDATED")["detail"])
+
+		jdbc.update("delete from audit_logs")
+		assertEquals(200, http(port, "PATCH", "/admin/inquiries/$inquiry", json(mapOf("answer" to "답글비밀글")), token).statusCode())
+		val row = single("INQUIRY_ANSWERED")
+		assertEquals(listOf("INQUIRY", inquiry.toString(), """{"first": true}"""), listOf(row["target_type"], row["target_id"], row["detail"]))
+
+		jdbc.update("delete from audit_logs")
+		assertEquals(200, http(port, "PATCH", "/admin/inquiries/$inquiry", json(mapOf("answer" to "답글비밀글 고침", "memo" to MEMO)), token).statusCode())
+		assertEquals(
+			listOf("INQUIRY_ANSWERED" to """{"first": false}""", "INQUIRY_UPDATED" to """{"memoChanged": true}"""),
+			rows().map { it["action"] to it["detail"] },
+		)
+		assertFalse(jdbc.queryForList("select detail::text from audit_logs", String::class.java).any { it?.contains("비밀글") == true }, "글은 남지 않는다")
+	}
+
+	@Test
 	fun `FAQ 만들기·고치기·공개·내리기·지우기·순서가 남는다`() {
 		val faq = createFaq()
 		var row = single("FAQ_CREATED")

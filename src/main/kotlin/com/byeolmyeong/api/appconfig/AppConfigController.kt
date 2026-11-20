@@ -12,8 +12,8 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 import java.util.Locale
 
-/** 한 플랫폼의 설정. 값이 없으면 null 로 보낸다(키를 빼지 않는다). */
-data class PlatformConfig(val minVersion: String?, val storeUrl: String?, val message: String?, val blockNow: Boolean)
+/** 한 플랫폼의 설정. 값이 없으면 null 로 보낸다(키를 빼지 않는다). [latestVersion] 은 앱이 업데이트를 권할 기준이다(결정 040 — 서버는 막지 않는다). */
+data class PlatformConfig(val minVersion: String?, val latestVersion: String?, val storeUrl: String?, val message: String?, val blockNow: Boolean)
 
 /** 점검(결정 017). [active] 면 앱의 모든 요청이 503 이다. */
 data class Maintenance(val active: Boolean, val message: String?)
@@ -54,7 +54,7 @@ class AppConfigService(
 		val now = System.nanoTime()
 		cached?.takeIf { now - it.loadedAt < ttlNanos }?.let { return it.config }
 		val rows = repository.findAll()
-		val empty = PlatformConfig(null, null, null, false)
+		val empty = PlatformConfig(null, null, null, null, false)
 		return AppConfig(rows["ios"] ?: empty, rows["android"] ?: empty, repository.findMaintenance()).also { cached = Cached(it, now) }
 	}
 
@@ -87,8 +87,10 @@ class AppConfigRepository(private val jdbc: JdbcTemplate) {
 	/** 플랫폼(`ios`·`android`) → 설정. */
 	fun findAll(): Map<String, PlatformConfig> {
 		val rows = HashMap<String, PlatformConfig>()
-		jdbc.query("select platform, min_version, store_url, message, block_now from app_configs") { rs ->
-			rows[rs.getString("platform")] = PlatformConfig(rs.getString("min_version"), rs.getString("store_url"), rs.getString("message"), rs.getBoolean("block_now"))
+		jdbc.query("select platform, min_version, latest_version, store_url, message, block_now from app_configs") { rs ->
+			rows[rs.getString("platform")] = PlatformConfig(
+				rs.getString("min_version"), rs.getString("latest_version"), rs.getString("store_url"), rs.getString("message"), rs.getBoolean("block_now"),
+			)
 		}
 		return rows
 	}

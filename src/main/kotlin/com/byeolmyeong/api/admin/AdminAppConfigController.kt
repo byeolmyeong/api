@@ -21,6 +21,7 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 private val PLATFORMS = setOf("ios", "android")
+/** 모두 있어야 하는 키. `latestVersion` 은 없으면 그대로 둔다 — 네 키를 보내는 옛 관리 화면(결정 040 의 3). */
 private val KEYS = listOf("minVersion", "storeUrl", "message", "blockNow")
 private const val STORE_URL_MAX = 500
 private const val MESSAGE_MAX = 200
@@ -28,6 +29,7 @@ private const val MESSAGE_MAX = 200
 /** 관리자가 보는 한 플랫폼의 앱 설정. 값이 없으면 null 이다. [updatedBy] 는 아무도 고치지 않았으면 null. */
 data class AdminPlatformConfig(
 	val minVersion: String?,
+	val latestVersion: String?,
 	val storeUrl: String?,
 	val message: String?,
 	val blockNow: Boolean,
@@ -40,11 +42,18 @@ data class AdminMaintenance(val active: Boolean, val message: String?, val updat
 
 data class AdminAppConfig(val ios: AdminPlatformConfig, val android: AdminPlatformConfig, val maintenance: AdminMaintenance)
 
-/** 검증을 통과한 새 값. */
-class AppConfigUpdate(val minVersion: String?, val storeUrl: String?, val message: String?, val blockNow: Boolean)
+/** 검증을 통과한 새 값. [changeLatest] 가 false 면(키가 없었다) 최신 버전은 그대로다. */
+class AppConfigUpdate(
+	val minVersion: String?,
+	val storeUrl: String?,
+	val message: String?,
+	val blockNow: Boolean,
+	val changeLatest: Boolean = false,
+	val latestVersion: String? = null,
+)
 
 /**
- * 앱 설정 편집(결정 016): 플랫폼마다 최소 버전·스토어 주소·안내 글·막기. 앱은 `GET /app-config`(`appconfig` 패키지)로 읽고,
+ * 앱 설정 편집(결정 016 · 040): 플랫폼마다 최소 버전 · 최신 버전 · 스토어 주소 · 안내 글 · 막기. 앱은 `GET /app-config`(`appconfig` 패키지)로 읽고,
  * 막기가 켜지면 낮은 버전의 요청이 426 이 된다. 관리자 API 는 그 막기에 걸리지 않는다.
  */
 @RestController
@@ -64,22 +73,28 @@ class AdminAppConfigController(private val configs: AdminAppConfigService, priva
 		return configs.updateMaintenance(current.get().id, active, message)
 	}
 
-	/** 네 값을 모두 보내야 한다(빠진 키가 있으면 `INVALID_REQUEST`) — 보내지 않은 값이 모르는 사이 남거나 지워지지 않게. */
+	/**
+	 * 네 값을 모두 보내야 한다(빠진 키가 있으면 `INVALID_REQUEST`) — 보내지 않은 값이 모르는 사이 남거나 지워지지 않게.
+	 * `latestVersion` 만은 키가 없으면 지금 값을 그대로 둔다(옛 관리 화면 호환, 결정 040). 최신이 최소보다 낮으면 `LATEST_BELOW_MIN`(서비스가 저장된 값과도 견준다).
+	 */
 	@PutMapping("/admin/app-config/{platform}")
 	fun update(@PathVariable platform: String, @RequestBody body: JsonNode): AdminPlatformConfig {
 		if (platform !in PLATFORMS) throw NotFoundException("NOT_FOUND")
 		body.requireObject()
 		if (KEYS.any { !body.has(it) }) throw BadRequestException("INVALID_REQUEST")
 		val minVersion = body.textOrNull("minVersion")
+		val changeLatest = body.has("latestVersion")
+		val latestVersion = body.textOrNull("latestVersion")
 		val storeUrl = body.textOrNull("storeUrl")
 		val message = body.textOrNull("message")?.trim()?.ifEmpty { null }
 		val blockNow = body.booleanOrNull("blockNow") ?: throw BadRequestException("INVALID_REQUEST")
 
 		if (minVersion != null && parseAppVersion(minVersion) == null) throw BadRequestException("INVALID_VERSION")
+		if (latestVersion != null && parseAppVersion(latestVersion) == null) throw BadRequestException("INVALID_LATEST_VERSION")
 		if (storeUrl != null && !validStoreUrl(storeUrl)) throw BadRequestException("INVALID_STORE_URL")
 		if (message != null && (message.codePointLength() > MESSAGE_MAX || NUL in message)) throw BadRequestException("INVALID_MESSAGE")
 		if (blockNow && minVersion == null) throw BadRequestException("BLOCK_REQUIRES_MIN_VERSION")
-		return configs.update(platform, current.get().id, AppConfigUpdate(minVersion, storeUrl, message, blockNow))
+		return configs.update(platform, current.get().id, AppConfigUpdate(minVersion, storeUrl, message, blockNow, changeLatest, latestVersion))
 	}
 
 	/** `https://` 로 시작하고 호스트가 있는 500자 이하의 주소. 공백·제어 문자가 있으면 틀리다. 앞뒤 공백을 떼지 않는다. */
@@ -107,14 +122,22 @@ class AdminAppConfigService(
 		return AdminAppConfig(rows.getValue("ios"), rows.getValue("android"), repository.findMaintenance())
 	}
 
-	/** [platform] 은 `ios`·`android` 중 하나다(컨트롤러가 봤다). 바꾼 뒤 캐시를 비우게 알리고 감사 기록을 남긴다(안내 글·주소는 남기지 않는다). */
+	/**
+	 * [platform] 은 `ios`·`android` 중 하나다(컨트롤러가 봤다). 최신 버전(보낸 값, 없으면 저장된 값)이 최소 버전보다 낮으면 400 `LATEST_BELOW_MIN` 이고 아무것도 바꾸지 않는다.
+	 * 바꾼 뒤 캐시를 비우게 알리고 감사 기록을 남긴다(안내 글·주소는 남기지 않는다).
+	 */
 	fun update(platform: String, adminId: UUID, update: AppConfigUpdate): AdminPlatformConfig {
+		val latest = if (update.changeLatest) update.latestVersion else repository.findAll().getValue(platform).latestVersion
+		val minimum = update.minVersion?.let(::parseAppVersion)
+		val latestParsed = latest?.let(::parseAppVersion)
+		if (minimum != null && latestParsed != null && latestParsed < minimum) throw BadRequestException("LATEST_BELOW_MIN")
 		repository.update(platform, adminId, update)
 		log.info("event=admin_app_config_updated platform={} block_now={}", platform, update.blockNow)
 		events.publishEvent(AppConfigChanged())
 		audit.record(AuditAction.APP_CONFIG_UPDATED, "APP_CONFIG", platform, buildMap {
 			put("platform", platform)
 			if (update.minVersion != null) put("minVersion", update.minVersion)
+			if (latest != null) put("latestVersion", latest)
 			put("blockNow", update.blockNow)
 		})
 		return repository.findAll().getValue(platform)
@@ -139,12 +162,13 @@ class AdminAppConfigRepository(private val jdbc: JdbcTemplate) {
 		val rows = HashMap<String, AdminPlatformConfig>()
 		jdbc.query(
 			"""
-			select c.platform, c.min_version, c.store_url, c.message, c.block_now, c.updated_at, c.updated_by, a.name as updater_name
+			select c.platform, c.min_version, c.latest_version, c.store_url, c.message, c.block_now, c.updated_at, c.updated_by, a.name as updater_name
 			from app_configs c left join admin_accounts a on a.id = c.updated_by
 			""",
 		) { rs ->
 			rows[rs.getString("platform")] = AdminPlatformConfig(
 				minVersion = rs.getString("min_version"),
+				latestVersion = rs.getString("latest_version"),
 				storeUrl = rs.getString("store_url"),
 				message = rs.getString("message"),
 				blockNow = rs.getBoolean("block_now"),
@@ -155,10 +179,15 @@ class AdminAppConfigRepository(private val jdbc: JdbcTemplate) {
 		return rows
 	}
 
+	/** 최신 버전은 [AppConfigUpdate.changeLatest] 일 때만 바꾼다. */
 	fun update(platform: String, adminId: UUID, update: AppConfigUpdate) {
 		jdbc.update(
-			"update app_configs set min_version = ?, store_url = ?, message = ?, block_now = ?, updated_at = now(), updated_by = ? where platform = ?",
-			update.minVersion, update.storeUrl, update.message, update.blockNow, adminId, platform,
+			"""
+			update app_configs set min_version = ?, latest_version = case when ? then ? else latest_version end, store_url = ?, message = ?, block_now = ?,
+				updated_at = now(), updated_by = ?
+			where platform = ?
+			""",
+			update.minVersion, update.changeLatest, update.latestVersion, update.storeUrl, update.message, update.blockNow, adminId, platform,
 		)
 	}
 
