@@ -122,6 +122,21 @@ class ShareV2ApiIntegrationTest {
 		)
 	}
 
+	/** 저장된 그날의 하늘(결정 034). */
+	private fun insertDaySky(date: LocalDate, title: String, hash: String = chartHash()) {
+		val body = mapOf(
+			"title" to title,
+			"category" to "PEOPLE",
+			"flow" to mapOf("people" to SECRET, "work" to SECRET, "mind" to SECRET),
+			"reason" to mapOf("when" to "DAY", "items" to listOf(mapOf("kind" to "PLACEMENT", "body" to "SUN", "sign" to "PISCES"))),
+			"practices" to listOf(mapOf("title" to "천천히 걷기")),
+		)
+		jdbc.update(
+			"insert into day_skies (id, owner_id, chart_hash, date, body) values (?, ?, ?, ?, ?::jsonb)",
+			UUID.randomUUID(), me, hash, date, mapper.writeValueAsString(body),
+		)
+	}
+
 	private fun post(body: String): HttpResponse<String> = http(port, "POST", "/shares", body, token)
 
 	private fun share(body: String): JsonNode {
@@ -218,6 +233,21 @@ class ShareV2ApiIntegrationTest {
 		assertError(400, "INVALID_DATE", post("""{"kind":"DAY_SKY","date":"2026-1-5"}"""))
 		assertError(400, "INVALID_DATE", post("""{"kind":"DAY_SKY"}"""))
 		assertError(404, "NOT_FOUND", post("""{"kind":"DAY_SKY","date":"$today"}"""))
+	}
+
+	@Test
+	fun `그날의 하늘 카드는 그 날짜와 저장된 그날의 하늘 제목을 싣는다`() {
+		insertDaySky(today, "말이 부드럽게 닿는 날")
+
+		val card = share("""{"kind":"DAY_SKY","date":"$today"}""")["card"]
+
+		assertEquals(setOf("kind", "nickname", "date", "title"), keys(card))
+		assertEquals("DAY_SKY", card["kind"].asString())
+		assertEquals(today.toString(), card["date"].asString())
+		assertEquals("말이 부드럽게 닿는 날", card["title"].asString())
+		assertError(404, "NOT_FOUND", post("""{"kind":"DAY_SKY","date":"${today.plusDays(1)}"}"""), "만들지 않은 날")
+		insertDaySky(today.minusDays(1), "옛 차트의 날", hash = "old-chart")
+		assertError(404, "NOT_FOUND", post("""{"kind":"DAY_SKY","date":"${today.minusDays(1)}"}"""), "옛 차트")
 	}
 
 	@Test

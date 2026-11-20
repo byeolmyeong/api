@@ -5,6 +5,7 @@ import com.byeolmyeong.api.profile.BirthProfileChanged
 import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.generation.TextGenerator
+import com.byeolmyeong.api.share.DaySkyCardRequested
 import com.byeolmyeong.api.web.GenerationQuota
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
@@ -76,6 +77,13 @@ class DaySkyService(
 	/** 출생 정보가 바뀌면 옛 차트의 그날의 하늘을 지운다(결정 041). 다음 요청이 새 출생 정보로 만든다. */
 	@EventListener
 	fun on(event: BirthProfileChanged) = repository.deleteOtherCharts(event.ownerId, event.chartHash)
+
+	/** 그날의 하늘 카드(결정 036): 지금 차트의 저장된 그날의 하늘 제목. 만들지 않은 날이면 답하지 않는다(모델을 부르지 않는다). */
+	@EventListener
+	fun on(event: DaySkyCardRequested) {
+		val birth = profiles.chartInput(event.ownerId) ?: return
+		event.title = repository.find(event.ownerId, birth.hash, event.date)?.title ?: return
+	}
 
 	/** 진행 중인 생성의 결과를 기다린다. 그 생성이 실패하면 같은 예외를 던진다(앞 요청과 같은 응답). */
 	private fun await(running: CompletableFuture<DaySky>): DaySky = try {
