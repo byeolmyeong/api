@@ -66,6 +66,7 @@ class ArchitectureTest {
             "$ROOT.push.PushEventSent",
             // 오늘의 하늘 아침 알림을 보낼 때가 됐다 — push 가 보낸다(결정 042 의 6)
             "$ROOT.sky.TodaySkyDue",
+            "$ROOT.sky.TodaySkyDue\$Item",
         )
 
         /** 외부 공급자 SDK·HTTP 클라이언트. 이것을 쓰는 클래스는 우리 인터페이스 하나 뒤에 있어야 한다. */

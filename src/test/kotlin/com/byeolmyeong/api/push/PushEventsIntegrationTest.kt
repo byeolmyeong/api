@@ -26,7 +26,17 @@ class RecordingExpoPush : ExpoPush {
 	val sent = CopyOnWriteArrayList<PushMessage>()
 	val gone = CopyOnWriteArrayList<String>()
 
+	/** 꺼짐 · 접근 토큰 없음처럼 모두 보내지 않는다. */
+	@Volatile
+	var skipAll = false
+
+	/** 던진다(인터페이스는 던지지 않지만, 그 밖의 오류가 나도 결과를 알리는지 본다). */
+	@Volatile
+	var explode = false
+
 	override fun send(messages: List<PushMessage>): List<PushOutcome> {
+		if (explode) throw IllegalStateException("가짜 오류")
+		if (skipAll) return messages.map { PushOutcome.SKIPPED }
 		sent += messages
 		return messages.map { if (it.to in gone) PushOutcome.DEVICE_NOT_REGISTERED else PushOutcome.OK }
 	}

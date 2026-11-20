@@ -144,6 +144,16 @@ class PushDeviceApiIntegrationTest {
 	}
 
 	@Test
+	fun `정지된 계정도 기기 토큰은 지울 수 있다 — 로그아웃의 일부`() {
+		assertEquals(204, add(TOKEN, "IOS").statusCode())
+		jdbc.update("update accounts set suspended_at = now() where id = ?", me)
+
+		assertEquals(403, add(OTHER_TOKEN, "IOS").statusCode(), "등록은 막힌다")
+		assertEquals(204, remove(TOKEN).statusCode())
+		assertEquals(emptyList(), rows())
+	}
+
+	@Test
 	fun `세션이 없으면 401 이다`() {
 		assertEquals(401, register("""{"expoToken":"$TOKEN","platform":"IOS"}""", session = null).statusCode())
 		assertEquals(401, remove(TOKEN, session = null).statusCode())

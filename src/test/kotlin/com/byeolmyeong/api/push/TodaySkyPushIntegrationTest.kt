@@ -26,7 +26,7 @@ import kotlin.test.assertEquals
  * 같은 날 한 번 · 끈 사람 · 정지 · 기기 없음은 0건. 시계 · 생성기 · Expo 는 가짜로 바꿔 끼운다. 일정은 기다리지 않고 한 번 도는 메서드를 부른다.
  */
 @Import(TestcontainersConfiguration::class, TodaySkyPushIntegrationTest.Fakes::class)
-@SpringBootTest
+@SpringBootTest(properties = ["byeolmyeong.push.today-sky-cron=-"])
 class TodaySkyPushIntegrationTest {
 
 	@TestConfiguration(proxyBeanMethods = false)
@@ -98,6 +98,7 @@ class TodaySkyPushIntegrationTest {
 
 		at("07:30")
 		job.run()
+		awaitSky(id)
 		assertEquals(1, skies(id), "30분 전에 미리 만든다")
 		assertEquals(1, generator.prompts.size)
 		assertEquals(0, expo.sent.size, "아직 보내지 않는다")
@@ -115,9 +116,10 @@ class TodaySkyPushIntegrationTest {
 
 	@Test
 	fun `같은 날 두 번 돌아도 · 서버가 둘이어도 한 번만 보낸다`() {
-		person("한번만")
+		val id = person("한번만")
 		at("07:30")
 		job.run()
+		awaitSky(id)
 		at("08:00")
 		job.run()
 		job.run()
@@ -145,11 +147,12 @@ class TodaySkyPushIntegrationTest {
 
 	@Test
 	fun `직접 정한 적 없으면 푸시 수신 동의를 따른다`() {
-		person("동의함", on = null, consent = true)
+		val agreed = person("동의함", on = null, consent = true)
 		person("동의안함", on = null, consent = false)
 
 		at("07:30")
 		job.run()
+		awaitSky(agreed)
 		at("08:00")
 		job.run()
 
@@ -163,6 +166,7 @@ class TodaySkyPushIntegrationTest {
 
 		at("07:30")
 		job.run()
+		Thread.sleep(500) // 일꾼이 세 번 시도하고 그만둘 때까지
 		assertEquals(0, skies(id))
 		at("08:00")
 		job.run()
@@ -172,15 +176,78 @@ class TodaySkyPushIntegrationTest {
 
 	@Test
 	fun `받는 시간이 다른 사람은 그 시간에만 받는다`() {
-		person("여덟시")
-		person("아홉시", time = "09:00")
+		val eight = person("여덟시")
+		val nine = person("아홉시", time = "09:00")
 
 		for (time in listOf("07:30", "08:00", "08:30", "09:00")) {
 			at(time)
 			job.run()
+			if (time == "07:30") awaitSky(eight)
+			if (time == "08:30") awaitSky(nine)
 		}
 
 		assertEquals(listOf("ExponentPushToken[여덟시]", "ExponentPushToken[아홉시]"), expo.sent.map { it.to })
+	}
+
+	/** 미리 만들기는 생성 일꾼에서 돈다 — 그 사람의 그날 것이 생길 때까지 기다린다(5초까지). */
+	private fun awaitSky(id: UUID) {
+		val until = System.currentTimeMillis() + 5_000
+		while (skies(id) == 0 && System.currentTimeMillis() < until) Thread.sleep(20)
+	}
+
+	@Test
+	fun `받는 시간 칸을 놓쳐도 60분 안이면 다음 번에 따라잡아 보낸다`() {
+		val id = person("늦은칸")
+		at("07:30")
+		job.run()
+		awaitSky(id)
+
+		at("08:05") // 08:00 은 돌지 못했다(재시작 · 늦어짐)
+		job.run()
+		assertEquals(listOf("ExponentPushToken[늦은칸]"), expo.sent.map { it.to })
+
+		at("08:10")
+		job.run()
+		assertEquals(1, expo.sent.size, "따라잡은 뒤에도 한 번")
+	}
+
+	@Test
+	fun `60분이 넘게 지난 칸은 보내지 않는다 — 한낮에 아침 알림이 가지 않게`() {
+		val id = person("너무늦음")
+		at("07:30")
+		job.run()
+		awaitSky(id)
+
+		at("09:05")
+		job.run()
+
+		assertEquals(0, expo.sent.size)
+	}
+
+	@Test
+	fun `미리 만들기 칸을 놓쳐도 받는 시간 전이면 따라잡아 만든다`() {
+		val id = person("늦게만듦")
+
+		at("07:45") // 07:30 은 돌지 못했다
+		job.run()
+		awaitSky(id)
+
+		assertEquals(1, skies(id))
+	}
+
+	@Test
+	fun `한 사람에게서 오류가 나도 다른 사람은 받는다`() {
+		val broken = person("깨진프로필")
+		jdbc.update("update profiles set birth_time = '09:00', place_id = 999999999 where account_id = ?", broken) // 목록에 없는 곳 — 차트를 못 만든다
+		val ok = person("멀쩡함")
+		at("07:30")
+		job.run()
+		awaitSky(ok)
+
+		at("08:00")
+		job.run()
+
+		assertEquals(listOf("ExponentPushToken[멀쩡함]"), expo.sent.map { it.to })
 	}
 
 	@Test
@@ -189,6 +256,7 @@ class TodaySkyPushIntegrationTest {
 		clock.now = LocalDate.parse("2026-11-20").atTime(23, 40).atZone(java.time.ZoneId.of("Asia/Seoul")).toInstant()
 
 		job.run()
+		awaitSky(id)
 
 		assertEquals(1, skies(id), "2026-11-21 의 것")
 	}

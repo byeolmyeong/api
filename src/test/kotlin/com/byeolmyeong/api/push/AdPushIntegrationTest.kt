@@ -63,6 +63,8 @@ class AdPushIntegrationTest {
 		jdbc.update("delete from accounts")
 		expo.sent.clear()
 		expo.gone.clear()
+		expo.skipAll = false
+		expo.explode = false
 		sent.received.clear()
 	}
 
@@ -116,6 +118,28 @@ class AdPushIntegrationTest {
 		fun left() = jdbc.queryForList("select expo_token from push_devices order by expo_token", String::class.java)
 		while (left().size > 1 && System.currentTimeMillis() < until) Thread.sleep(20)
 		assertEquals(listOf("ExponentPushToken[살아있음-0]"), left())
+	}
+
+	@Test
+	fun `보내지 않은 기기(꺼짐 · 접근 토큰 없음)는 실패로 세지 않는다`() {
+		person("건너뜀")
+		expo.skipAll = true
+		val eventId = UUID.randomUUID()
+
+		events.publishEvent(PushEventRequested(eventId, "(광고) 제목", "본문", "HOME"))
+
+		assertEquals(PushEventSent(eventId, recipients = 1, succeeded = 0, failed = 0), awaitEvent())
+	}
+
+	@Test
+	fun `보내다 오류가 나도 결과를 알려 발송 내역이 끝난다`() {
+		person("받을사람")
+		expo.explode = true
+		val eventId = UUID.randomUUID()
+
+		events.publishEvent(PushEventRequested(eventId, "(광고) 제목", "본문", "HOME"))
+
+		assertEquals(PushEventSent(eventId, recipients = 1, succeeded = 0, failed = 1), awaitEvent())
 	}
 
 	@Test

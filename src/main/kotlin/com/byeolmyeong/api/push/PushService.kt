@@ -31,6 +31,9 @@ enum class PushKind { TODAY_SKY, READING_DONE, ME_REPORT_DONE, TIMING_REPORT_DON
 /** 광고 푸시 한 번의 결과(사람 수로 센다): 대상 · 기기 하나라도 받은 사람 · 하나도 못 받은 사람. */
 data class BroadcastResult(val recipients: Int, val succeeded: Int, val failed: Int)
 
+/** 한 사람에게 보낼 알림 하나([sendMany] 용). */
+data class Notice(val accountId: UUID, val title: String, val body: String, val data: Map<String, String> = emptyMap())
+
 /** 한 번 보낸 결과(sent · skipped · failed 를 나눈다). */
 data class PushResult(val devices: Int, val sent: Int, val failed: Int, val skipped: Int)
 
@@ -91,8 +94,35 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 		if (gone.isNotEmpty()) repository.deleteTokens(gone)
 		val byAccount = devices.indices.groupBy({ devices[it].first }, { outcomes.getOrNull(it) })
 		val succeeded = byAccount.count { (_, results) -> results.any { it == PushOutcome.OK } }
-		val result = BroadcastResult(byAccount.size, succeeded, byAccount.size - succeeded)
+		// 보내지 않은 것(꺼짐 · 접근 토큰 없음 — SKIPPED)은 실패로 세지 않는다(sent · skipped · failed 를 나눈다).
+		val failed = byAccount.count { (_, results) -> results.none { it == PushOutcome.OK } && results.any { it != PushOutcome.SKIPPED } }
+		val result = BroadcastResult(byAccount.size, succeeded, failed)
 		log.info("event=push_broadcast recipients={} succeeded={} failed={} removed={}", result.recipients, result.succeeded, result.failed, gone.size)
+		return result
+	}
+
+	/** 광고 대상의 사람 수(발송이 실패했을 때 결과를 알리려고). */
+	fun adAudienceCount(): Int = repository.adAudienceDevices().map { it.first }.distinct().size
+
+	/**
+	 * 여러 사람에게 각자의 알림을 한꺼번에 보낸다(Expo 를 100건씩 묶어 부른다 — 오늘의 하늘 아침 알림).
+	 * 정지 계정 · 기기 없는 사람은 건너뛴다. `DeviceNotRegistered` 인 토큰은 지운다.
+	 */
+	fun sendMany(kind: PushKind, notices: List<Notice>): PushResult {
+		val messages = notices.flatMap { notice ->
+			repository.tokens(notice.accountId).map { PushMessage(it, notice.title, notice.body, notice.data + ("type" to kind.name)) }
+		}
+		if (messages.isEmpty()) return PushResult(0, 0, 0, 0)
+		val outcomes = expo.send(messages)
+		val gone = messages.filterIndexed { i, _ -> outcomes.getOrNull(i) == PushOutcome.DEVICE_NOT_REGISTERED }.map { it.to }
+		if (gone.isNotEmpty()) repository.deleteTokens(gone)
+		val result = PushResult(
+			devices = messages.size,
+			sent = outcomes.count { it == PushOutcome.OK },
+			failed = outcomes.count { it == PushOutcome.FAILED || it == PushOutcome.DEVICE_NOT_REGISTERED },
+			skipped = outcomes.count { it == PushOutcome.SKIPPED },
+		)
+		log.info("event=push_sent type={} devices={} sent={} failed={} skipped={} removed={}", kind, result.devices, result.sent, result.failed, result.skipped, gone.size)
 		return result
 	}
 
@@ -160,6 +190,10 @@ class PushExecutorConfig {
 		corePoolSize = 2
 		maxPoolSize = 2
 		queueCapacity = 500
+		// 서버를 닫는 동안(결정 046 — 요청 마무리 · 생성 일꾼 기다리기) 끝난 풀이 · 답변의 푸시도 받아 보내고, 닫을 때 줄을 비울 때까지 기다린다.
+		setAcceptTasksAfterContextClose(true)
+		setWaitForTasksToCompleteOnShutdown(true)
+		setAwaitTerminationSeconds(60)
 		setThreadNamePrefix("push-")
 	}
 }
@@ -178,46 +212,64 @@ class PushEvents(
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
-	fun readingCreated(event: ReadingCreated) = later(PushKind.READING_DONE) { push.notify(event.ownerId, PushKind.READING_DONE) }
+	fun readingCreated(event: ReadingCreated) {
+		later(PushKind.READING_DONE) { push.notify(event.ownerId, PushKind.READING_DONE) }
+	}
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
-	fun meReportDone(event: MeReportDone) = later(PushKind.ME_REPORT_DONE) { push.notify(event.ownerId, PushKind.ME_REPORT_DONE) }
+	fun meReportDone(event: MeReportDone) {
+		later(PushKind.ME_REPORT_DONE) { push.notify(event.ownerId, PushKind.ME_REPORT_DONE) }
+	}
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
-	fun timingReportDone(event: TimingReportDone) = later(PushKind.TIMING_REPORT_DONE) { push.notify(event.ownerId, PushKind.TIMING_REPORT_DONE) }
+	fun timingReportDone(event: TimingReportDone) {
+		later(PushKind.TIMING_REPORT_DONE) { push.notify(event.ownerId, PushKind.TIMING_REPORT_DONE) }
+	}
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
-	fun inquiryAnswered(event: InquiryAnswered) =
+	fun inquiryAnswered(event: InquiryAnswered) {
 		later(PushKind.INQUIRY_ANSWERED) { push.notify(event.ownerId, PushKind.INQUIRY_ANSWERED, event.inquiryId) }
+	}
 
 	/** 광고 푸시(결정 043 의 6). admin 이 발송 내역 행을 만든 뒤(커밋 뒤) 낸다 — 일꾼이 보내고 결과를 `PushEventSent` 로 알린다. */
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
-	fun pushEventRequested(event: PushEventRequested) = later(PushKind.EVENT) {
-		val result = push.broadcast(event.title, event.body, event.target)
-		events.publishEvent(PushEventSent(event.eventId, result.recipients, result.succeeded, result.failed))
+	fun pushEventRequested(event: PushEventRequested) {
+		// 어떤 길로 끝나도 결과를 알린다 — 오지 않으면 발송 내역이 "보내는 중" 으로 남고 그날은 다시 보낼 수도 없다(하루 한 번).
+		fun failedAll() = runCatching { push.adAudienceCount() }.getOrDefault(0).let { BroadcastResult(it, 0, it) }
+		val started = later(PushKind.EVENT) {
+			val result = try {
+				push.broadcast(event.title, event.body, event.target)
+			} catch (e: RuntimeException) {
+				log.warn("event=push_failed type={} reason={}", PushKind.EVENT, e.javaClass.simpleName)
+				failedAll()
+			}
+			events.publishEvent(PushEventSent(event.eventId, result.recipients, result.succeeded, result.failed))
+		}
+		if (!started) failedAll().let { events.publishEvent(PushEventSent(event.eventId, it.recipients, it.succeeded, it.failed)) }
 	}
 
 	/** 오늘의 하늘 아침 알림(결정 042 의 6). `sky` 의 아침 일정이 그날 한 번만 낸다 — 그 일꾼 스레드에서 바로 보낸다. */
 	@EventListener
 	fun todaySkyDue(event: TodaySkyDue) {
 		try {
-			push.send(event.ownerId, PushKind.TODAY_SKY, PushMessages.TODAY_SKY_TITLE, event.title, mapOf("date" to event.date.toString()))
+			push.sendMany(PushKind.TODAY_SKY, event.items.map { Notice(it.ownerId, PushMessages.TODAY_SKY_TITLE, it.title, mapOf("date" to it.date.toString())) })
 		} catch (e: RuntimeException) {
 			log.warn("event=push_failed type={} reason={}", PushKind.TODAY_SKY, e.javaClass.simpleName)
 		}
 	}
 
-	private fun later(kind: PushKind, work: () -> Unit) {
-		try {
-			executor.execute {
-				try {
-					work()
-				} catch (e: RuntimeException) {
-					log.warn("event=push_failed type={} reason={}", kind, e.javaClass.simpleName)
-				}
+	/** 일꾼에 맡겼으면 true. 거절되면(줄이 참 · 닫힘) false 와 로그. */
+	private fun later(kind: PushKind, work: () -> Unit): Boolean = try {
+		executor.execute {
+			try {
+				work()
+			} catch (e: RuntimeException) {
+				log.warn("event=push_failed type={} reason={}", kind, e.javaClass.simpleName)
 			}
-		} catch (_: TaskRejectedException) {
-			log.warn("event=push_failed type={} reason=QUEUE_FULL", kind)
 		}
+		true
+	} catch (_: TaskRejectedException) {
+		log.warn("event=push_failed type={} reason=REJECTED", kind)
+		false
 	}
 }
