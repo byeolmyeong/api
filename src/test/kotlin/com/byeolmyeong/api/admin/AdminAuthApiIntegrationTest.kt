@@ -145,7 +145,7 @@ class AdminAuthApiIntegrationTest {
 	fun `관리자 세션이 없으면 admin 아래의 모든 경로가 401 이다`() {
 		val paths = listOf(
 			"GET" to "/admin", "GET" to "/admin/", "GET" to "/admin/me", "POST" to "/admin/auth/logout", "PUT" to "/admin/me/password",
-			"GET" to "/admin/admins", "POST" to "/admin/admins", "PATCH" to "/admin/admins/${UUID.randomUUID()}",
+			"GET" to "/admin/admins", "POST" to "/admin/admins", "PATCH" to "/admin/admins/${UUID.randomUUID()}", "POST" to "/admin/admins/${UUID.randomUUID()}/password-reset",
 			"GET" to "/admin/inquiries", "GET" to "/admin/inquiries/${UUID.randomUUID()}", "PATCH" to "/admin/inquiries/${UUID.randomUUID()}",
 			"GET" to "/admin/stats",
 			"GET" to "/admin/faqs", "POST" to "/admin/faqs", "PATCH" to "/admin/faqs/${UUID.randomUUID()}",

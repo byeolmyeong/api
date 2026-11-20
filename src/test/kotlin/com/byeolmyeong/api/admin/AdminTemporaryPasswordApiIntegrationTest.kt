@@ -161,6 +161,43 @@ class AdminTemporaryPasswordApiIntegrationTest {
 	}
 
 	@Test
+	fun `꺼진 관리자에게도 재발급되지만 켜지지는 않는다`() {
+		val id = createAdmin(port, root, NEW_ID, CHOSEN, jdbc)
+		assertEquals(200, http(port, "PATCH", "/admin/admins/$id", """{"active":false}""", root).statusCode())
+
+		val temporary = reissue(id).json()["temporaryPassword"].asString()
+
+		assertEquals(false, jdbc.queryForObject("select active from admin_accounts where id = ?", Boolean::class.java, id))
+		assertEquals(401, login(port, NEW_ID, temporary).statusCode(), "꺼진 채다")
+		assertEquals(200, http(port, "PATCH", "/admin/admins/$id", """{"active":true}""", root).statusCode())
+		assertEquals(true, login(port, NEW_ID, temporary).json()["admin"]["mustChangePassword"].asBoolean())
+	}
+
+	@Test
+	fun `새 비밀번호 규칙의 경계 — 10자 · 72바이트 · 한글 24자는 되고 그 밖은 400 이다`() {
+		for (ok in listOf("1234567890", "x".repeat(72), "가".repeat(24))) {
+			val id = add("ops-${ok.length}-${ok.first().code}").json()
+			val temporary = id["temporaryPassword"].asString()
+			val loginId = id["admin"]["loginId"].asString()
+			val token = adminToken(port, loginId, temporary)
+			assertEquals(204, change(token, temporary, ok).statusCode(), "${ok.length}자")
+			assertEquals(200, login(port, loginId, ok).statusCode())
+		}
+		val temporary = add().json()["temporaryPassword"].asString()
+		val token = adminToken(port, NEW_ID, temporary)
+		for (bad in listOf("123456789", "x".repeat(73), "가".repeat(25))) assertError(400, "INVALID_PASSWORD", change(token, temporary, bad), "${bad.length}자")
+	}
+
+	@Test
+	fun `지금 비밀번호를 여러 번 틀려도 막히지 않는다`() {
+		val temporary = add().json()["temporaryPassword"].asString()
+		val token = adminToken(port, NEW_ID, temporary)
+
+		repeat(8) { assertError(400, "INVALID_CURRENT_PASSWORD", change(token, "wrong-temporary-$it", CHOSEN), "${it + 1}번째") }
+		assertEquals(204, change(token, temporary, CHOSEN).statusCode())
+	}
+
+	@Test
 	fun `자기 자신 · 없는 관리자에게는 재발급하지 않는다`() {
 		assertError(409, "SELF_NOT_ALLOWED", reissue(rootId))
 		assertError(404, "NOT_FOUND", reissue(UUID.randomUUID()))

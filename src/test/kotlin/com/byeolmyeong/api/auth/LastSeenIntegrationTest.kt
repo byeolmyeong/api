@@ -5,6 +5,7 @@ import com.byeolmyeong.api.admin.adminToken
 import com.byeolmyeong.api.admin.resetAdminData
 import com.byeolmyeong.api.admin.userAccount
 import com.byeolmyeong.api.http
+import org.junit.jupiter.api.Assumptions.assumeFalse
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -33,6 +34,9 @@ class LastSeenIntegrationTest {
 
 	@BeforeEach
 	fun clean() {
+		// "10분 안" · "오늘" 을 DB 시계로 본다. 한국 자정 언저리(23:50 ~ 00:10)에는 날짜가 바뀌어 흔들리므로 건너뛴다.
+		val minuteOfDay = jdbc.queryForObject("select extract(hour from now() at time zone 'Asia/Seoul') * 60 + extract(minute from now() at time zone 'Asia/Seoul')", Int::class.java)!!
+		assumeFalse(minuteOfDay < 10 || minuteOfDay >= 23 * 60 + 50, "한국 자정 언저리")
 		resetAdminData(jdbc)
 		userAccount(jdbc, "seen-user").let { (id, t) -> account = id; token = t }
 	}

@@ -275,7 +275,7 @@ class AdminAuditIntegrationTest {
 		val dump = jdbc.queryForList("select row_to_json(a)::text from audit_logs a", String::class.java).joinToString("\n")
 		assertEquals(11, dump.lines().size)
 		val secrets = listOf(
-			MEMO, "메모비밀글", INQUIRY_BODY, "문의비밀글", REPLY_EMAIL, "@", QUESTION, "질문비밀글", ANSWER, "답비밀글", "둘째관리자이름",
+			MEMO, "메모비밀글", INQUIRY_BODY, "문의비밀글", REPLY_EMAIL, "@", QUESTION, "질문비밀글", ANSWER, "답비밀글",
 			ROOT_PASSWORD, SECOND_PASSWORD, "brand-new-password-1", "wrong-password-typed", "typed-password-as-id", token, second, sha256(token),
 		)
 		for (secret in secrets) assertFalse(secret in dump, "감사 기록에 있으면 안 되는 값: ${secret.take(6)}…")

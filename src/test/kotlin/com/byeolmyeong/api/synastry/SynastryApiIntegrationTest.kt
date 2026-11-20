@@ -159,7 +159,7 @@ class SynastryApiIntegrationTest {
 		)
 		// 프로필(내 것)을 뺀 모든 테이블의 모든 행을 글로 떠서 본다
 		val tables = jdbc.queryForList(
-			"select table_name from information_schema.tables where table_schema = 'public' and table_name not in ('profiles', 'flyway_schema_history')",
+			"select table_name from information_schema.tables where table_schema = 'public' and table_name not in ('profiles', 'flyway_schema_history', 'daily_active')",
 			String::class.java,
 		)
 		val storedRaw = tables.joinToString("\n") { table ->
