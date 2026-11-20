@@ -46,7 +46,7 @@ src/main/kotlin/com/byeolmyeong/api/
   profile/     ProfileController
   generation/  TextGenerator(인터페이스) · ClaudeTextGenerator · ChartFacts · TimelineFacts(시기 한 줄의 글) · SynastryFacts(두 차트 사이 연결의 글) · Basis · Advice(실천 한 줄의 검사)
   reading/     ReadingController · ReadingService · ReadingRepository · ReadingDraft(지시문·구조·검증)
-  report/      ReportController · ReportService(+ 일꾼 설정 ReportExecutorConfig) · ReportRepository · Report(모양·지시문·구조·검증) · ReportTiming(시기: 모양·모델에게 맡길 줄·연도 대조·지금) · TimingThemes(시기의 표의 글) · ReportDone(이벤트)
+  report/      ReportController · ReportService(+ 일꾼 설정 ReportExecutorConfig) · ReportRepository · Report(모양·지시문·구조·검증) · ReportTiming(시기: 모양·모델에게 맡길 줄·연도 대조·지금) · TimingThemes(시기의 표의 글) · ReportDone(이벤트) · EntitlementPolicy(받을 수 있나 — 1.0.0 언제나 허용, 결정 029)
   synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · SynastryDeleted(이벤트) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증) · DirectionFuture(미래: 지금의 시기·대상) · DirectionSynastry(궁합: 재료·지시문)
   inquiry/     InquiryController · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증)
@@ -141,6 +141,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - `POST /charts`·`PUT /profile` 요청: `date` 는 `YYYY-MM-DD`, `time` 은 `HH:mm` 또는 `null`, `placeId` 는 `GET /places` 의 `id`(정수).
 - 태어난 시각을 모르면 태어난 곳을 받지 않는다(결정 007): `time` 이 `null`(또는 키 없음)이면 `placeId` 는 없어도 되고, 보내도 읽지 않으며(목록에 없는 id 여도 400 이 아니다) 저장하지 않는다. 그때 `GET`·`PUT /profile` 의 응답은 `placeId: null` 이다. `time` 이 있으면 `placeId` 는 필수이고 없거나 `null` 이거나 목록에 없으면 400 `UNKNOWN_PLACE` 다. 시각을 모르는 날의 기준 시각은 한국 표준시 정오다.
 - 오류 응답: `{ error }`. `POST /charts` 는 400 `INVALID_REQUEST`(본문 형식)·`INVALID_DATE`(형식, 1900-01-01 이전, 오늘 이후)·`INVALID_TIME`(형식은 `HH:mm` 만 — 초가 붙으면 안 된다, 날짜가 오늘(한국 시각)이면 아직 오지 않은 시각)·`UNKNOWN_PLACE`. 출생 정보를 받는 다른 경로(`PUT /profile`·`POST /synastry/direct` 등)의 `INVALID_TIME` 도 같다. 요청 수 한도를 넘으면 429 `RATE_LIMITED`.
+- 402 `PURCHASE_REQUIRED` — **예약**(결정 029 의 4): 자세한 풀이(`POST /me-report`, 계획 S③ 의 `POST /timing-report`)를 새로 시작하기 직전(생성 한도를 세기 전) "받을 수 있나"(`report.EntitlementPolicy`)가 거절하면 이 답이고 행을 만들지 않는다. **1.0.0 은 언제나 허용이라 나오지 않는다.** 이미 완성됐거나 쓰는 중인 풀이의 `POST` 와 `GET` 은 묻지 않는다. 1.1.0 결제 계획에서 실제로 쓴다(그때 새 결정).
 - `GET /places?q=`: 검색어를 공백으로 나눈 낱말이 이름에 모두 든 곳을 20개까지. `q` 가 없으면 전체 목록(229곳)을 준다. 앱의 출생지 고르기 화면이 쓴다. `name` 은 `시·도 시·군·구` 꼴이고 세종만 `세종특별자치시` 한 낱말이다.
 - `Reading` = `{ headline, sections[{ title, body, reason: Reason, basis[] }], strengths[3], cautions[2], createdAt, shareId }`(결정 030 · 031, 2026-11-20 S①). 문단은 시각을 알면 5 · 모르면 4. `reason` 은 그 문단의 "이렇게 풀이한 이유"(`when` 은 언제나 `BIRTH`, `items` 1~2). `createdAt` 은 그 요약 해석을 만든 때(UTC `YYYY-MM-DDTHH:mm:ssZ`, 저장 행의 `created_at`) — 홈의 "별명을 받은 지 N일". `basis[]` 는 옛 근거 낱말로 `reason` 에서 서버가 만든다(아래 "글 생성 규칙" 의 근거에 쓸 수 있는 말, 겹침 없이) — 옛 앱이 읽는 동안만 보내고 계획 S⑦ 에서 뺀다. `shareId` 는 **더 쓰지 않는다**(결정 012): 공유 주소가 아니고 `GET /shared/{그 값}` 은 404 다. 공유는 `POST /shares` 로 만든다. 계획 S⑦ 에서 뺀다.
   - 옛 모양(근거 낱말만 · 보완점 3 · `createdAt` 없음)으로 저장된 요약 해석(`readings.kind = SUMMARY`)은 읽지 않는다: 그 계정의 다음 `POST /readings` 가 새 모양으로 새로 만든다(생성 한도 한 번). 옛 행은 지우거나 고치지 않는다.
