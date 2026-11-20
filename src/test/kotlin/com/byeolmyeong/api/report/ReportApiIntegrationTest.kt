@@ -781,6 +781,8 @@ class ReportApiIntegrationTest {
 		val nextMilestone = milestones.firstOrNull { it["date"].asString() > today.toString() }
 		assertEquals(nextMilestone, current["nextMilestone"])
 		assertEquals(intervals.firstOrNull { it["from"].asString() > today.toString() }, current["nextInterval"])
+		assertFalse(current.has("mainId"), "대표 구간은 시기 풀이(/timing-report)에만 있다 — 옛 리포트의 지금에는 키가 없다")
+		assertTrue(intervals.none { it.has("summary") || it.has("detail") || it.has("practices") || it.has("reason") }, "시기 풀이의 칸은 옛 리포트에 없다")
 		val stored = mapper.readTree(storedBody())
 		// jsonb 는 키 순서를 지키지 않으므로 모음으로 본다
 		assertEquals(setOf("timeKnown", "milestones", "intervals"), stored["timing"].propertyNames().toSet(), "지금은 저장하지 않는다")
