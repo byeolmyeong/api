@@ -92,6 +92,7 @@ class AdminStatsV2ApiIntegrationTest {
 	fun `현황 v2 칸은 한국 날짜의 오늘로 세고 개인 정보가 없다`() {
 		// 한국 11월 20일 = UTC 11월 19일 15:00 부터. 이번 주(오늘 포함 7일) = 한국 11월 14일 = UTC 11월 13일 15:00 부터.
 		val today = account("2026-11-19T15:00:00Z", push = true, marketing = true, nickname = "비밀닉네임")
+		jdbc.update("insert into push_devices (expo_token, account_id, platform) values ('ExponentPushToken[stats-today]', ?, 'IOS')", today)
 		val yesterday = account("2026-11-19T14:59:59Z", push = true)
 		val weekFirst = account("2026-11-13T15:00:00Z", push = true, marketing = true, suspended = true)
 		val beforeWeek = account("2026-11-13T14:59:59Z")
@@ -147,6 +148,18 @@ class AdminStatsV2ApiIntegrationTest {
 		for (hidden in listOf("비밀", "hidden", "secret-domain", today.toString(), beforeWeek.toString(), old.toString(), "share-", "h1")) {
 			assertFalse(hidden in json.toString(), "응답에 '$hidden' 이 있다")
 		}
+	}
+
+	@Test
+	fun `광고를 받을 수 있는 수는 둘 다 동의 · 정지 아님에 기기가 있는 사람만 센다`() {
+		val withDevice = account("2026-11-01T00:00:00Z", push = true, marketing = true)
+		account("2026-11-01T00:00:00Z", push = true, marketing = true) // 기기 없음
+		val suspended = account("2026-11-01T00:00:00Z", push = true, marketing = true, suspended = true)
+		for ((owner, token) in listOf(withDevice to "a", suspended to "b")) {
+			jdbc.update("insert into push_devices (expo_token, account_id, platform) values (?, ?, 'IOS')", "ExponentPushToken[$token]", owner)
+		}
+
+		assertEquals(1, stats()["consents"]["adReachable"].asInt())
 	}
 
 	@Test
