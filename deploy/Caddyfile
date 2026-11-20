@@ -5,5 +5,7 @@
 {$SITE_ADDRESS} {
 	# 브라우저가 이 주소를 앞으로 1년 동안 https 로만 연다.
 	header Strict-Transport-Security "max-age=31536000"
-	reverse_proxy api:8080
+	# 받는 쪽(api-blue · api-green 중 하나, 결정 046)은 같은 디렉터리의 upstream.caddy 한 파일에서 가져온다.
+	# 그 파일은 VM 에만 있고 swap.sh 가 쓴다. 바꾼 뒤 `caddy reload` — 다시 읽기는 연결을 끊지 않는다.
+	import upstream.caddy
 }

@@ -2,6 +2,7 @@ package com.byeolmyeong.api.auth
 
 import com.byeolmyeong.api.TestcontainersConfiguration
 import com.byeolmyeong.api.http
+import com.byeolmyeong.api.freshNickname
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.RSASSASigner
@@ -33,6 +34,8 @@ private val APPLE_TEST_KEY: RSAKey = RSAKeyGenerator(2048).keyID("apple").genera
 private fun appleIdToken(sub: String): String = SignedJWT(
 	JWSHeader.Builder(JWSAlgorithm.RS256).keyID("apple").build(),
 	JWTClaimsSet.Builder().issuer("https://appleid.apple.com").audience(BUNDLE).subject(sub)
+		.claim("email", "$sub@privaterelay.appleid.com")
+		.claim("email_verified", "true")
 		.issueTime(Date()).expirationTime(Date.from(Instant.now().plusSeconds(600))).build(),
 ).apply { sign(RSASSASigner(APPLE_TEST_KEY)) }.serialize()
 
@@ -108,7 +111,7 @@ class AppleAccountIntegrationTest {
 
 	private fun signUp(sub: String, code: String?, date: String = "1995-05-05"): Int {
 		val ticket = mapper.readTree(login(sub, code).body())["signupToken"].asString()
-		return http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"$date","time":null,"placeId":null}""").statusCode()
+		return http(port, "POST", "/auth/signup", """{"signupToken":"$ticket","date":"$date","time":null,"placeId":null,"nickname":"${freshNickname()}","termsVersion":"2026-11-20","privacyVersion":"2026-11-20","avatar":1}""").statusCode()
 	}
 
 	private fun sessionToken(sub: String, code: String? = null): String = mapper.readTree(login(sub, code).body())["token"].asString()

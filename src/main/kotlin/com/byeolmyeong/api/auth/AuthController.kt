@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
@@ -35,8 +36,50 @@ data class LoginResponse(val status: String, val token: String? = null, val sign
 /** 애플 서버 알림의 본문. */
 data class AppleNotificationRequest(val payload: String?)
 
-/** `POST /auth/signup`. 출생 정보는 `PUT /profile` 과 같은 칸이다. */
-data class SignupRequest(val signupToken: String?, val date: String?, val time: String?, val placeId: Int?, val cookie: Boolean?)
+/** `GET/PATCH /account` 의 응답(결정 025 · 027 · 028). 없는 값은 null. */
+data class AccountResponse(
+	val nickname: String?,
+	val email: String?,
+	val provider: String,
+	val marketingConsent: Boolean,
+	val marketingConsentAt: java.time.Instant?,
+	val pushConsent: Boolean,
+	val pushConsentAt: java.time.Instant?,
+	val avatar: Int?,
+	/** 이용 정지(결정 044). 참이면 앱이 정지 화면(앱 결정 065 의 5)을 띄운다. 사유는 주지 않는다. */
+	val suspended: Boolean,
+)
+
+/** `POST /auth/nickname-check`(결정 025). */
+data class NicknameCheckRequest(val signupToken: String? = null, val nickname: String? = null)
+
+data class NicknameCheckResponse(val available: Boolean)
+
+/** `PATCH /account`. 보낸 칸만 바꾼다(결정 025 · 027 · 028). */
+data class AccountPatchRequest(
+	val nickname: String? = null,
+	val marketingConsent: Boolean? = null,
+	val pushConsent: Boolean? = null,
+	val avatar: Int? = null,
+)
+
+/**
+ * `POST /auth/signup`. 출생 정보는 `PUT /profile` 과 같은 칸이다. 닉네임은 필수, 마케팅 수신 동의는 선택(결정 025).
+ * 약관 · 처리방침 버전(결정 026) · 프로필 1~8(결정 028)은 필수, 푸시 수신 동의는 선택(결정 027). 동의 시각은 받지 않는다(서버 시각).
+ */
+data class SignupRequest(
+	val signupToken: String?,
+	val date: String?,
+	val time: String?,
+	val placeId: Int?,
+	val nickname: String? = null,
+	val avatar: Int? = null,
+	val termsVersion: String? = null,
+	val privacyVersion: String? = null,
+	val pushConsent: Boolean? = null,
+	val marketingConsent: Boolean? = null,
+	val cookie: Boolean?,
+)
 
 @RestController
 class AuthController(
@@ -65,12 +108,26 @@ class AuthController(
 		return ResponseEntity.ok().build()
 	}
 
-	/** 가입(결정 021). 만 14세 이상일 때만 계정·출생 정보·세션을 만든다. */
+	/** 가입(결정 021). 지금 약관에 동의하고(결정 026) 만 14세 이상일 때만 계정·출생 정보·세션을 만든다. */
 	@PostMapping("/auth/signup")
 	fun signup(@RequestBody request: SignupRequest, response: HttpServletResponse): ResponseEntity<TokenResponse> {
-		val session = login.signup(request.signupToken, BirthRequest(request.date, request.time, request.placeId))
+		val session = login.signup(
+			request.signupToken,
+			BirthRequest(request.date, request.time, request.placeId),
+			nickname = request.nickname,
+			avatar = request.avatar,
+			termsVersion = request.termsVersion,
+			privacyVersion = request.privacyVersion,
+			marketingConsent = request.marketingConsent == true,
+			pushConsent = request.pushConsent == true,
+		)
 		return ResponseEntity.status(HttpStatus.CREATED).body(deliver(session, request.cookie == true, response))
 	}
+
+	/** 가입 전에 닉네임을 쓸 수 있는지(결정 025). 가입권이 있어야 한다. 영문 대소문자는 같은 이름이다. */
+	@PostMapping("/auth/nickname-check")
+	fun nicknameCheck(@RequestBody request: NicknameCheckRequest): NicknameCheckResponse =
+		NicknameCheckResponse(login.nicknameAvailable(request.signupToken, request.nickname))
 
 	/** 개발용 로그인(결정 005). 설정이 꺼져 있으면(운영) 없는 경로처럼 404 다. */
 	@PostMapping("/auth/dev")
@@ -90,6 +147,15 @@ class AuthController(
 		sessionCookie.clear(response)
 		return ResponseEntity.noContent().build()
 	}
+
+	/** 계정 화면의 값(결정 025). 세션의 주인 것만. */
+	@GetMapping("/account")
+	fun account(): AccountResponse = auth.account(owner.id())
+
+	/** 닉네임·수신 동의(마케팅 · 푸시)·프로필을 바꾼다(결정 025 · 027 · 028). 보낸 칸만. */
+	@PatchMapping("/account")
+	fun updateAccount(@RequestBody request: AccountPatchRequest): AccountResponse =
+		auth.updateAccount(owner.id(), request.nickname, request.marketingConsent, request.pushConsent, request.avatar)
 
 	/** 계정 삭제. 세션의 주인만 지운다. 웹의 쿠키도 지운다. */
 	@DeleteMapping("/account")

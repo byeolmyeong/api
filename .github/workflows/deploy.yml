@@ -1,13 +1,15 @@
-# 배포(결정 020). 절차·되돌리기는 docs/deploy.md.
+# 배포(결정 020 · 046). 절차·되돌리기는 docs/deploy.md.
 # - develop 에 합쳐지고 ci 가 통과하면 → 스테이징(그 커밋)
 # - main 에 합쳐지고 ci 가 통과하면 → 운영(그 커밋, 바꾸기 전에 DB 백업). main 에 합치는 것이 "사람의 확인"이다
 # - 수동 실행(대상·ref) → 되돌리기나 다시 올리기(ci 를 거치지 않은 ref 일 수 있어 빌드·테스트를 다시 돌린다)
+# 바꿔 띄우기는 끊김 없다(블루 · 그린, 결정 046): VM 의 swap.sh 가 쉬는 색에 새 jar 를 띄워 살아난 뒤에만 받는 쪽을 바꾼다.
+# Postgres · Caddy 이미지는 받지도 다시 만들지도 않는다(따로 점검 모드로 한다).
 # 저장소 변수 DEPLOY_ENABLED 가 true 일 때만 돈다. "배포 전 확인" 계획(docs/plans/2026-11-19-pre-deploy-hardening.md)이 끝나면 켠다.
 # workflow_run 이라 저장소 기본 브랜치에 있는 이 파일로 돈다(docs/deploy.md 10번).
 # 저장소 비밀값: STAGING_SSH_HOST·STAGING_SSH_KEY·STAGING_SSH_KNOWN_HOSTS·PROD_SSH_HOST·PROD_SSH_KEY·PROD_SSH_KNOWN_HOSTS
 # 저장소 변수: DEPLOY_ENABLED·STAGING_BASE_URL·PROD_BASE_URL (예: https://api-staging.byeolmyeong.com)
 # VM 의 .env·backup.env 는 올리지도 덮어쓰지도 않는다. 비밀값은 VM 에만 있다.
-# 되돌리기는 jar 만 되돌린다. 새 jar 가 적용한 DB 마이그레이션은 남는다(운영은 배포 직전 백업으로 돌아갈 수 있다).
+# 되돌리기는 jar 만 되돌린다(수동 실행으로 이전 커밋, 또는 VM 에서 ./swap.sh app.jar.good). 새 jar 가 적용한 DB 마이그레이션은 남는다(운영은 배포 직전 백업으로 돌아갈 수 있다).
 name: deploy
 
 on:
@@ -129,88 +131,71 @@ jobs:
           {
             echo "DEPLOY_HOST=$host"
             echo "BASE_URL=$base"
-            echo "SSH_OPTS=-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=20"
+            # 옛 색을 내리는 동안(최대 320초) 아무것도 출력하지 않아도 연결이 끊기지 않게 한다.
+            echo "SSH_OPTS=-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
           } >> "$GITHUB_ENV"
 
-      - name: 파일 올리기
-        id: upload
+      - name: VM 확인 (블루 · 그린으로 옮긴 VM 인지)
         run: |
-          # shellcheck disable=SC2086 # SSH_OPTS 는 일부러 낱말로 나눈다.
-          scp $SSH_OPTS -r deploy/compose.yaml deploy/Caddyfile deploy/backup.sh deploy/restore.sh deploy/initdb "ubuntu@$DEPLOY_HOST:/opt/byeolmyeong/"
+          # 옮겨 가지 않은 VM(active_color 가 없음)에는 아무것도 올리지 않는다. 처음 옮겨 가기는 점검 모드를 켜고 손으로 한다(결정 046 의 9).
+          # shellcheck disable=SC2086
+          if ! ssh $SSH_OPTS "ubuntu@$DEPLOY_HOST" 'test -f /opt/byeolmyeong/active_color && test -f /opt/byeolmyeong/upstream.caddy'; then
+            echo "$TARGET: 블루 · 그린으로 옮기지 않은 VM 이다. docs/deploy.md 의 '블루 · 그린으로 처음 옮겨 가기' 를 먼저 한다. 아무것도 바꾸지 않았다." | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit 1
+          fi
+
+      - name: 파일 올리기
+        run: |
+          # 결정 046 앞의 커밋(swap.sh 가 없음)을 올릴 때는 jar 만 올린다. 그 커밋의 compose.yaml · Caddyfile 은 블루 · 그린 VM 을 깬다.
+          if [ -f deploy/swap.sh ]; then
+            # shellcheck disable=SC2086 # SSH_OPTS 는 일부러 낱말로 나눈다.
+            scp $SSH_OPTS -r deploy/compose.yaml deploy/Caddyfile deploy/backup.sh deploy/restore.sh deploy/initdb "ubuntu@$DEPLOY_HOST:/opt/byeolmyeong/"
+            # swap.sh 는 다른 이름으로 올려 바꿔 놓는다(다음 단계). 손으로 돌리던 swap.sh 가 있으면 그 파일을 덮어쓰지 않는다.
+            # shellcheck disable=SC2086
+            scp $SSH_OPTS deploy/swap.sh "ubuntu@$DEPLOY_HOST:/opt/byeolmyeong/swap.sh.new"
+          else
+            echo "$TARGET: 결정 046 앞의 커밋이라 설정 파일은 올리지 않고 jar 만 바꾼다." >> "$GITHUB_STEP_SUMMARY"
+          fi
           # shellcheck disable=SC2086
           scp $SSH_OPTS build/libs/app.jar "ubuntu@$DEPLOY_HOST:/opt/byeolmyeong/app.jar.new"
 
-      - name: 바꿔 띄우기
-        id: swap
+      - name: 바꿔 띄우기 (끊김 없이)
         run: |
+          # tee 뒤에서도 ssh 의 실패로 이 단계가 실패하게 한다(기본 셸은 pipefail 이 꺼져 있다).
+          set -o pipefail
           # TARGET 은 resolve 가 정한 staging·prod 둘 중 하나라 이쪽에서 펼쳐 넘겨도 된다.
           # shellcheck disable=SC2086,SC2029
-          ssh $SSH_OPTS "ubuntu@$DEPLOY_HOST" "TARGET=$TARGET bash -s" <<'EOF'
+          ssh $SSH_OPTS "ubuntu@$DEPLOY_HOST" "TARGET=$TARGET bash -s" <<'EOF' | tee swap.log
           set -euo pipefail
           cd /opt/byeolmyeong
           [ -f .env ] || { echo ".env 가 없다(docs/deploy.md)." >&2; exit 1; }
-          chmod +x backup.sh restore.sh initdb/*.sh
-          # 메이저 태그(postgres:17·eclipse-temurin:21-jre·caddy:2)의 새 패치를 받는다. 무엇이든 바꾸기 전에 해서, 실패하면 그대로 멈춘다.
-          docker compose pull --quiet
-          # 운영: jar 를 바꾸기 전에 DB 를 백업한다. 되돌리기는 jar 만 되돌리므로 마이그레이션 이전으로 돌아갈 곳을 남긴다.
-          # DB 볼륨이 있으면 Postgres 를 띄워서라도 꼭 백업하고, 실패하면 배포하지 않는다. 볼륨이 없을 때(첫 배포)만 건너뛴다.
+          # 새 파일로 바꿔 놓는다(mv). 돌고 있던 swap.sh 는 옛 파일을 끝까지 읽고, 이번 swap.sh 는 잠금에서 기다리지 않고 멈춘다.
+          if [ -f swap.sh.new ]; then mv -f swap.sh.new swap.sh; fi
+          chmod +x swap.sh backup.sh restore.sh initdb/*.sh
+          # 서버 이미지(JRE)의 새 패치를 받아 둔다. 쉬는 색만 새로 만들어지므로 끊기지 않는다. 받기에 실패하면 있던 이미지로 한다.
+          docker compose pull --quiet api-blue || echo "event=jre_pull_failed (있던 이미지로 계속)"
+          # 운영: jar 를 바꾸기 전에 DB 를 백업한다. 되돌리기는 jar 만 되돌리므로 마이그레이션 이전으로 돌아갈 곳을 남긴다. 실패하면 배포하지 않는다.
+          # Postgres 는 띄우거나 다시 만들지 않는다(결정 046 의 6) — 떠 있지 않으면 멈춘다.
           if [ "$TARGET" = prod ]; then
-            if docker volume inspect "${COMPOSE_PROJECT_NAME:-byeolmyeong}_postgres-data" > /dev/null 2>&1; then
-              docker compose up -d --wait postgres
-              ./backup.sh predeploy
-            else
-              echo "event=predeploy_backup_skipped reason=no_db_volume"
-            fi
+            docker compose ps --status running --services | grep -qx postgres || { echo "Postgres 가 떠 있지 않다(docker compose ps)." >&2; exit 1; }
+            ./backup.sh predeploy
           fi
-          mv -f app.jar.new app.jar
-          docker compose up -d --remove-orphans
-          # jar 파일이 바뀌었으니 서버 컨테이너는 늘 새로 만든다(파일 하나를 붙이면 만들 때의 파일을 계속 본다).
-          docker compose up -d --force-recreate --no-deps api
-          docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+          # 쉬는 색에 새 jar 를 띄워 /health 200 을 본 뒤에만 받는 쪽을 바꾸고, 옛 색은 하던 일을 끝낸 뒤 내린다.
+          # 새 색이 살아나지 않으면 받는 쪽은 옛 색 그대로다(되돌릴 것이 없다).
+          ./swap.sh app.jar.new
           EOF
+          grep -E 'event=swap_(switched|old_stopped|done)' swap.log >> "$GITHUB_STEP_SUMMARY" || true
 
-      - name: 살아났는지 확인 (아니면 마지막 정상 jar 로 되돌린다)
-        # 파일을 올렸으면 앞 단계가 실패해도 늘 돈다. VM 이 확인 안 된 jar 로 남지 않게 한다.
-        if: always() && steps.upload.outcome == 'success'
-        env:
-          SWAP_OUTCOME: ${{ steps.swap.outcome }}
+      - name: 밖에서 확인
         run: |
-          healthy() {
-            for _ in $(seq 1 36); do
-              code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE_URL/health" || true)"
-              [ "$code" = 200 ] && return 0
-              sleep 5
-            done
-            return 1
-          }
-          if [ "$SWAP_OUTCOME" = success ] && healthy; then
-            # 이 jar 를 "마지막 정상 jar" 로 남긴다. 다음 배포가 실패하면 여기로 돌아온다.
-            # shellcheck disable=SC2086
-            ssh $SSH_OPTS "ubuntu@$DEPLOY_HOST" 'cp -f /opt/byeolmyeong/app.jar /opt/byeolmyeong/app.jar.good'
-            echo "$TARGET: /health 200, 마지막 정상 jar 로 기록" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          # 바꿔 띄우기가 jar 를 바꾸기 전에 멈췄으면(이미지 받기·백업 실패 등) app.jar 는 마지막 정상 jar 그대로다.
-          # 서버가 살아 있으면 되돌리지 않는다(괜히 서버를 다시 만들어 내려가지 않게).
-          # shellcheck disable=SC2086
-          if [ "$SWAP_OUTCOME" != success ] \
-            && ssh $SSH_OPTS "ubuntu@$DEPLOY_HOST" 'cmp -s /opt/byeolmyeong/app.jar /opt/byeolmyeong/app.jar.good' \
-            && healthy; then
-            echo "$TARGET: 배포 실패, jar 를 바꾸기 전에 멈춰 서버는 그대로(/health 200)" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          echo "바꿔 띄우기가 실패했거나 3분 안에 뜨지 않아 마지막 정상 jar 로 되돌린다." >&2
-          # shellcheck disable=SC2086
-          ssh $SSH_OPTS "ubuntu@$DEPLOY_HOST" 'bash -s' <<'EOF'
-          set -euo pipefail
-          cd /opt/byeolmyeong
-          [ -f app.jar.good ] || { echo "마지막 정상 jar 가 없다(첫 배포)." >&2; exit 1; }
-          cp -f app.jar.good app.jar
-          docker compose up -d --force-recreate --no-deps api
-          EOF
-          if healthy; then
-            echo "$TARGET: 배포 실패, 마지막 정상 jar 로 되돌림(/health 200)" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "$TARGET: 배포 실패, 되돌린 뒤에도 /health 가 200 이 아니다" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          # swap.sh 는 Caddy 안에서 /health 를 보고 바꿨다. 여기서는 밖의 주소(인증서 · DNS 까지)로 한 번 더 본다.
+          for _ in $(seq 1 12); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE_URL/health" || true)"
+            if [ "$code" = 200 ]; then
+              echo "$TARGET: 끊김 없이 바꿈, 밖에서 /health 200" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "$TARGET: 서버는 바꿨지만 밖에서 /health 가 200 이 아니다(Caddy · 인증서 · DNS 를 본다, docs/deploy.md)" | tee -a "$GITHUB_STEP_SUMMARY" >&2
           exit 1

@@ -3,7 +3,7 @@ type: decision
 tags: [방향성 제시, direction, 이성, 저장, 조언형, 단정 금지, 글 생성]
 status: active
 last_reviewed: 2026-11-11
-superseded_by:
+superseded_by: 037-advice-ends-with-gi.md (항목 제목이 "보기" 로 끝나야 한다는 검사만 — "기" 로 넓힘). 나머지는 유효
 ---
 # 009. 방향성 제시는 주제·대상으로 한 번만 저장하고, 조언형인지 서버가 글자로 확인한다
 

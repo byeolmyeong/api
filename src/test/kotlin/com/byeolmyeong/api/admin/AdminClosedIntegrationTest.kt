@@ -81,7 +81,7 @@ class AdminClosedIntegrationTest {
 	}
 }
 
-/** 로그인 제한. 설정을 건드리지 않아 기본값(10분에 아이디별 5번, 주소별 20번)을 본다. */
+/** 로그인 제한. 설정을 건드리지 않아 기본값(10분에 주소별 20번)을 본다. 아이디별 잠금은 없다(결정 043 의 5). */
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -93,19 +93,14 @@ class AdminLoginRateLimitIntegrationTest {
 	private var port: Int = 0
 
 	@Test
-	fun `한 아이디에 여섯 번째 시도부터, 한 주소에서 스물한 번째 시도부터 429 다`() {
-		repeat(5) { assertEquals(401, login(port, ROOT_ID, "wrong-password-$it").statusCode(), "${it + 1}번째") }
+	fun `한 아이디로 여러 번 틀려도 잠기지 않고 한 주소에서 스물한 번째 시도부터 429 다`() {
+		repeat(10) { assertEquals(401, login(port, ROOT_ID, "wrong-password-$it").statusCode(), "${it + 1}번째") }
+		assertEquals(200, login(port, ROOT_ID, ROOT_PASSWORD).statusCode(), "열 번 틀린 뒤에도 맞는 비밀번호면 들어간다")
 
-		val limited = login(port, ROOT_ID, "wrong-password-5")
-		assertEquals(429, limited.statusCode())
-		assertEquals("""{"error":"RATE_LIMITED"}""", limited.body())
-		assertEquals(429, login(port, ROOT_ID, ROOT_PASSWORD).statusCode(), "맞는 비밀번호여도 막힌 동안은 들어갈 수 없다")
-		assertEquals(429, login(port, " ROOT-ADMIN ", ROOT_PASSWORD).statusCode(), "대소문자·공백으로 제한을 피할 수 없다")
+		// 여기까지 이 주소에서 11번.
+		repeat(9) { assertEquals(401, login(port, "other-admin-$it", "wrong-password").statusCode(), "다른 아이디 ${it + 1}번째") }
 
-		// 여기까지 이 주소에서 8번. 다른 아이디는 아이디별 제한에 걸리지 않는다.
-		repeat(12) { assertEquals(401, login(port, "other-admin-$it", "wrong-password").statusCode(), "다른 아이디 ${it + 1}번째") }
-
-		val byAddress = login(port, "yet-another-admin", "wrong-password")
+		val byAddress = login(port, ROOT_ID, ROOT_PASSWORD)
 		assertEquals(429, byAddress.statusCode(), "주소별 한도(20)를 넘었다")
 		assertEquals("""{"error":"RATE_LIMITED"}""", byAddress.body())
 	}

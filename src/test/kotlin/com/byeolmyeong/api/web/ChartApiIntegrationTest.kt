@@ -201,11 +201,11 @@ class ChartApiIntegrationTest {
 		// 감사 기록은 계정을 지워도 남는다(결정 015). 이 요청이 남기는 것만 보려고 비운다.
 		jdbc.update("delete from audit_logs")
 		chart("""{"date":"1990-03-15","time":"14:30","placeId":$MAPO}""")
-		// 세션을 받느라 계정·세션 행은 생긴다. 그 밖의 어떤 테이블에도 행이 없어야 한다(감사 기록은 아래에서 내용까지 본다.
+		// 세션을 받느라 계정·세션 행과 그날 접속 한 줄(daily_active — 날짜 · 계정 · 시뿐, 결정 043 의 2)은 생긴다. 그 밖의 어떤 테이블에도 행이 없어야 한다(감사 기록은 아래에서 내용까지 본다.
 		// `app_configs`·`app_maintenance` 는 마이그레이션이 넣은 서버 설정 행뿐이고 사용자의 것이 아니다 — 결정 016·017).
 		val tables = jdbc.queryForList(
 			"select table_name from information_schema.tables where table_schema = 'public' " +
-				"and table_name not in ('flyway_schema_history', 'accounts', 'sessions', 'audit_logs', 'app_configs', 'app_maintenance')",
+				"and table_name not in ('flyway_schema_history', 'accounts', 'sessions', 'daily_active', 'audit_logs', 'app_configs', 'app_maintenance')",
 			String::class.java,
 		)
 		val rows = tables.sumOf { jdbc.queryForObject("select count(*) from \"$it\"", Long::class.java)!! }

@@ -100,4 +100,35 @@ class GenerationQuotaIntegrationTest {
 		val status = mapper.readTree(http(port, "GET", "/reports/me", token = token).body())["status"].asString()
 		assertNotEquals("WRITING", status, "자리를 잡은 채 남으면 다음 요청이 시작하지 못한다")
 	}
+
+	@Test
+	fun `한도를 넘은 나 탭 풀이 요청은 429 이고 쓰는 중으로 남지 않는다`() {
+		val token = devToken(port)
+		setProfile(token, "1990-03-15")
+		assertEquals(200, read(token).statusCode())
+		setProfile(token, "1991-04-16")
+		assertEquals(200, read(token).statusCode())
+
+		val over = http(port, "POST", "/me-report", token = token)
+
+		assertEquals(429, over.statusCode())
+		assertEquals("""{"error":"RATE_LIMITED"}""", over.body())
+		val status = mapper.readTree(http(port, "GET", "/me-report", token = token).body())["status"].asString()
+		assertEquals("FAILED", status, "자리를 잡은 뒤 세고, 넘으면 그 자리를 실패로 돌린다")
+	}
+
+	@Test
+	fun `한도를 넘은 시기 풀이 요청은 429 이고 그 자리는 FAILED 로 남는다`() {
+		val token = devToken(port)
+		setProfile(token, "1990-03-15")
+		assertEquals(200, read(token).statusCode())
+		setProfile(token, "1991-04-16")
+		assertEquals(200, read(token).statusCode())
+
+		val over = http(port, "POST", "/timing-report", token = token)
+
+		assertEquals(429, over.statusCode())
+		assertEquals("""{"error":"RATE_LIMITED"}""", over.body())
+		assertEquals("FAILED", mapper.readTree(http(port, "GET", "/timing-report", token = token).body())["status"].asString())
+	}
 }

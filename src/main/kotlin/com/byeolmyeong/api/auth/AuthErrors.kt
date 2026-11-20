@@ -18,6 +18,12 @@ class AuthErrors {
 	@ExceptionHandler(SignupExpiredException::class)
 	fun signupExpired() = error(401, "SIGNUP_EXPIRED")
 
+	@ExceptionHandler(EmailRequiredException::class)
+	fun emailRequired() = error(400, "EMAIL_REQUIRED")
+
+	@ExceptionHandler(NicknameTakenException::class)
+	fun nicknameTaken() = error(409, "NICKNAME_TAKEN")
+
 	@ExceptionHandler(UnderAgeException::class)
 	fun underAge() = error(403, "UNDER_AGE")
 

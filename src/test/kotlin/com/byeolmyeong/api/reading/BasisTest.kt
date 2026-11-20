@@ -71,48 +71,49 @@ class BasisTest {
 		assertFalse(withoutTime.any { it.endsWith("하우스") || it in setOf("상승점", "중천", "행운점", "버텍스") }, withoutTime.toString())
 	}
 
+	// 요약 해석 v2 의 근거는 "[근거 후보]" 의 id 1~2개다(결정 031). known 의 후보: P-SUN · P-MOON · P-ASC · P-MC · R-SUN · R-MOON · R-ASC
 	private fun draft(
 		headline: String = "총평",
-		sections: List<ReadingSection> = (1..5).map { ReadingSection("제목", "본문", listOf("태양", "쌍둥이", "6하우스")) },
+		sections: List<DraftSection> = (1..5).map { DraftSection("제목", "본문", listOf("P-SUN", "R-SUN")) },
 		strengths: List<String> = listOf("하나", "둘", "셋"),
-		cautions: List<String> = listOf("하나", "둘", "셋"),
+		cautions: List<String> = listOf("하나", "둘"),
 	) = ReadingDraft(headline, sections, strengths, cautions)
 
 	@Test
 	fun `구조와 근거가 맞으면 통과한다`() {
 		assertNull(draftProblem(draft(), known))
-		assertNull(draftProblem(draft(sections = (1..4).map { ReadingSection("제목", "본문", listOf("달", "사수")) }), unknown))
+		assertNull(draftProblem(draft(sections = (1..4).map { DraftSection("제목", "본문", listOf("P-MOON")) }), unknown))
 	}
 
 	@Test
-	fun `차트에 없는 근거는 걸린다`() {
-		fun withBasis(vararg basis: String) = draft(sections = (1..5).map { ReadingSection("제목", "본문", basis.toList()) })
-		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("태양", "화성"), known), "없는 천체")
-		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("태양", "게"), known), "아무도 없는 별자리")
-		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("태양", "7하우스"), known), "아무도 없는 하우스")
-		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("태양", "쌍둥이자리"), known), "말이 정확히 같아야 한다")
-		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("SUN"), known))
+	fun `근거 후보에 없는 id 는 걸린다`() {
+		fun withBasis(vararg basis: String) = draft(sections = (1..5).map { DraftSection("제목", "본문", basis.toList()) })
+		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("P-SUN", "P-MARS"), known), "없는 천체")
+		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("C-6"), known), "셋이 모이지 않은 하우스")
+		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("P-NORTH_NODE"), known), "지점은 후보가 아니다")
+		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("태양"), known), "옛 근거 말은 id 가 아니다")
+		assertEquals("BASIS_NOT_IN_CHART", draftProblem(withBasis("p-sun"), known), "글자까지 같아야 한다")
 
-		val four = (1..4).map { ReadingSection("제목", "본문", listOf("태양", "6하우스")) }
-		assertEquals("BASIS_NOT_IN_CHART", draftProblem(draft(sections = four), unknown), "시각 모름에 하우스")
-		assertEquals(
-			"BASIS_NOT_IN_CHART",
-			draftProblem(draft(sections = four.map { it.copy(basis = listOf("상승점")) }), unknown),
-			"시각 모름에 상승점",
-		)
+		val four = (1..4).map { DraftSection("제목", "본문", listOf("P-SUN")) }
+		for (id in listOf("P-ASC", "P-MC", "R-ASC")) {
+			assertEquals("BASIS_NOT_IN_CHART", draftProblem(draft(sections = four.map { it.copy(basis = listOf(id)) }), unknown), "시각 모름에 $id")
+		}
 	}
 
 	@Test
 	fun `비었거나 개수가 틀리면 걸린다`() {
-		val section = ReadingSection("제목", "본문", listOf("태양"))
+		val section = DraftSection("제목", "본문", listOf("P-SUN"))
 		assertEquals("MALFORMED", draftProblem(draft(headline = " "), known))
 		assertEquals("MALFORMED", draftProblem(draft(sections = List(4) { section }), known), "시각을 알면 문단 5개")
 		assertEquals("MALFORMED", draftProblem(draft(sections = List(5) { section }), unknown), "시각을 모르면 문단 4개")
 		assertEquals("MALFORMED", draftProblem(draft(sections = List(5) { section.copy(title = "") }), known))
 		assertEquals("MALFORMED", draftProblem(draft(sections = List(5) { section.copy(body = "\n") }), known))
-		assertEquals("MALFORMED", draftProblem(draft(sections = List(5) { section.copy(basis = emptyList()) }), known))
+		assertEquals("MALFORMED", draftProblem(draft(sections = List(5) { section.copy(basis = emptyList()) }), known), "근거 0개")
+		assertEquals("MALFORMED", draftProblem(draft(sections = List(5) { section.copy(basis = listOf("P-SUN", "P-MOON", "R-SUN")) }), known), "근거 3개")
+		assertEquals("MALFORMED", draftProblem(draft(sections = List(5) { section.copy(basis = listOf("P-SUN", "P-SUN")) }), known), "같은 근거 둘")
 		assertEquals("MALFORMED", draftProblem(draft(strengths = listOf("하나", "둘")), known))
-		assertEquals("MALFORMED", draftProblem(draft(cautions = listOf("하나", "", "셋")), known))
+		assertEquals("MALFORMED", draftProblem(draft(cautions = listOf("하나", "둘", "셋")), known), "보완점은 2개(결정 030)")
+		assertEquals("MALFORMED", draftProblem(draft(cautions = listOf("하나", "")), known))
 		assertEquals("MALFORMED", draftProblem(draft(cautions = emptyList()), known))
 	}
 }

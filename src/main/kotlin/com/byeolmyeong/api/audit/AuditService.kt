@@ -3,6 +3,7 @@ package com.byeolmyeong.api.audit
 import com.byeolmyeong.api.web.AuditEvent
 import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
@@ -36,7 +37,7 @@ data class AuditLog(
 data class AuditLogPage(val items: List<AuditLog>, val page: Int, val size: Int, val total: Int)
 
 /**
- * 감사 기록(결정 015). 넣기만 한다 — 고치거나 지우는 길이 없다.
+ * 감사 기록(결정 015). 넣기만 한다 — 고치는 길이 없고, 지우는 것은 1년이 지난 행을 날마다 한 번 지우는 일뿐이다(결정 043 의 8).
  * 개인적인 것이 들어오지 않게 `detail` 을 한 번 더 거른다. 로그에는 행동 코드만 남긴다.
  */
 @Service
@@ -55,6 +56,17 @@ class AuditService(private val repository: AuditRepository, private val mapper: 
 		repository.insert(event, detail)
 	}
 
+	/**
+	 * 보관 1년: 일어난 지 365일이 지난 행을 지운다. 한국 시각 04:30 에 날마다 한 번.
+	 * 문장 하나라 서버 여러 대가 같이 돌아도 같은 행을 두 번 지우거나 어긋나지 않는다(뒤에 도는 쪽은 0). 로그에는 지운 개수만.
+	 */
+	@Scheduled(cron = "0 30 4 * * *", zone = "Asia/Seoul")
+	fun deleteExpired(): Int {
+		val count = repository.deleteOlderThanOneYear()
+		log.info("event=audit_retention_deleted count={}", count)
+		return count
+	}
+
 	fun list(filter: AuditFilter, page: Int, size: Int): AuditLogPage =
 		AuditLogPage(repository.find(filter, page.toLong() * size, size), page, size, repository.count(filter))
 }
@@ -62,17 +74,23 @@ class AuditService(private val repository: AuditRepository, private val mapper: 
 @Repository
 class AuditRepository(private val jdbc: JdbcTemplate, private val mapper: JsonMapper) {
 
-	/** 조건이 null 이면 거르지 않는다. */
+	/**
+	 * 조건이 null 이면 거르지 않는다. 검색어(소문자)는 `strpos` 로 일부를 찾는다 — `%`·`_` 도 글자 그대로다.
+	 * 닉네임은 감사 기록에 없어 지금의 `accounts` 에서 그 계정 id 를 찾는다(지워진 계정은 닉네임으로 찾을 수 없다).
+	 */
 	private val filter = """
 		where (?::text is null or actor_type = ?) and (?::text is null or action = ?)
 			and (?::timestamptz is null or occurred_at >= ?) and (?::timestamptz is null or occurred_at < ?)
 			and (?::text is null or actor_label = ?)
+			and (?::text is null
+				or (actor_type = 'ADMIN' and strpos(lower(actor_label), ?) > 0)
+				or (actor_type = 'USER' and actor_id in (select id::text from accounts where strpos(lower(nickname), ?) > 0)))
 	"""
 
 	private fun args(f: AuditFilter): Array<Any?> {
 		val since = f.since?.let(Timestamp::from)
 		val until = f.until?.let(Timestamp::from)
-		return arrayOf(f.actorType, f.actorType, f.action, f.action, since, since, until, until, f.actorRef, f.actorRef)
+		return arrayOf(f.actorType, f.actorType, f.action, f.action, since, since, until, until, f.actorRef, f.actorRef, f.q, f.q, f.q)
 	}
 
 	/** 새것부터(같은 때면 id 가 큰 것부터). 행위자 id(`actor_id`)는 읽지 않는다 — 응답에 내보내지 않는다. */
@@ -98,6 +116,9 @@ class AuditRepository(private val jdbc: JdbcTemplate, private val mapper: JsonMa
 	)
 
 	fun count(f: AuditFilter): Int = jdbc.queryForObject("select count(*) from audit_logs $filter", Int::class.java, *args(f))!!
+
+	/** DB 시계의 지금에서 365일 전보다 앞에 일어난 행을 지우고 그 수를 돌려준다. */
+	fun deleteOlderThanOneYear(): Int = jdbc.update("delete from audit_logs where occurred_at < now() - interval '365 days'")
 
 	/** 일어난 때는 DB 시계의 지금이다. */
 	fun insert(event: AuditEvent, detailJson: String?) {

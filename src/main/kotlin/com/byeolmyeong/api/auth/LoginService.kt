@@ -23,6 +23,9 @@ private val SIGNUP_TTL = Duration.ofMinutes(30)
 /** 가입권이 없거나 썼거나 만료됐다. 401 `SIGNUP_EXPIRED`. */
 class SignupExpiredException : RuntimeException("SIGNUP_EXPIRED")
 
+/** 처음 온 사람의 토큰에 이메일이 없다. 400 `EMAIL_REQUIRED`(결정 024). 가입권을 만들지 않았다. */
+class EmailRequiredException : RuntimeException("EMAIL_REQUIRED")
+
 /** 만 14세 미만이다. 403 `UNDER_AGE`. 계정·출생 정보는 만들지 않았다. */
 class UnderAgeException : RuntimeException("UNDER_AGE")
 
@@ -38,7 +41,7 @@ data class ProviderCredential(val provider: String?, val idToken: String?, val c
 /** 애플 refresh token 과 그것을 받은 클라이언트. 철회할 때 둘 다 쓴다. */
 data class AppleToken(val clientId: String, val refreshToken: String)
 
-/** 쓴 가입권의 내용. */
+/** 쓴 가입권의 내용. 이메일은 [identity] 에 있다. */
 data class SignupTicket(val identity: ProviderIdentity, val appleToken: AppleToken?)
 
 /**
@@ -57,6 +60,7 @@ class LoginService(
 	private val appleTokens: AppleTokenRepository,
 	private val birthProfiles: BirthProfileService,
 	private val birthParser: BirthRequestParser,
+	private val legal: LegalVersions,
 	private val tx: TransactionTemplate,
 	private val events: ApplicationEventPublisher,
 ) {
@@ -94,10 +98,17 @@ class LoginService(
 		val appleToken = appleToken(identity, appleAuthorizationCode, appleRedirectUri)
 		val accountId = accounts.find(identity.provider.name, identity.subject)
 		if (accountId != null) {
+			// 이미 있는 계정은 이메일이 없어도 로그인된다(잠그지 않는다). 있으면 공급자의 지금 값으로 고쳐 둔다(결정 024).
+			identity.email?.let { accounts.updateEmail(accountId, it) }
 			if (appleToken != null) appleTokens.save(accountId, appleToken)
 			val session = auth.issueSession(accountId)
 			events.publishEvent(AuditEvent(AuditAction.USER_LOGIN, AuditActor.user(accountId)))
 			return LoginOutcome.SignedIn(session)
+		}
+		if (identity.email == null) {
+			// 받아 둔 애플 토큰은 계정을 만들지 않으니 철회한다.
+			if (appleToken != null) runCatching { apple.revoke(appleToken.refreshToken, appleToken.clientId) }
+			throw EmailRequiredException()
 		}
 		val ticket = auth.newToken()
 		val expiresAt = Instant.now().plus(SIGNUP_TTL)
@@ -111,14 +122,38 @@ class LoginService(
 		return apple.exchange(code, clientId, redirectUri?.takeIf { it.isNotBlank() })?.let { AppleToken(clientId, it) }
 	}
 
-	/**
-	 * 가입. 순서: 가입권(401) → 출생 정보 검증(400, 가입권은 남는다) → 만 14세(403, 가입권을 지운다) →
-	 * 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 세션. 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나다.
-	 * 세션 토큰을 돌려준다.
-	 */
-	fun signup(signupToken: String?, birth: BirthRequest): String {
+	/** 가입 전에 닉네임을 쓸 수 있는지(결정 025). 유효한 가입권이 있어야 한다(401). 규칙에 어긋나면 400. */
+	fun nicknameAvailable(signupToken: String?, nickname: String?): Boolean {
 		val hash = signupToken?.takeIf { it.isNotBlank() }?.let(auth::hash) ?: throw SignupExpiredException()
 		if (!tickets.isValid(hash)) throw SignupExpiredException()
+		val name = normalizeNickname(nickname) ?: throw BadRequestException("INVALID_NICKNAME")
+		return !accounts.nicknameTaken(name)
+	}
+
+	/**
+	 * 가입. 순서: 가입권(401) → 약관 · 처리방침 버전(400) → 닉네임 규칙(400) → 프로필(400) → 출생 정보 검증(400) — 여기까지 가입권은 남는다 —
+	 * → 만 14세(403, 가입권을 지운다) → 한 트랜잭션에 가입권 쓰기 · 계정 · 출생 정보 · 닉네임 · 프로필 · 동의 · 세션.
+	 * 닉네임을 다른 계정이 쓰면 트랜잭션을 되돌리고 409(가입권은 남는다). 같은 사람이 가입권 두 장으로 동시에 와도 계정은 하나이고,
+	 * 계정을 채우는 것(출생 정보 · 닉네임 · 약관 · 동의 · 프로필 · 가입 감사 기록)은 계정을 실제로 만든 요청 하나뿐이다.
+	 * 동의 시각은 서버 시각이다(결정 026 · 027). 세션 토큰을 돌려준다.
+	 */
+	fun signup(
+		signupToken: String?,
+		birth: BirthRequest,
+		nickname: String?,
+		avatar: Int?,
+		termsVersion: String?,
+		privacyVersion: String?,
+		marketingConsent: Boolean,
+		pushConsent: Boolean,
+	): String {
+		val hash = signupToken?.takeIf { it.isNotBlank() }?.let(auth::hash) ?: throw SignupExpiredException()
+		if (!tickets.isValid(hash)) throw SignupExpiredException()
+		// 받는 약관 · 처리방침 판(지금 버전 · 함께 받는 옛 버전)에 동의하지 않았으면 가입권을 쓰지 않고 돌려보낸다(앱이 약관 단계로 돌아가 다시 보낸다, 결정 026 · 045).
+		val agreed = legal.agreed(termsVersion, privacyVersion) ?: throw BadRequestException("TERMS_REQUIRED")
+		// 닉네임 · 프로필이 틀려도 가입권을 쓰지 않고 돌려보낸다(고쳐서 다시 보낸다, 결정 025 · 028).
+		val name = normalizeNickname(nickname) ?: throw BadRequestException("INVALID_NICKNAME")
+		val picture = requireAvatar(avatar)
 		val parsed = birthParser.parse(birth)
 		if (!isAtLeast14(parsed.date, koreaToday())) {
 			// 계정을 만들지 않으므로 받아 둔 애플 토큰도 철회한다. 철회가 터져도 403 으로 답한다.
@@ -131,16 +166,29 @@ class LoginService(
 			tx.execute {
 				val ticket = tickets.consume(hash) ?: throw SignupExpiredException()
 				val (provider, subject) = ticket.identity.provider.name to ticket.identity.subject
-				// 남은 가입권으로 다시 와도 이미 있는 계정의 출생 정보는 바꾸지 않는다(세션만 준다).
-				val existing = accounts.find(provider, subject)
-				val accountId = existing ?: accounts.findOrCreate(provider, subject)
-				if (existing == null) birthProfiles.save(accountId, profile)
+				// 새 계정인지는 넣기의 결과로 판정한다. 남은 가입권으로 다시 오거나, 같은 사람의 다른 가입권이 동시에 와서 먼저 만들었으면
+				// 이미 있는 계정의 출생 정보 · 닉네임 · 약관 시각 · 동의 · 프로필을 바꾸지 않고 세션만 준다(결정 026 · 독립 리뷰).
+				val createdId = accounts.create(provider, subject)
+				val accountId = createdId ?: checkNotNull(accounts.find(provider, subject))
+				ticket.identity.email?.let { accounts.updateEmail(accountId, it) }
+				if (createdId != null) {
+					birthProfiles.save(accountId, profile)
+					val now = Instant.now()
+					accounts.setNicknameAndConsent(accountId, name, now.takeIf { marketingConsent })
+					accounts.setTermsPushAvatar(accountId, agreed.terms, agreed.privacy, now, now.takeIf { pushConsent }, picture)
+				}
 				ticket.appleToken?.let { appleTokens.save(accountId, it) }
-				Triple(accountId, auth.issueSession(accountId), existing == null)
+				Triple(accountId, auth.issueSession(accountId), createdId != null)
 			},
 		)
 		events.publishEvent(AuditEvent(AuditAction.USER_LOGIN, AuditActor.user(accountId)))
-		if (created) events.publishEvent(AuditEvent(AuditAction.PROFILE_SAVED, AuditActor.user(accountId), detail = mapOf("change" to "CREATED")))
+		if (created) {
+			events.publishEvent(AuditEvent(AuditAction.PROFILE_SAVED, AuditActor.user(accountId), detail = mapOf("change" to "CREATED")))
+			// 사람이 보낸(동의한) 판만 남긴다(결정 026 · 045). 이메일 · 닉네임은 넣지 않는다.
+			events.publishEvent(
+				AuditEvent(AuditAction.TERMS_AGREED, AuditActor.user(accountId), detail = mapOf("termsVersion" to agreed.terms, "privacyVersion" to agreed.privacy)),
+			)
+		}
 		return session
 	}
 }
@@ -153,10 +201,10 @@ class SignupTicketRepository(private val jdbc: JdbcTemplate) {
 		jdbc.update("delete from signup_tickets where expires_at < now()")
 		jdbc.update(
 			"""
-			insert into signup_tickets (token_hash, provider, provider_user_id, expires_at, apple_client_id, apple_refresh_token)
-			values (?, ?, ?, ?, ?, ?)
+			insert into signup_tickets (token_hash, provider, provider_user_id, expires_at, apple_client_id, apple_refresh_token, email)
+			values (?, ?, ?, ?, ?, ?, ?)
 			""".trimIndent(),
-			tokenHash, identity.provider.name, identity.subject, Timestamp.from(expiresAt), appleToken?.clientId, appleToken?.refreshToken,
+			tokenHash, identity.provider.name, identity.subject, Timestamp.from(expiresAt), appleToken?.clientId, appleToken?.refreshToken, identity.email,
 		)
 	}
 
@@ -167,13 +215,13 @@ class SignupTicketRepository(private val jdbc: JdbcTemplate) {
 	fun consume(tokenHash: String): SignupTicket? = jdbc.query(
 		"""
 		delete from signup_tickets where token_hash = ? and expires_at > now()
-		returning provider, provider_user_id, apple_client_id, apple_refresh_token
+		returning provider, provider_user_id, apple_client_id, apple_refresh_token, email
 		""".trimIndent(),
 		{ rs, _ ->
 			val clientId = rs.getString("apple_client_id")
 			val refresh = rs.getString("apple_refresh_token")
 			SignupTicket(
-				ProviderIdentity(Provider.valueOf(rs.getString("provider")), rs.getString("provider_user_id")),
+				ProviderIdentity(Provider.valueOf(rs.getString("provider")), rs.getString("provider_user_id"), email = rs.getString("email")),
 				if (clientId != null && refresh != null) AppleToken(clientId, refresh) else null,
 			)
 		},

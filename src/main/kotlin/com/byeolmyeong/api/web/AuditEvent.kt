@@ -9,13 +9,26 @@ import java.util.UUID
 enum class AuditAction {
 	// 관리자
 	ADMIN_LOGIN, ADMIN_LOGOUT, ADMIN_PASSWORD_CHANGED, ADMIN_PASSWORD_RESET, ADMIN_CREATED, ADMIN_DEACTIVATED, ADMIN_REACTIVATED, ADMIN_BOOTSTRAPPED,
+	// 다른 관리자에게 임시 비밀번호를 다시 만들어 줌(결정 043 의 5). 비밀번호는 없다
+	ADMIN_PASSWORD_REISSUED,
 	INQUIRY_VIEWED, INQUIRY_UPDATED,
+	// 문의에 답을 저장함(결정 039). detail 은 first=true|false 만
+	INQUIRY_ANSWERED,
 	FAQ_CREATED, FAQ_UPDATED, FAQ_PUBLISHED, FAQ_UNPUBLISHED, FAQ_DELETED, FAQ_REORDERED,
 	APP_CONFIG_UPDATED, MAINTENANCE_UPDATED,
+	// 관리자 v2(결정 043 의 8): 사용자 정지 · 정지 풀기 · 요청받은 탈퇴 대행(대상 USER) · 실패한 생성 다시 하기(대상 USER) · 광고 푸시 보내기(대상 PUSH_EVENT).
+	// 사유 글은 넣지 않는다(정지 · 해제 사유는 account_suspensions, 탈퇴 대행 사유는 저장하지 않는다)
+	USER_SUSPENDED, USER_UNSUSPENDED, USER_DELETED_BY_ADMIN, GENERATION_RETRIED, PUSH_EVENT_SENT,
 
 	// 사용자
 	USER_LOGIN, PROFILE_SAVED, READING_GENERATED, REPORT_REQUESTED, SYNASTRY_CREATED, SYNASTRY_REPORT_REQUESTED, SYNASTRY_DELETED,
 	DIRECTION_GENERATED, SHARE_CREATED, SHARE_DELETED, INQUIRY_SUBMITTED, ACCOUNT_DELETED,
+	// 마케팅 수신 동의를 켜거나 끔(결정 025). detail 은 consent=true|false 만
+	MARKETING_CONSENT_CHANGED,
+	// 가입으로 계정이 생기며 약관 · 처리방침에 동의함(결정 026). detail 은 termsVersion · privacyVersion 만
+	TERMS_AGREED,
+	// 푸시 수신 동의를 켜거나 끔(결정 027). detail 은 consent=true|false 만
+	PUSH_CONSENT_CHANGED,
 }
 
 enum class AuditActorType { ADMIN, USER, SYSTEM }

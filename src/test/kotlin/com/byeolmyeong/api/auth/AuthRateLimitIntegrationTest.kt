@@ -17,9 +17,10 @@ class AuthRateLimitIntegrationTest {
 	private var port: Int = 0
 
 	@Test
-	fun `로그인과 가입을 합쳐 주소별 분당 한도를 넘으면 429 다`() {
+	fun `로그인 · 가입 · 닉네임 확인을 합쳐 주소별 분당 한도를 넘으면 429 다`() {
 		assertEquals(400, http(port, "POST", "/auth/login", """{"provider":"NAVER"}""").statusCode())
 		assertEquals(401, http(port, "POST", "/auth/signup", """{"signupToken":"x","date":"1990-01-01"}""").statusCode())
+		assertEquals(429, http(port, "POST", "/auth/nickname-check", """{"signupToken":"x","nickname":"Star"}""").statusCode())
 
 		val limited = http(port, "POST", "/auth/login", """{"provider":"NAVER"}""")
 		assertEquals(429, limited.statusCode())

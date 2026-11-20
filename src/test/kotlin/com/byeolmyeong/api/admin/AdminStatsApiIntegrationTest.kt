@@ -39,8 +39,15 @@ class AdminStatsApiIntegrationTest {
 		return response.json()
 	}
 
-	/** `generatedAt` 을 뺀 나머지. */
-	private fun JsonNode.numbers(): JsonNode = (deepCopy() as ObjectNode).also { it.remove("generatedAt") }
+	/** 센 때(`generatedAt`)와 지금에 따라 바뀌는 시각(`inquiryQueue.oldestWaitingAt`)을 뺀 나머지. 그 둘은 따로 본다. */
+	private fun JsonNode.numbers(): JsonNode = (deepCopy() as ObjectNode).also {
+		it.remove("generatedAt")
+		(it["inquiryQueue"] as ObjectNode).remove("oldestWaitingAt")
+	}
+
+	/** 잎의 경로(`a.b`)와 값. */
+	private fun leaves(node: JsonNode, path: String = ""): List<Pair<String, JsonNode>> =
+		if (node.isObject) node.propertyNames().flatMap { leaves(node[it], if (path.isEmpty()) it else "$path.$it") } else listOf(path to node)
 
 	@Test
 	fun `아무것도 없으면 모든 수가 0 이고 상태 키는 그대로 있다`() {
@@ -56,12 +63,21 @@ class AdminStatsApiIntegrationTest {
 					"synastries": {"total": 0},
 					"synastryReports": {"total": 0, "byStatus": {"DONE": 0, "WRITING": 0, "FAILED": 0}},
 					"directions": {"total": 0, "byTopic": {}},
-					"inquiries": {"total": 0, "byStatus": {"NEW": 0, "IN_PROGRESS": 0, "DONE": 0}}
+					"inquiries": {"total": 0, "byStatus": {"NEW": 0, "IN_PROGRESS": 0, "ANSWERED": 0, "DONE": 0}},
+					"users": {"total": 0, "joinedToday": 0, "joined7d": 0},
+					"nicknames": {"total": 0},
+					"detailReports": {"me": 0, "timing": 0, "generating": 0},
+					"failuresToday": {"nickname": null, "report": 0},
+					"inquiryQueue": {"waiting": 0},
+					"consents": {"pushRate": 0.0, "marketingRate": 0.0, "adReachable": 0},
+					"todaySky": null,
+					"pushToday": null
 				}
 				""",
 			),
 			json.numbers(),
 		)
+		assertTrue(json["inquiryQueue"]["oldestWaitingAt"].isNull, "기다리는 문의가 없다")
 		val generatedAt = Instant.parse(json["generatedAt"].asString())
 		assertTrue(Duration.between(generatedAt, Instant.now()).abs() < Duration.ofMinutes(1))
 	}
@@ -102,7 +118,7 @@ class AdminStatsApiIntegrationTest {
 		for ((owner, topic) in listOf(today to "LOVE", threeDays to "LOVE", today to "FUTURE")) {
 			jdbc.update("insert into directions (id, owner_id, topic, target, body) values (?, ?, ?, 'h1', ?::jsonb)", UUID.randomUUID(), owner, topic, text)
 		}
-		for ((index, status) in listOf("NEW", "NEW", "NEW", "IN_PROGRESS", "DONE", "DONE").withIndex()) {
+		for ((index, status) in listOf("NEW", "NEW", "NEW", "IN_PROGRESS", "DONE", "DONE", "ANSWERED").withIndex()) {
 			jdbc.update(
 				"insert into inquiries (id, owner_id, category, body, reply_email, status) values (?, ?, 'BUG', '비밀스러운문의글 입니다 확인', 'hidden@secret-domain.example', ?)",
 				UUID.randomUUID(), if (index % 2 == 0) today else fortyDays, status,
@@ -122,16 +138,29 @@ class AdminStatsApiIntegrationTest {
 					"synastries": {"total": 5},
 					"synastryReports": {"total": 4, "byStatus": {"DONE": 1, "WRITING": 2, "FAILED": 1}},
 					"directions": {"total": 3, "byTopic": {"LOVE": 2, "FUTURE": 1}},
-					"inquiries": {"total": 6, "byStatus": {"NEW": 3, "IN_PROGRESS": 1, "DONE": 2}}
+					"inquiries": {"total": 7, "byStatus": {"NEW": 3, "IN_PROGRESS": 1, "ANSWERED": 1, "DONE": 2}},
+					"users": {"total": 4, "joinedToday": 1, "joined7d": 2},
+					"nicknames": {"total": 0},
+					"detailReports": {"me": 0, "timing": 0, "generating": 0},
+					"failuresToday": {"nickname": null, "report": 0},
+					"inquiryQueue": {"waiting": 5},
+					"consents": {"pushRate": 0.0, "marketingRate": 0.0, "adReachable": 0},
+					"todaySky": null,
+					"pushToday": null
 				}
 				""",
 			),
 			response.json().numbers(),
 		)
+		// 답이 없고 끝나지 않은 문의 다섯 중 가장 오래된 것의 만든 때(UTC 초까지).
+		assertTrue(response.json()["inquiryQueue"]["oldestWaitingAt"].asString().matches(Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z""")))
 
-		// 개수 말고는 아무것도 없다: 잎은 모두 정수이고, 넣어 둔 글·이름·이메일·출생 정보·id 가 없다.
-		fun leaves(node: JsonNode): List<JsonNode> = if (node.isObject) node.toList().flatMap(::leaves) else listOf(node)
-		assertTrue(leaves(response.json().numbers()).all { it.isIntegralNumber }, "수치의 잎은 모두 정수다")
+		// 개수 말고는 아무것도 없다: 비율 둘은 실수, 아직 세지 못하는 칸은 null, 나머지 잎은 모두 정수이고, 넣어 둔 글·이름·이메일·출생 정보·id 가 없다.
+		for ((path, leaf) in leaves(response.json().numbers())) when (path) {
+			"consents.pushRate", "consents.marketingRate" -> assertTrue(leaf.isFloatingPointNumber, path)
+			"failuresToday.nickname", "todaySky", "pushToday" -> assertTrue(leaf.isNull, path)
+			else -> assertTrue(leaf.isIntegralNumber, "$path 는 정수다")
+		}
 		assertFalse(response.body().contains("["), "행 목록이 없다")
 		for (hidden in listOf("비밀", "hidden", "secret-domain", "1991", "1988", "1975", "02-03", "04:05", "1841277", today.toString(), "share-", "h1")) {
 			assertFalse(response.json().numbers().toString().contains(hidden), "응답에 '$hidden' 이 있다")

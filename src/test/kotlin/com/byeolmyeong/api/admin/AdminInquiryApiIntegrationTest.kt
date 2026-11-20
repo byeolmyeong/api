@@ -19,7 +19,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
-private val INQUIRY_KEYS = setOf("id", "category", "body", "replyEmail", "createdAt", "status", "memo", "handledBy", "handledAt", "ownerRef")
+private val INQUIRY_KEYS = setOf(
+	"id", "category", "body", "replyEmail", "createdAt", "status", "memo", "handledBy", "handledAt", "ownerRef",
+	"owner", "answer", "answeredAt", "answeredBy", "answerDraft",
+)
 
 @AdminIntegrationTest
 class AdminInquiryApiIntegrationTest {
@@ -39,11 +42,14 @@ class AdminInquiryApiIntegrationTest {
 	}
 
 	/** 문의 한 건을 DB 에 직접 넣는다. [minutesAgo] 가 클수록 오래된 문의다. */
-	private fun seed(owner: UUID, minutesAgo: Int, category: String = "BUG", status: String = "NEW", body: String = "문의 글 $minutesAgo 분 전에 보냄", email: String? = null): UUID {
+	private fun seed(
+		owner: UUID, minutesAgo: Int, category: String = "BUG", status: String = "NEW", body: String = "문의 글 $minutesAgo 분 전에 보냄", email: String? = null,
+		platform: String? = null, appVersion: String? = null,
+	): UUID {
 		val id = UUID.randomUUID()
 		jdbc.update(
-			"insert into inquiries (id, owner_id, category, body, reply_email, status, created_at) values (?, ?, ?, ?, ?, ?, now() - make_interval(mins => ?))",
-			id, owner, category, body, email, status, minutesAgo,
+			"insert into inquiries (id, owner_id, category, body, reply_email, status, created_at, app_platform, app_version) values (?, ?, ?, ?, ?, ?, now() - make_interval(mins => ?), ?, ?)",
+			id, owner, category, body, email, status, minutesAgo, platform, appVersion,
 		)
 		return id
 	}
@@ -57,8 +63,9 @@ class AdminInquiryApiIntegrationTest {
 	@Test
 	fun `문의 목록은 새것부터이고 모양이 정해져 있다`() {
 		val (owner, _) = userAccount(jdbc, "user-a")
+		jdbc.update("update accounts set nickname = '별지기', email = 'hidden-owner@secret-domain.example', created_at = '2026-11-01T03:02:01Z' where id = ?", owner)
 		jdbc.update("insert into profiles (account_id, birth_date, birth_time, place_id) values (?, '1991-02-03', '04:05', 1841277)", owner)
-		val old = seed(owner, 30, "ACCOUNT", email = "reply@example.com")
+		val old = seed(owner, 30, "ACCOUNT", email = "reply@example.com", platform = "ios", appVersion = "1.2.3")
 		val newest = seed(owner, 1, "BUG")
 		val middle = seed(owner, 10, "OTHER")
 
@@ -77,10 +84,20 @@ class AdminInquiryApiIntegrationTest {
 		assertEquals("NEW", item["status"].asString())
 		assertTrue(item["createdAt"].asString().matches(Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z""")))
 		assertTrue(Instant.parse(item["createdAt"].asString()).isBefore(Instant.now().minusSeconds(29 * 60)))
-		for (key in listOf("memo", "handledBy", "handledAt")) assertTrue(item[key].isNull, "$key 는 키가 있고 null 이다")
+		for (key in listOf("memo", "handledBy", "handledAt", "answer", "answeredAt", "answeredBy", "answerDraft")) assertTrue(item[key].isNull, "$key 는 키가 있고 null 이다")
 		assertTrue(json["items"][0]["replyEmail"].isNull)
 
-		for (hidden in listOf(owner.toString(), "1991", "02-03", "04:05", "1841277", "owner_id", "ownerId")) {
+		// 작성자(결정 039 의 7): 계정 id · 닉네임 · 로그인 수단 · 보낼 때의 앱 · 가입일. 이메일 · 출생 정보는 없다.
+		val author = item["owner"]
+		assertEquals(setOf("userId", "nickname", "provider", "platform", "appVersion", "joinedAt"), author.propertyNames().toSet())
+		assertEquals(
+			listOf(owner.toString(), "별지기", "TEST", "ios", "1.2.3", "2026-11-01T03:02:01Z"),
+			listOf("userId", "nickname", "provider", "platform", "appVersion", "joinedAt").map { author[it].asString() },
+		)
+		val webAuthor = json["items"][0]["owner"]
+		assertTrue(webAuthor["platform"].isNull && webAuthor["appVersion"].isNull, "앱 헤더 없이 온 문의는 null")
+
+		for (hidden in listOf("hidden-owner", "secret-domain", "1991", "02-03", "04:05", "1841277", "owner_id", "ownerId")) {
 			assertFalse(response.body().contains(hidden), "응답에 '$hidden' 이 있다")
 		}
 	}
@@ -105,6 +122,8 @@ class AdminInquiryApiIntegrationTest {
 		val doneBug = seed(owner, 2, "BUG", "DONE")
 		val progressAccount = seed(owner, 3, "ACCOUNT", "IN_PROGRESS")
 		val newAccount = seed(owner, 4, "ACCOUNT", "NEW")
+		val answeredIdea = seed(owner, 5, "IDEA", "ANSWERED")
+		val oldOther = seed(owner, 6, "OTHER", "NEW")
 
 		fun assertList(query: String, vararg expected: UUID) {
 			val response = list(query)
@@ -112,14 +131,18 @@ class AdminInquiryApiIntegrationTest {
 			assertEquals(expected.map { it.toString() }, ids(response), query)
 			assertEquals(expected.size, response.json()["total"].asInt(), query)
 		}
-		assertList("?status=NEW", newBug, newAccount)
+		assertList("?status=NEW", newBug, newAccount, oldOther)
 		assertList("?status=IN_PROGRESS", progressAccount)
 		assertList("?status=DONE", doneBug)
+		assertList("?status=ANSWERED", answeredIdea)
 		assertList("?category=BUG", newBug, doneBug)
 		assertList("?category=ACCOUNT&status=NEW", newAccount)
+		assertList("?category=IDEA", answeredIdea)
+		assertList("?category=ETC")
+		assertList("?category=OTHER", oldOther)
 		assertList("?category=READING")
 		assertList("?category=NO_SUCH_CATEGORY")
-		assertList("?status=&category=", newBug, doneBug, progressAccount, newAccount)
+		assertList("?status=&category=", newBug, doneBug, progressAccount, newAccount, answeredIdea, oldOther)
 
 		for (query in listOf("?status=new", "?status=CLOSED", "?status=NEW,DONE", "?status=NEW&status=DONE", "?status=%27%3B%20drop%20table%20inquiries%3B--")) {
 			val response = list(query)
@@ -127,6 +150,40 @@ class AdminInquiryApiIntegrationTest {
 			assertEquals("""{"error":"INVALID_STATUS"}""", response.body())
 		}
 		assertEquals(200, list("?category=%27%3B%20drop%20table%20inquiries%3B--").statusCode())
+		assertEquals(6, jdbc.queryForObject("select count(*) from inquiries", Int::class.java))
+	}
+
+	@Test
+	fun `찾기 q 는 글이나 작성자 닉네임의 일부로 대소문자 없이 다른 조건과 함께 거른다`() {
+		val (star, _) = userAccount(jdbc, "user-star")
+		val (moon, _) = userAccount(jdbc, "user-moon")
+		val (nameless, _) = userAccount(jdbc, "user-nameless")
+		jdbc.update("update accounts set nickname = 'StarKeeper' where id = ?", star)
+		jdbc.update("update accounts set nickname = '달토끼' where id = ?", moon)
+		val starBug = seed(star, 1, "BUG", body = "로그인이 안 돼요 확인해 주세요")
+		val moonLogin = seed(moon, 2, "ACCOUNT", "DONE", body = "LOGIN 화면에서 멈춰요 도와주세요")
+		val moonOther = seed(moon, 3, "IDEA", body = "별자리 그림이 예뻐요 더 주세요")
+		val namelessPercent = seed(nameless, 4, "ETC", body = "100% 완료 뒤에 멈춰요_확인 부탁")
+
+		fun assertList(query: String, vararg expected: UUID) {
+			val response = list(query)
+			assertEquals(200, response.statusCode(), query)
+			assertEquals(expected.map { it.toString() }, ids(response), query)
+			assertEquals(expected.size, response.json()["total"].asInt(), query)
+		}
+		assertList("?q=login", moonLogin)
+		assertList("?q=%EB%A1%9C%EA%B7%B8%EC%9D%B8", starBug) // 로그인
+		assertList("?q=starkeep", starBug)
+		assertList("?q=%ED%86%A0%EB%81%BC", moonLogin, moonOther) // 토끼
+		assertList("?q=%ED%86%A0%EB%81%BC&category=IDEA", moonOther)
+		assertList("?q=%ED%86%A0%EB%81%BC&status=DONE", moonLogin)
+		assertList("?q=%25", namelessPercent) // % 는 글자 그대로 찾는다
+		assertList("?q=_", namelessPercent)
+		assertList("?q=%20%20", starBug, moonLogin, moonOther, namelessPercent) // 공백뿐이면 없는 것
+		assertList("?q=", starBug, moonLogin, moonOther, namelessPercent)
+		assertList("?q=%27%3B%20drop%20table%20inquiries%3B--")
+		assertList("?q=%00")
+		assertList("?q=nothing-matches")
 		assertEquals(4, jdbc.queryForObject("select count(*) from inquiries", Int::class.java))
 	}
 
@@ -200,12 +257,12 @@ class AdminInquiryApiIntegrationTest {
 		assertEquals(json, http(port, "GET", "/admin/inquiries/$id", token = token).json())
 
 		// 다른 관리자가 상태만 바꾼다: 메모는 그대로, 처리한 관리자는 그 사람이 된다.
-		createAdmin(port, token, "ops-kim", "ops-kim-password", "운영 김")
+		createAdmin(port, token, "ops-kim", "ops-kim-password", jdbc)
 		val theirs = adminToken(port, "ops-kim", "ops-kim-password")
 		val second = patch(id, """{"status":"DONE"}""", theirs).json()
 		assertEquals("DONE", second["status"].asString())
 		assertEquals("메일로 답함.\n환불 안내", second["memo"].asString())
-		assertEquals("운영 김", second["handledBy"]["name"].asString())
+		assertEquals("ops-kim", second["handledBy"]["name"].asString())
 
 		// 메모만 바꾼다: 상태는 그대로. 어느 쪽으로든 되돌릴 수 있다.
 		val third = patch(id, """{"memo":"다시 확인 필요"}""").json()

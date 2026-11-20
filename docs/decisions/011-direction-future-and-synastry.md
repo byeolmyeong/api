@@ -3,7 +3,7 @@ type: decision
 tags: [방향성 제시, direction, 미래, 궁합, 시기, 저장, 출생 정보 저장 안 함, 숫자 금지]
 status: active
 last_reviewed: 2026-11-12
-superseded_by:
+superseded_by: 033-timing-report-v2.md (미래 주제 FUTURE — 시기 풀이의 대표 구간 실천이 맡음) · 037-advice-ends-with-gi.md ("보기" 끝맺음 검사만). 궁합 주제는 유효
 ---
 # 011. 방향성 제시의 미래·궁합 주제: 미래는 "지금의 시기" 가 같은 동안 한 편, 궁합은 상대의 출생 정보를 다시 받아 궁합마다 한 편
 

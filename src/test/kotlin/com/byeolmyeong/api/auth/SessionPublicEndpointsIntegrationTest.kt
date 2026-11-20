@@ -64,7 +64,7 @@ class SessionPublicEndpointsIntegrationTest {
 		assertEquals(200, http(port, "GET", "/app-config").statusCode())
 		assertEquals(404, http(port, "GET", "/shared/no-such-share").statusCode())
 		assertEquals(200, http(port, "POST", "/auth/dev").statusCode())
-		for (path in listOf("/auth/login", "/auth/signup", "/auth/apple/notifications")) {
+		for (path in listOf("/auth/login", "/auth/signup", "/auth/nickname-check", "/auth/apple/notifications")) {
 			assertNotEquals(UNAUTHORIZED, http(port, "POST", path, "{}").body(), path)
 		}
 	}

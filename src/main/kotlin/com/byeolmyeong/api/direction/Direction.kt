@@ -3,6 +3,7 @@ package com.byeolmyeong.api.direction
 import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.generation.GenerationRequest
 import com.byeolmyeong.api.generation.WRITING_RULES
+import com.byeolmyeong.api.generation.adviceProblem
 import com.byeolmyeong.api.generation.basisSchema
 import com.byeolmyeong.api.generation.basisVocabulary
 import com.byeolmyeong.api.generation.chartFacts
@@ -20,7 +21,7 @@ const val TOPIC_SYNASTRY = "SYNASTRY"
 
 const val ITEM_COUNT = 3
 
-/** 해 볼 만한 것 하나. [title] 은 "~보기"로 끝나는 실천 한 줄, [basis] 는 바탕이 된 차트 요소의 말. */
+/** 해 볼 만한 것 하나. [title] 은 "~기"로 끝나는 실천 한 줄(지시문은 "보기" 로 쓰게 한다, 결정 037), [basis] 는 바탕이 된 차트 요소의 말. */
 data class DirectionItem(val title: String, val body: String, val basis: List<String>)
 
 /** 생성기가 돌려준 글. 검증([draftProblem])을 통과해야 저장한다. 저장하는 본문도 이 모양이다. */
@@ -90,33 +91,9 @@ fun draftProblem(draft: DirectionDraft, vocabulary: List<String>, numbers: Boole
 	return adviceProblem(draft)
 }
 
-private const val ADVICE_TITLE_ENDING = "보기"
-private val ASSERTION_WORDS = listOf("반드시", "틀림없이", "운명")
-
-// "~게 됩니다"·"~게 돼요": 일이 그렇게 된다고 말하는 끝맺음.
-private val BECOMES = Regex("게\\s*(됩니다|돼요)")
-
-// "~ㄹ 거예요" 꼴: 이 말들 바로 앞 글자가 ㄹ 받침이면 앞일(또는 짐작)을 말하는 끝맺음이다. "그런 거예요" 는 아니다.
-private val WILL_ENDING = Regex("(\\S)\\s*(거예요|거에요|겁니다|것입니다|것이에요)")
-private const val HANGUL_FIRST = 0xAC00
-private const val HANGUL_LAST = 0xD7A3
-private const val FINAL_COUNT = 28
-private const val FINAL_RIEUL = 8
-
-private fun endsWithRieul(c: Char): Boolean = c.code in HANGUL_FIRST..HANGUL_LAST && (c.code - HANGUL_FIRST) % FINAL_COUNT == FINAL_RIEUL
-
 /**
- * 조언형인지 글자로 본다(결정 009). 문제가 없으면 null, 있으면 `NOT_ADVICE_FORM`.
- * 항목 제목은 "보기"로 끝나야 하고, 어느 글에도 앞일을 단정하는 꼴("반드시"·"틀림없이"·"운명", "~ㄹ 거예요"·"~ㄹ 겁니다"·
- * "~ㄹ 것입니다", "~게 됩니다"·"~게 돼요")이 없어야 한다. 흔한 꼴만 막는다 — 돌려 말한 단정은 지시문이 맡는다.
+ * 조언형인지 글자로 본다(결정 009 · 037). 검사의 단일 출처는 `generation.adviceProblem` 이고, 여기서는 방향성 제시의 어느 글을 보는지만 정한다:
+ * 항목 제목이 실천 한 줄이고, 맨 위 제목 · 항목 제목 · 항목 본문 모두에 단정 표현 검사를 건다.
  */
-fun adviceProblem(draft: DirectionDraft): String? {
-	val texts = listOf(draft.title) + draft.items.flatMap { listOf(it.title, it.body) }
-	val asserts = texts.any { text ->
-		ASSERTION_WORDS.any { it in text } ||
-			BECOMES.containsMatchIn(text) ||
-			WILL_ENDING.findAll(text).any { endsWithRieul(it.groupValues[1].single()) }
-	}
-	val adviceTitles = draft.items.all { it.title.trimEnd().endsWith(ADVICE_TITLE_ENDING) }
-	return if (asserts || !adviceTitles) "NOT_ADVICE_FORM" else null
-}
+fun adviceProblem(draft: DirectionDraft): String? =
+	adviceProblem(draft.items.map { it.title }, listOf(draft.title) + draft.items.flatMap { listOf(it.title, it.body) })

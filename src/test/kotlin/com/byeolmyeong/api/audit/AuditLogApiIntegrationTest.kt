@@ -163,6 +163,49 @@ class AuditLogApiIntegrationTest {
 	}
 
 	@Test
+	fun `q 는 관리자 아이디 일부나 사용자 닉네임 일부로 찾는다`() {
+		fun nicknamed(name: String, nickname: String): UUID =
+			userAccount(jdbc, name).first.also { jdbc.update("update accounts set nickname = ? where id = ?", nickname, it) }
+		val luna = nicknamed("q-luna", "별빛Luna")
+		val moon = nicknamed("q-moon", "달님")
+		val gone = nicknamed("q-gone", "지울이")
+		fun userRow(at: String, account: UUID) = seed(at, "READING_GENERATED", actorType = "USER", actorId = account.toString(), label = ownerRef(account))
+		val root = seed("2026-11-10T01:00:00Z", "ADMIN_LOGIN", label = "root-admin")
+		val second = seed("2026-11-10T02:00:00Z", "FAQ_CREATED", label = "second-admin")
+		val lunaRow = userRow("2026-11-10T03:00:00Z", luna)
+		val moonRow = userRow("2026-11-10T04:00:00Z", moon)
+		val goneRow = userRow("2026-11-10T05:00:00Z", gone)
+		seed("2026-11-10T06:00:00Z", "ADMIN_LOGIN", actorType = "SYSTEM", actorId = null, label = null, outcome = "FAILURE")
+
+		assertEquals(listOf(second, root), ids(list("?q=admin")), "관리자 아이디 일부")
+		assertEquals(listOf(second), ids(list("?q=SECOND")), "대소문자를 가리지 않는다")
+		assertEquals(listOf(lunaRow), ids(list("?q=luna")), "닉네임 일부 · 대소문자를 가리지 않는다")
+		assertEquals(listOf(lunaRow), ids(list("?q=%EB%B3%84%EB%B9%9B")), "한글 닉네임 일부(별빛)")
+		assertEquals(listOf(moonRow), ids(list("?q=%EB%8B%98")), "님")
+		assertEquals(listOf(second), ids(list("?q=admin&action=FAQ_CREATED")), "다른 조건과 함께 모두 맞는 것만")
+		assertEquals(emptyList(), ids(list("?q=${ownerRef(luna)}")), "사용자의 ownerRef 로는 찾지 않는다(그건 actorRef)")
+		assertEquals(emptyList(), ids(list("?q=$luna")), "계정 id 로는 찾을 수 없다")
+		for (wildcard in listOf("%25", "_", "%5C")) assertEquals(emptyList(), ids(list("?q=$wildcard")), "$wildcard 는 글자 그대로다")
+		assertEquals(6, ids(list("?q=")).size, "빈 값은 없는 것으로 본다")
+		assertEquals(6, ids(list("?q=%20%20")).size, "공백뿐인 값도 없는 것으로 본다")
+		assertEquals(listOf(second), ids(list("?q=%20second%20")), "앞뒤 공백을 뗀다")
+
+		assertEquals(listOf(goneRow), ids(list("?q=%EC%A7%80%EC%9A%B8")), "지울이")
+		jdbc.update("delete from accounts where id = ?", gone)
+		assertEquals(emptyList(), ids(list("?q=%EC%A7%80%EC%9A%B8")), "지워진 계정은 닉네임으로 찾을 수 없다")
+		assertEquals(listOf(goneRow), ids(list("?actorRef=${ownerRef(gone)}")), "행은 남아 ownerRef 로는 찾는다")
+	}
+
+	@Test
+	fun `관리자 v2 행동 코드로도 거른다`() {
+		val suspended = seed("2026-11-10T01:00:00Z", "USER_SUSPENDED", targetType = "USER", targetId = UUID.randomUUID().toString())
+		for (action in listOf("USER_UNSUSPENDED", "USER_DELETED_BY_ADMIN", "GENERATION_RETRIED", "PUSH_EVENT_SENT", "ADMIN_PASSWORD_REISSUED")) {
+			assertEquals(emptyList(), ids(list("?action=$action")), action)
+		}
+		assertEquals(listOf(suspended), ids(list("?action=USER_SUSPENDED")))
+	}
+
+	@Test
 	fun `날짜는 한국 시간의 하루이고 두 끝을 포함한다`() {
 		// 한국 시간 11월 10일은 UTC 11월 9일 15:00 부터 11월 10일 15:00 전까지다.
 		val before = seed("2026-11-09T14:59:59Z", "FAQ_UPDATED")

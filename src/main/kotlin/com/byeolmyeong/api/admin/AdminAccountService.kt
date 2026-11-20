@@ -15,21 +15,26 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 private val LOGIN_ID = Regex("[a-z0-9][a-z0-9._-]{2,31}")
-private const val NAME_MAX = 40
 
-/** 관리자 한 명(목록·만들기·켜고 끄기의 응답). 비밀번호 해시는 없다. */
-data class AdminAccount(val id: UUID, val loginId: String, val name: String, val active: Boolean, val createdAt: String)
+/** 관리자 한 명(목록·켜고 끄기의 응답). 비밀번호 해시는 없다. [lastLoginAt] 은 마지막으로 로그인에 성공한 때(없으면 null). */
+data class AdminAccount(val id: UUID, val loginId: String, val name: String, val active: Boolean, val createdAt: String, val lastLoginAt: String?)
+
+/** 관리자 추가의 응답(결정 043 의 5). [temporaryPassword] 는 이 응답에서 한 번만 나간다. */
+data class CreatedAdmin(val admin: AdminAccount, val temporaryPassword: String)
+
+/** 임시 비밀번호 재발급의 응답. [temporaryPassword] 는 이 응답에서 한 번만 나간다. */
+data class ReissuedPassword(val temporaryPassword: String)
 
 /** DB 의 관리자 행. 해시가 들어 있으므로 이 패키지의 서비스 밖으로 내보내지 않는다. */
-class AdminAccountRow(val id: UUID, val loginId: String, val name: String, val active: Boolean, val createdAt: OffsetDateTime, val passwordHash: String) {
-	fun toAccount() = AdminAccount(id, loginId, name, active, createdAt.utcSeconds())
+class AdminAccountRow(
+	val id: UUID, val loginId: String, val name: String, val active: Boolean, val createdAt: OffsetDateTime, val passwordHash: String,
+	val mustChangePassword: Boolean, val lastLoginAt: OffsetDateTime?,
+) {
+	fun toAccount() = AdminAccount(id, loginId, name, active, createdAt.utcSeconds(), lastLoginAt?.utcSeconds())
 }
 
 /** 아이디 규칙: 소문자·숫자·`.`·`_`·`-` 3~32자, 첫 글자는 소문자나 숫자. [normalizeLoginId] 를 거친 값에 쓴다. */
 internal fun validLoginId(loginId: String): Boolean = LOGIN_ID.matches(loginId)
-
-/** 표시 이름 규칙: 앞뒤 공백을 뗀 1~40자(코드 포인트). */
-internal fun validName(name: String): Boolean = name.codePointLength() in 1..NAME_MAX && NUL !in name
 
 /**
  * 관리자 계정: 첫 관리자 만들기, 목록, 만들기, 켜고 끄기(결정 014). 역할 구분은 없다.
@@ -69,12 +74,32 @@ class AdminAccountService(
 
 	fun list(): List<AdminAccount> = accounts.findAll().map { it.toAccount() }
 
-	/** [loginId]·[name]·[password] 는 검증을 거친 값이다. 이미 있는 아이디면 409 `LOGIN_ID_TAKEN`. */
-	fun create(loginId: String, name: String, password: String): AdminAccount {
-		val id = accounts.insert(loginId, name, passwords.hash(password)) ?: throw AdminRejectedException(409, "LOGIN_ID_TAKEN")
+	/**
+	 * 관리자를 더한다(결정 043 의 5). [loginId] 는 검증을 거친 값이고 이름도 이 값이다. 비밀번호는 서버가 만든 임시 비밀번호이고,
+	 * 그 관리자가 처음 로그인하면 바꿔야 한다. 이미 있는 아이디면 409 `LOGIN_ID_TAKEN`.
+	 */
+	fun create(loginId: String): CreatedAdmin {
+		val temporary = passwords.temporary()
+		val id = accounts.insert(loginId, loginId, passwords.hash(temporary), mustChangePassword = true) ?: throw AdminRejectedException(409, "LOGIN_ID_TAKEN")
 		log.info("event=admin_created")
 		audit.record(AuditAction.ADMIN_CREATED, "ADMIN", id)
-		return accounts.findById(id)!!.toAccount()
+		return CreatedAdmin(accounts.findById(id)!!.toAccount(), temporary)
+	}
+
+	/**
+	 * 다른 관리자에게 새 임시 비밀번호를 만들어 주고 그 관리자의 세션을 모두 끝낸다(결정 043 의 5). 다음 로그인 때 바꿔야 한다.
+	 * 자기 자신은 409 `SELF_NOT_ALLOWED`(자기 것은 `PUT /admin/me/password`). 꺼진 관리자에게도 되고 켜지지는 않는다.
+	 */
+	@Transactional
+	fun reissue(actorId: UUID, targetId: UUID): ReissuedPassword {
+		if (targetId == actorId) throw AdminRejectedException(409, "SELF_NOT_ALLOWED")
+		accounts.findById(targetId) ?: throw NotFoundException("NOT_FOUND")
+		val temporary = passwords.temporary()
+		accounts.updatePassword(targetId, passwords.hash(temporary), mustChangePassword = true)
+		sessions.deleteAllOf(targetId)
+		log.info("event=admin_password_reissued")
+		audit.record(AuditAction.ADMIN_PASSWORD_REISSUED, "ADMIN", targetId)
+		return ReissuedPassword(temporary)
 	}
 
 	/**
@@ -107,7 +132,7 @@ class AdminAccountService(
 	fun resetPassword(actorId: UUID, targetId: UUID, password: String) {
 		if (targetId == actorId) throw AdminRejectedException(409, "USE_OWN_PASSWORD_CHANGE")
 		accounts.findById(targetId) ?: throw NotFoundException("NOT_FOUND")
-		accounts.updatePassword(targetId, passwords.hash(password))
+		accounts.updatePassword(targetId, passwords.hash(password), mustChangePassword = false)
 		sessions.deleteAllOf(targetId)
 		log.info("event=admin_password_reset")
 		audit.record(AuditAction.ADMIN_PASSWORD_RESET, "ADMIN", targetId)
@@ -121,6 +146,7 @@ class AdminAccountRepository(private val jdbc: JdbcTemplate) {
 		AdminAccountRow(
 			rs.getObject("id", UUID::class.java), rs.getString("login_id"), rs.getString("name"), rs.getBoolean("active"),
 			rs.getObject("created_at", OffsetDateTime::class.java), rs.getString("password_hash"),
+			rs.getBoolean("must_change_password"), rs.getObject("last_login_at", OffsetDateTime::class.java),
 		)
 	}
 
@@ -135,11 +161,11 @@ class AdminAccountRepository(private val jdbc: JdbcTemplate) {
 	fun findByLoginId(loginId: String): AdminAccountRow? = jdbc.query("select * from admin_accounts where login_id = ?", row, loginId).firstOrNull()
 
 	/** 이미 있는 아이디면 넣지 않고 null. */
-	fun insert(loginId: String, name: String, passwordHash: String): UUID? {
+	fun insert(loginId: String, name: String, passwordHash: String, mustChangePassword: Boolean): UUID? {
 		val id = UUID.randomUUID()
 		val inserted = jdbc.update(
-			"insert into admin_accounts (id, login_id, name, password_hash) values (?, ?, ?, ?) on conflict (login_id) do nothing",
-			id, loginId, name, passwordHash,
+			"insert into admin_accounts (id, login_id, name, password_hash, must_change_password) values (?, ?, ?, ?, ?) on conflict (login_id) do nothing",
+			id, loginId, name, passwordHash, mustChangePassword,
 		)
 		return id.takeIf { inserted == 1 }
 	}
@@ -162,7 +188,12 @@ class AdminAccountRepository(private val jdbc: JdbcTemplate) {
 		jdbc.update("update admin_accounts set active = ? where id = ?", active, id)
 	}
 
-	fun updatePassword(id: UUID, passwordHash: String) {
-		jdbc.update("update admin_accounts set password_hash = ? where id = ?", passwordHash, id)
+	/** [mustChangePassword] 는 임시 비밀번호(서버가 만든 것)일 때만 참이다. */
+	fun updatePassword(id: UUID, passwordHash: String, mustChangePassword: Boolean) {
+		jdbc.update("update admin_accounts set password_hash = ?, must_change_password = ? where id = ?", passwordHash, mustChangePassword, id)
+	}
+
+	fun recordLogin(id: UUID) {
+		jdbc.update("update admin_accounts set last_login_at = now() where id = ?", id)
 	}
 }
