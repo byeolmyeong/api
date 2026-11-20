@@ -128,8 +128,15 @@ class AdminPushApiIntegrationTest {
 		assertEquals(setOf("id", "sentAt", "title", "recipients", "succeeded", "failed", "sentBy"), row.propertyNames().toSet())
 		assertEquals("새 기능: 이번 달 눈여겨볼 날", row["title"].asString(), "내역에는 관리자가 쓴 제목 그대로")
 		assertEquals("2026-11-20T05:00:00Z", row["sentAt"].asString())
-		assertTrue(row["succeeded"].isNull && row["failed"].isNull, "보내는 중")
 		assertEquals(ROOT_ID, row["sentBy"].asString())
+		// push(S⑩)가 커밋 뒤 대상(지금 0명)에게 보내고 PushEventSent 로 알리면 성공 · 실패 수가 채워진다(그 전에는 null — 보내는 중).
+		val until = System.currentTimeMillis() + 5_000
+		var done = row
+		while (done["succeeded"].isNull && System.currentTimeMillis() < until) {
+			Thread.sleep(50)
+			done = get("/admin/push/events").json()["items"][0]
+		}
+		assertEquals(listOf(0, 0), listOf(done["succeeded"].asInt(), done["failed"].asInt()), "대상이 없으면 0 · 0 으로 끝난다")
 
 		val audit = jdbc.queryForMap("select actor_type, target_type, target_id from audit_logs where action = 'PUSH_EVENT_SENT'")
 		assertEquals("ADMIN", audit["actor_type"])
