@@ -1,7 +1,9 @@
 package com.byeolmyeong.api.push
 
 import com.byeolmyeong.api.admin.InquiryAnswered
+import com.byeolmyeong.api.reading.ReadingCreated
 import com.byeolmyeong.api.report.MeReportDone
+import com.byeolmyeong.api.report.TimingReportDone
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Bean
@@ -94,9 +96,15 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 @Repository
 class PushRepository(private val jdbc: JdbcTemplate) {
 
-	/** 그 계정의 기기 토큰. 오래 등록한 것부터. */
-	fun tokens(accountId: UUID): List<String> =
-		jdbc.queryForList("select expo_token from push_devices where account_id = ? order by created_at, expo_token", String::class.java, accountId).filterNotNull()
+	/** 그 계정의 기기 토큰. 오래 등록한 것부터. 정지된 계정이면 비어 있다(결정 044 의 3 — 어떤 푸시도 보내지 않는다). */
+	fun tokens(accountId: UUID): List<String> = jdbc.queryForList(
+		"""
+		select d.expo_token from push_devices d join accounts a on a.id = d.account_id
+		where d.account_id = ? and a.suspended_at is null
+		order by d.created_at, d.expo_token
+		""".trimIndent(),
+		String::class.java, accountId,
+	).filterNotNull()
 
 	fun deleteTokens(tokens: List<String>) {
 		jdbc.batchUpdate("delete from push_devices where expo_token = ?", tokens.map { arrayOf<Any>(it) })
@@ -124,7 +132,8 @@ class PushExecutorConfig {
 }
 
 /**
- * 풀이 완성 · 문의 답변 이벤트를 듣고(커밋 뒤) 푸시를 보낸다(결정 042 의 5). 알림함(결정 035)과 같은 이벤트다.
+ * 별명 지음 · 풀이 완성 · 문의 답변 이벤트를 듣고(커밋 뒤) 푸시를 보낸다(결정 042 의 5). 알림함(결정 035)과 같은 이벤트다.
+ * 궁합 리포트 완성은 1.0.0 에 보내지 않는다(앱 결정 055).
  * 실패는 삼키고 로그만 남긴다 — 이벤트를 낸 일은 그대로 끝난다.
  */
 @Component
@@ -132,7 +141,13 @@ class PushEvents(private val push: PushService, @Qualifier("pushExecutor") priva
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+	fun readingCreated(event: ReadingCreated) = later(PushKind.READING_DONE) { push.notify(event.ownerId, PushKind.READING_DONE) }
+
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
 	fun meReportDone(event: MeReportDone) = later(PushKind.ME_REPORT_DONE) { push.notify(event.ownerId, PushKind.ME_REPORT_DONE) }
+
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+	fun timingReportDone(event: TimingReportDone) = later(PushKind.TIMING_REPORT_DONE) { push.notify(event.ownerId, PushKind.TIMING_REPORT_DONE) }
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
 	fun inquiryAnswered(event: InquiryAnswered) =

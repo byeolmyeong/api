@@ -3,6 +3,8 @@ package com.byeolmyeong.api.push
 import com.byeolmyeong.api.DEV_AUTH_ON
 import com.byeolmyeong.api.TestcontainersConfiguration
 import com.byeolmyeong.api.admin.InquiryAnswered
+import com.byeolmyeong.api.reading.ReadingCreated
+import com.byeolmyeong.api.report.TimingReportDone
 import com.byeolmyeong.api.report.MeReportDone
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -143,6 +145,31 @@ class PushEventsIntegrationTest {
 		val until = System.currentTimeMillis() + 5_000
 		while (left().size > 1 && System.currentTimeMillis() < until) Thread.sleep(20)
 		assertEquals(listOf("ExponentPushToken[me-phone]"), left())
+	}
+
+	@Test
+	fun `별명을 지으면 닉네임을 넣어 보내고 시기 풀이가 완성되면 문구표대로 보낸다`() {
+		events.publishEvent(ReadingCreated(other))
+		events.publishEvent(TimingReportDone(other))
+
+		val sent = awaitSent(2)
+		assertEquals(
+			setOf(
+				Triple("별명을 지었어요", "다른이 님의 별명이 기다리고 있어요", mapOf("type" to "READING_DONE")),
+				Triple("시기 풀이가 다 됐어요", "지금 나의 시기와 올해의 흐름을 볼 수 있어요.", mapOf("type" to "TIMING_REPORT_DONE")),
+			),
+			sent.map { Triple(it.title, it.body, it.data) }.toSet(),
+		)
+	}
+
+	@Test
+	fun `정지된 계정에는 보내지 않는다`() {
+		jdbc.update("update accounts set suspended_at = now() where id = ?", me)
+
+		events.publishEvent(MeReportDone(me))
+		events.publishEvent(ReadingCreated(me))
+
+		assertEquals(0, awaitSent(1).size)
 	}
 
 	@Test
