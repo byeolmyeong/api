@@ -45,6 +45,11 @@ class ArchitectureTest {
             "$ROOT.share.ScoreCardRequested",
             "$ROOT.share.RankingCardRequested",
             "$ROOT.share.NextTurnCardRequested",
+            // 공유 v2 카드 넷(결정 036) — reading · report · sky 가 답한다
+            "$ROOT.share.NicknameCardRequested",
+            "$ROOT.share.MeAreaCardRequested",
+            "$ROOT.share.DaySkyCardRequested",
+            "$ROOT.share.NextBigCardRequested",
             // 관리자가 앱 설정을 고치면 appconfig 가 캐시를 비운다(결정 016)
             "$ROOT.admin.AppConfigChanged",
             // 관리자가 문의에 처음 답했다(결정 039 의 5) — 알림함(계획 S⑤) · 푸시(S⑩)가 듣는다

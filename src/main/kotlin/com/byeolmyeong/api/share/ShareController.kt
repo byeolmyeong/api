@@ -12,12 +12,24 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
+import java.time.LocalDate
 import java.util.UUID
 
 private const val MAX_NAME_LENGTH = 20
 
 /** `POST /shares` 의 본문. 값 검증은 컨트롤러가 하므로 느슨한 타입으로 받는다. 종류마다 쓰는 필드가 다르다. */
-data class ShareRequest(val kind: String?, val synastryId: String?, val myName: String?, val relation: String?, val showNames: Boolean?)
+data class ShareRequest(
+	val kind: String?,
+	val synastryId: String?,
+	val myName: String?,
+	val relation: String?,
+	val showNames: Boolean?,
+	val area: String?,
+	val date: String?,
+)
+
+// 나 탭 풀이의 영역 이름(결정 029). `report` 의 타입은 쓸 수 없어 이름으로 받는다.
+private val ME_AREAS = setOf("PERSONALITY", "LOVE", "RELATIONSHIP", "WORK", "EMOTION")
 
 /**
  * 공유. 만들기·지우기는 세션의 주인만 하고(누구의 것인지는 세션에서만 얻는다),
@@ -40,6 +52,10 @@ class ShareController(private val owner: CurrentOwner, private val shares: Share
 				shares.ranking(owner.id(), relation, showNames = request.showNames == true)
 			}
 			ShareKind.NEXT_TURN -> shares.nextTurn(owner.id())
+			ShareKind.NICKNAME -> shares.nickname(owner.id())
+			ShareKind.ME_AREA -> shares.meArea(owner.id(), request.area?.takeIf { it in ME_AREAS } ?: throw BadRequestException("INVALID_AREA"))
+			ShareKind.DAY_SKY -> shares.daySky(owner.id(), kstDate(request.date))
+			ShareKind.NEXT_BIG -> shares.nextBig(owner.id())
 		}
 
 	/** 로그인 없이 열린다. 저장된 카드를 그대로 준다. */
@@ -52,6 +68,10 @@ class ShareController(private val owner: CurrentOwner, private val shares: Share
 		shares.delete(owner.id(), shareId)
 		return ResponseEntity.noContent().build()
 	}
+
+	// YYYY-MM-DD 그대로만(2026-1-5 · 2026-13-01 은 틀림).
+	private fun kstDate(raw: String?): LocalDate =
+		raw?.let { runCatching { LocalDate.parse(it) }.getOrNull()?.takeIf { date -> date.toString() == it } } ?: throw BadRequestException("INVALID_DATE")
 
 	// id 모양이 아닌 값도 "없는 것" 이다.
 	private fun id(value: String): UUID = try {
