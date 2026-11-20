@@ -113,6 +113,15 @@ class AdminRegenerateApiIntegrationTest {
 	}
 
 	@Test
+	fun `쓰는 중인데 2분 넘게 멈춘 것은 실패로 보고 다시 시작한다`() {
+		val id = userWithReport("ME", "WRITING")
+		jdbc.update("update detail_reports set active_at = now() - interval '3 minutes' where owner_id = ?", id)
+
+		assertEquals(202, regenerate(id, """{"kind":"REPORT_ME"}""").statusCode())
+		assertEquals(2, rows(id, "ME"))
+	}
+
+	@Test
 	fun `실패한 시기 풀이도 다시 시작한다`() {
 		val id = userWithReport("TIMING", "FAILED")
 

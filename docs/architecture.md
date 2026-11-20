@@ -525,7 +525,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `MAINTENANCE_UPDATED` | `PUT /admin/app-config/maintenance`(아래 "앱 설정" 의 점검) | `ADMIN` | `APP_CONFIG` `maintenance` | `{ active }` — 켰는지 껐는지. 안내 글은 없다 |
   | `USER_SUSPENDED` · `USER_UNSUSPENDED` | 사용자를 정지했을 때 · 정지를 풀었을 때(`POST /admin/users/{id}/suspend` · `unsuspend`, 결정 043 의 1 · 044) | `ADMIN` | `USER` 그 계정의 id | 경로를 만드는 묶음이 정한다(사유 글은 넣지 않는다) |
   | `USER_DELETED_BY_ADMIN` | 사용자가 요청해 관리자가 탈퇴를 대행했을 때(`DELETE /admin/users/{id}`) | `ADMIN` | `USER` 그 계정의 id(이제 없는 id) | 경로를 만드는 묶음이 정한다(사유 · 닉네임은 넣지 않는다) |
-  | `GENERATION_RETRIED` | 실패한 생성을 다시 하게 했을 때(`POST /admin/users/{id}/regenerate`) | `ADMIN` | `USER` 그 계정의 id | 경로를 만드는 묶음이 정한다 |
+  | `GENERATION_RETRIED` | 실패한 생성을 다시 하게 했을 때(`POST /admin/users/{id}/regenerate`) | `ADMIN` | `USER` 그 계정의 id | `{ "kind": "REPORT_ME" \| "REPORT_TIMING" }` |
   | `PUSH_EVENT_SENT` | 광고 푸시를 보냈을 때(`POST /admin/push/events`, 결정 043 의 6) | `ADMIN` | `PUSH_EVENT` 그 발송의 id | 경로를 만드는 묶음이 정한다(제목 · 본문 글은 넣지 않는다) |
 
   - 아래 다섯 행동(`USER_SUSPENDED` ~ `PUSH_EVENT_SENT`)은 코드(`action` 조건으로 거를 수 있다)만 먼저 더했다. 그 경로가 아직 없어 지금은 남지 않는다 — 경로를 만드는 묶음(계획 S⑪ · S⑩)이 남기고 `detail` 을 이 표에 적는다.
