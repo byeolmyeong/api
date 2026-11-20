@@ -25,7 +25,8 @@ UPLOAD_URL="$(file_value backup.env BACKUP_UPLOAD_URL)"
 mkdir -p backups
 NAME="byeolmyeong-$KIND-$(date -u +%Y%m%dT%H%M%SZ).dump"
 PART="backups/.$NAME.part"
-if ! docker compose exec -T postgres pg_dump -U "$DB_USER" -d byeolmyeong -Fc > "$PART"; then
+# stdin 을 막는다: exec 는 stdin 을 컨테이너로 넘기므로, stdin 으로 넘겨진 스크립트 안에서 불리면 남은 줄을 먹는다.
+if ! docker compose exec -T postgres pg_dump -U "$DB_USER" -d byeolmyeong -Fc < /dev/null > "$PART"; then
 	rm -f "$PART"
 	fail dump
 fi
