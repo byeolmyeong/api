@@ -9,7 +9,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
 private val REPORT_STATUSES = listOf("DONE", "WRITING", "FAILED")
-private val INQUIRY_STATUSES = listOf("NEW", "IN_PROGRESS", "DONE")
+private val INQUIRY_STATUSES = listOf("NEW", "IN_PROGRESS", "ANSWERED", "DONE")
 
 data class Total(val total: Int)
 data class AccountStats(val total: Int, val last7Days: Int, val last30Days: Int)

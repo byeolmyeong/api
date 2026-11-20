@@ -3,6 +3,7 @@ package com.byeolmyeong.api.inquiry
 import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
+import com.byeolmyeong.api.web.NotFoundException
 import com.byeolmyeong.api.web.RateLimiter
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -16,8 +17,8 @@ private const val HOUR_MILLIS = 3_600_000L
 class InquiryRateLimitedException : RuntimeException("RATE_LIMITED")
 
 /**
- * 문의를 저장한다. 계정(소유자 id)별로 한 시간에 정해진 수까지만 받는다(서버 메모리의 고정 창, 결정 013).
- * 문의 글과 이메일을 로그에 남기지 않는다(종류 코드만).
+ * 문의를 저장하고 내 문의를 읽는다(결정 013 · 039). 저장은 계정(소유자 id)별로 한 시간에 정해진 수까지만 받는다(서버 메모리의 고정 창).
+ * 읽기는 세지 않는다. 문의 글 · 답을 로그에 남기지 않는다(종류 코드만).
  */
 @Service
 class InquiryService(
@@ -28,14 +29,19 @@ class InquiryService(
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val limiter = RateLimiter(perHour, HOUR_MILLIS, System::currentTimeMillis)
 
-	fun create(ownerId: UUID, inquiry: Inquiry): UUID {
+	fun create(ownerId: UUID, inquiry: Inquiry, app: InquiryApp): UUID {
 		if (!limiter.tryAcquire(ownerId.toString())) {
 			log.warn("event=inquiry_rate_limited")
 			throw InquiryRateLimitedException()
 		}
-		val id = repository.insert(ownerId, inquiry)
+		val id = repository.insert(ownerId, inquiry, app)
 		log.info("event=inquiry_created category={}", inquiry.category)
 		events.publishEvent(AuditEvent(AuditAction.INQUIRY_SUBMITTED, AuditActor.user(ownerId), "INQUIRY", id.toString(), detail = mapOf("category" to inquiry.category)))
 		return id
 	}
+
+	fun mine(ownerId: UUID): List<MyInquiry> = repository.findByOwner(ownerId)
+
+	/** 남의 것 · 없는 것은 404 `NOT_FOUND`. */
+	fun mine(ownerId: UUID, id: UUID): MyInquiry = repository.findByOwner(ownerId, id) ?: throw NotFoundException("NOT_FOUND")
 }
