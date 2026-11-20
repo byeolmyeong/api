@@ -1,4 +1,6 @@
-# 스테이징·운영 VM 의 구성(결정 020). VM 의 /opt/byeolmyeong 에서 `docker compose up -d` 로 띄운다.
+# 스테이징·운영 VM 의 구성(결정 020 · 046). VM 의 /opt/byeolmyeong 에 있다. 절차는 docs/deploy.md.
+# 서버는 api-blue · api-green 둘 중 하나만 요청을 받는다(블루 · 그린, 결정 046). 받는 쪽은 upstream.caddy, 지금 색은 active_color.
+# 서버를 띄우고 바꾸는 것은 swap.sh 만 한다. `docker compose up -d` 를 서비스 이름 없이 부르면 두 색이 다 뜬다 — 늘 이름을 적는다.
 # 값은 같은 디렉터리의 .env 에서 읽는다(이름은 deploy/.env.example). .env 는 VM 에만 있고 저장소에 올리지 않는다.
 # 로컬 개발용 DB 는 저장소 루트의 compose.yaml 이다. 이 파일과 섞지 않는다.
 name: byeolmyeong
@@ -8,6 +10,27 @@ x-logging: &logging
   options:
     max-size: "10m"
     max-file: "5"
+
+# 두 색이 같이 쓰는 서버 설정. 색마다 다른 것은 jar 파일뿐이다.
+x-api: &api
+  image: eclipse-temurin:21-jre
+  # 작업 디렉터리에는 app.jar 만 둔다. 서버는 작업 디렉터리의 .env 를 읽으므로(application.properties) 값은 env_file 로만 넘긴다.
+  working_dir: /app
+  command: ["java", "-jar", "/app/app.jar"]
+  env_file: .env
+  environment:
+    # Caddy 뒤에서 연결 상대는 늘 Caddy 다. Caddy 가 넣는 X-Forwarded-For 의 주소를 요청 주소로 써야
+    # 주소별 요청 속도 제한·관리자 로그인 제한이 사용자마다 따로 센다(web/RateLimitConfig.kt).
+    SERVER_FORWARD_HEADERS_STRATEGY: native
+    # 힙 상한은 1GB VM 에서 JVM 이 스스로 고르던 값(256MB)과 같다. 바꿀 때 두 JVM 이 잠깐 같이 떠도 더 커지지 않게 못 박는다(결정 046 의 7).
+    JAVA_TOOL_OPTIONS: -Xmx256m -XX:+ExitOnOutOfMemoryError
+  depends_on:
+    postgres:
+      condition: service_healthy
+  # 내릴 때 받던 요청(최대 30초)과 쓰던 생성(최대 180초)을 끝낼 시간. 넘으면 Docker 가 죽인다(application.properties 의 종료 설정).
+  stop_grace_period: 220s
+  restart: unless-stopped
+  logging: *logging
 
 services:
   postgres:
@@ -34,24 +57,27 @@ services:
     restart: unless-stopped
     logging: *logging
 
-  api:
-    image: eclipse-temurin:21-jre
-    # 작업 디렉터리에는 app.jar 만 둔다. 서버는 작업 디렉터리의 .env 를 읽으므로(application.properties) 값은 env_file 로만 넘긴다.
-    working_dir: /app
-    command: ["java", "-jar", "/app/app.jar"]
-    # 파일 하나를 붙이면 컨테이너를 만들 때의 파일을 계속 본다. jar 를 바꾸면 이 서비스를 다시 만든다(배포 워크플로가 한다).
+  # jar 파일 하나를 붙이면 컨테이너를 만들 때의 파일을 계속 본다. swap.sh 가 jar 를 바꾼 색은 늘 새로 만든다.
+  # jar 가 없으면 빈 디렉터리를 만들지 않고 실패한다(create_host_path: false).
+  api-blue:
+    <<: *api
     volumes:
-      - ./app.jar:/app/app.jar:ro
-    env_file: .env
-    environment:
-      # Caddy 뒤에서 연결 상대는 늘 Caddy 다. Caddy 가 넣는 X-Forwarded-For 의 주소를 요청 주소로 써야
-      # 주소별 요청 속도 제한·관리자 로그인 제한이 사용자마다 따로 센다(web/RateLimitConfig.kt).
-      SERVER_FORWARD_HEADERS_STRATEGY: native
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-    logging: *logging
+      - type: bind
+        source: ./app-blue.jar
+        target: /app/app.jar
+        read_only: true
+        bind:
+          create_host_path: false
+
+  api-green:
+    <<: *api
+    volumes:
+      - type: bind
+        source: ./app-green.jar
+        target: /app/app.jar
+        read_only: true
+        bind:
+          create_host_path: false
 
   caddy:
     image: caddy:2
@@ -62,10 +88,16 @@ services:
       SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS 가 .env 에 없다}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 받는 쪽(Caddyfile 이 가져온다). swap.sh 가 제자리에 고쳐 쓴다 — 파일을 바꿔치면(새 파일로 mv) 컨테이너는 옛 파일을 계속 본다.
+      - type: bind
+        source: ./upstream.caddy
+        target: /etc/caddy/upstream.caddy
+        read_only: true
+        bind:
+          create_host_path: false
       - caddy-data:/data
       - caddy-config:/config
-    depends_on:
-      - api
+    # 서버 색에 기대지 않는다. 받는 색이 아직 없으면 그동안 502 를 준다.
     restart: unless-stopped
     logging: *logging
 
