@@ -273,6 +273,7 @@ class SynastryService(
 				}
 			} else if (repository.completeReport(run, report)) {
 				log.info("event=synastry_report_done attempts={}", attempts)
+				repository.ownerOf(run.synastryId)?.let { events.publishEvent(SynastryReportDone(it, run.synastryId)) }
 			} else {
 				// 그 사이 궁합이나 계정이 지워졌거나, 멈춘 줄 알고 다시 시작한 생성이 자리를 잡았다.
 				log.info("event=synastry_report_discarded attempts={}", attempts)

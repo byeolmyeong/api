@@ -101,8 +101,10 @@ class ReadingService(
 			throw e
 		}
 		// 동시에 두 요청이 생성했으면 먼저 들어간 글만 남고, 둘 다 그 글을 돌려준다.
-		repository.insertIfAbsent(ownerId, SUMMARY, chartHash, body, newShareId())
+		val created = repository.insertIfAbsent(ownerId, SUMMARY, chartHash, body, newShareId())
 		events.publishEvent(AuditEvent(AuditAction.READING_GENERATED, AuditActor.user(ownerId)))
+		// 별명을 처음 지었을 때만(결정 035 의 4). 같은 때 두 요청이 생성했으면 먼저 넣은 쪽만 낸다.
+		if (created) events.publishEvent(ReadingCreated(ownerId))
 		return checkNotNull(repository.find(ownerId, SUMMARY, chartHash)) { "방금 저장한 글이 없다" }
 	}
 
