@@ -25,10 +25,15 @@ class IdTokenOnceService(
 	private val jdbc: JdbcTemplate,
 	@Value("\${byeolmyeong.auth.google.web-client-id}") webClientId: String,
 	@Value("\${byeolmyeong.auth.google.client-ids}") clientIds: String,
+	/** 앱 클라이언트 ID(비밀 아님) — 로그의 이름표에만 쓴다. 받는 대상(`client-ids`) · 한 번만 판정과는 상관없다. */
+	@Value("\${byeolmyeong.auth.google.ios-client-ids}") iosClientIds: String,
+	@Value("\${byeolmyeong.auth.google.android-client-ids}") androidClientIds: String,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val webClientId = webClientId.trim()
-	private val clientIds = clientIds.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+	private val clientIds = idSet(clientIds)
+	private val iosClientIds = idSet(iosClientIds)
+	private val androidClientIds = idSet(androidClientIds)
 
 	/** 켜졌는지 시작할 때 남긴다. 값이 구글 클라이언트 목록에 없으면(오타) 어떤 토큰도 대상이 아니라 꺼진 것과 같다. */
 	@PostConstruct
@@ -44,13 +49,8 @@ class IdTokenOnceService(
 	fun claim(identity: ProviderIdentity) {
 		val once = needsOnce(identity, webClientId)
 		if (identity.provider == Provider.GOOGLE) {
-			// 어느 클라이언트가 받은 토큰인지(클라이언트 ID 는 비밀 아님). 목록에 없는 azp 는 그대로 남기지 않는다. aud 는 확인을 지난 우리 값이다.
-			val azp = when (val value = identity.authorizedParty) {
-				null -> "NONE"
-				in clientIds -> value
-				else -> "OTHER"
-			}
-			log.info("event=google_token_client azp={} aud={} once={}", azp, identity.audience, once)
+			// 어느 클라이언트가 받은 토큰인지 — 클라이언트 ID 대신 이름표(WEB · IOS · ANDROID · OTHER · NONE)로 남긴다.
+			log.info("event=google_token_client azp={} aud={} once={}", label(identity.authorizedParty), label(identity.audience), once)
 		}
 		if (!once) return
 		val jti = identity.tokenId ?: throw InvalidIdTokenException()
@@ -74,4 +74,14 @@ class IdTokenOnceService(
 		val count = jdbc.update("delete from used_id_tokens where expires_at < now() - interval '2 minutes'")
 		log.info("event=used_id_tokens_expired_deleted count={}", count)
 	}
+
+	private fun label(clientId: String?): String = when {
+		clientId == null -> "NONE"
+		webClientId.isNotEmpty() && clientId == webClientId -> "WEB"
+		clientId in iosClientIds -> "IOS"
+		clientId in androidClientIds -> "ANDROID"
+		else -> "OTHER"
+	}
 }
+
+private fun idSet(raw: String): Set<String> = raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()

@@ -33,6 +33,7 @@ import kotlin.test.assertTrue
 
 private const val WEB = "test-google-web-client"
 private const val IOS = "test-google-ios-client"
+private const val ANDROID = "test-google-android-client"
 private val KEY: RSAKey = RSAKeyGenerator(2048).keyID("test").generate()
 
 /** 구글이 준 것처럼 테스트 키로 서명한 ID 토큰. [azp] 가 null 이면 넣지 않는다. */
@@ -54,6 +55,8 @@ private fun googleToken(aud: String, azp: String? = aud, jti: String? = UUID.ran
 	properties = [
 		"byeolmyeong.auth.google.client-ids=$WEB,$IOS",
 		"byeolmyeong.auth.google.web-client-id=$WEB",
+		"byeolmyeong.auth.google.ios-client-ids=$IOS",
+		"byeolmyeong.auth.google.android-client-ids=other-android-signing, $ANDROID",
 		"byeolmyeong.rate-limit.auth-per-minute=10000",
 	],
 )
@@ -106,16 +109,19 @@ class GoogleWebIdTokenOnceIntegrationTest {
 	}
 
 	@Test
-	fun `구글 로그인마다 받은 클라이언트(azp · aud)와 한 번만 대상인지를 남긴다 — 실기기 토큰의 azp 를 로그로 확인한다`(output: CapturedOutput) {
+	fun `구글 로그인마다 받은 클라이언트(azp · aud)를 이름표로, 한 번만 대상인지와 함께 남긴다 — 클라이언트 ID 는 남기지 않는다`(output: CapturedOutput) {
 		login(googleToken(WEB, azp = IOS))
+		login(googleToken(WEB, azp = ANDROID))
 		login(googleToken(WEB))
 		login(googleToken(WEB, azp = null))
 		login(googleToken(WEB, azp = "someone-else"))
 
-		assertTrue("event=google_token_client azp=$IOS aud=$WEB once=false" in output.all)
-		assertTrue("event=google_token_client azp=$WEB aud=$WEB once=true" in output.all)
-		assertTrue("event=google_token_client azp=NONE aud=$WEB once=false" in output.all)
-		assertTrue("event=google_token_client azp=OTHER aud=$WEB once=false" in output.all, "목록에 없는 값은 그대로 남기지 않는다")
+		assertTrue("event=google_token_client azp=IOS aud=WEB once=false" in output.all)
+		assertTrue("event=google_token_client azp=ANDROID aud=WEB once=false" in output.all, "안드로이드는 서명마다 클라이언트가 여럿일 수 있다")
+		assertTrue("event=google_token_client azp=WEB aud=WEB once=true" in output.all)
+		assertTrue("event=google_token_client azp=NONE aud=WEB once=false" in output.all)
+		assertTrue("event=google_token_client azp=OTHER aud=WEB once=false" in output.all)
+		assertFalse(WEB in output.all || IOS in output.all || ANDROID in output.all, "클라이언트 ID 대신 이름표만")
 	}
 
 	@Test

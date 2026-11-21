@@ -34,5 +34,6 @@ superseded_by:
 - 앱 결정 070 의 운영 조건("서버 047")이 이 결정이다. 앱 main 승격은 이 결정이 운영에 나간 뒤.
 - 운영 · 스테이징 `.env` 에 `GOOGLE_WEB_CLIENT_ID` 를 넣는다(배포 담당).
 - 실측: 구글 로그인마다 `event=google_token_client azp=… aud=… once=…` 를 남긴다(클라이언트 ID 만 · 목록에 없는 `azp` 는 `OTHER` · 없으면 `NONE` · 토큰 · `jti` · 사용자는 없다). 스테이징에서 웹 · iOS · 안드로이드로 한 번씩 로그인해 웹은 `azp`=웹 · `once=true`, 앱은 `azp`=앱 클라이언트 · `once=false` 인지 본다. 웹이 `NONE` 이면 검사가 걸리지 않는 것이므로 이 결정을 다시 본다.
+  - 2026-11-21 덧붙임: iOS 테스트앱 실측은 `azp=OTHER aud=웹 once=false` — 앱 토큰에 `azp` 가 들어오고 웹이 아니다(판정대로). 로그는 클라이언트 ID 대신 이름표 `WEB · IOS · ANDROID · OTHER · NONE` 으로 남기고, 앱 클라이언트는 설정 `GOOGLE_IOS_CLIENT_IDS` · `GOOGLE_ANDROID_CLIENT_IDS`(쉼표로 여럿, 비밀 아님 — 이름표에만 쓴다)로 알린다.
 - 막지 못하는 것: 정상 로그인이 서버까지 닿지 않으면(탭을 닫음 · 확인 전 503 · 426 · 429) 기록의 토큰은 만료까지 쓸 수 있다. 첫 배포 동안 옛 서버는 검사하지 않는다.
 - 웹 클라이언트 ID 가 바뀌면 설정만 바꾼다.
