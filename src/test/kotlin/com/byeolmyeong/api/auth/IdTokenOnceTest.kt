@@ -29,7 +29,7 @@ class IdTokenOnceTest {
 	}
 
 	private fun startup(webClientId: String, clientIds: String = "web-client,ios-client") =
-		IdTokenOnceService(JdbcTemplate(), webClientId, clientIds).logState()
+		IdTokenOnceService(JdbcTemplate(), webClientId, clientIds, iosClientIds = "", androidClientIds = "").logState()
 
 	@Test
 	fun `시작할 때 켜졌는지 · 꺼졌는지 · 설정이 틀렸는지 로그로 남긴다`(output: CapturedOutput) {
