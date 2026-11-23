@@ -295,7 +295,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
     - `{ kind: "NEXT_TURN", year, season: SPRING | SUMMER | AUTUMN | WINTER, theme }` — 리포트 시기의 `current.nextMilestone`(오늘 뒤의 첫 마디)의 `date` 를 해와 계절로 줄인 것과 그 마디의 `title`. 3~5월 `SPRING`, 6~8월 `SUMMER`, 9~11월 `AUTUMN`, 12·1·2월 `WINTER`. `year`(정수)는 그 날의 달력 해다(2028년 1월도 12월도 2028 · `WINTER`). 앱이 "2027년 봄" 으로 적는다. (옛 카드 — 앱이 새로 만들지 않는다. 만든 것은 계속 열린다, 결정 036 의 5)
     - 공유 v2(결정 036 — 결정 012 의 "날짜 · 차트 요소를 넣지 않는다" 를 이 넷에 한해 대체). `nickname` 은 계정의 닉네임이고 옛 계정이라 없으면 키가 없다.
     - `{ kind: "NICKNAME", nickname?, sunSign, headline }` — 지금 차트의 요약 해석 v2 의 한 줄 별명(`Reading.headline`)과 그 차트의 해 별자리(`ARIES`…`PISCES`).
-    - `{ kind: "ME_AREA", nickname?, area, title }` — 지금 차트의 완성된(`DONE`) 나 탭 풀이의 그 영역(`PERSONALITY` · `LOVE` · `RELATIONSHIP` · `WORK` · `EMOTION`). `title` 은 연애면 영역 제목, 나머지는 첫 문단 제목.
+    - `{ kind: "ME_AREA", nickname?, area, title }` — 지금 차트의 완성된(`DONE`) 나 탭 풀이의 그 영역(`PERSONALITY` · `LOVE` · `RELATIONSHIP` · `WORK` · `EMOTION`). `title` 은 모든 영역에서 그 영역의 한 줄 요약(영역 제목, 결정 036 덧붙임 2026-11-23 — 그 전에 만든 공유는 저장된 카드 그대로).
     - `{ kind: "DAY_SKY", nickname?, date, title }` — 저장된 그날의 하늘(결정 034)의 제목과 그 날(`YYYY-MM-DD`, 한국 날짜).
     - `{ kind: "NEXT_BIG", nickname?, year, age, title }` — 지금 차트의 완성된 시기 풀이의 `current.nextMilestone`(오늘 뒤의 첫 마디)의 해 · 만 나이 · 제목(앱이 "2028년 · 만 29세 무렵" 으로 적는다).
   - `POST /shares` 요청: `kind` 는 필수. `SCORE` 는 `synastryId`(내 궁합의 `id`)와 `myName`(공유하는 사람을 부를 이름, 앞뒤 공백을 뗀 1~20자 — 서버에 내 이름이 없어 매번 받는다). `RANKING` 은 `relation`(필수)과 `showNames`(boolean, 없으면 `false`). `READING`·`NEXT_TURN`·`NICKNAME`·`NEXT_BIG` 은 다른 필드가 없다(지금 프로필의 차트 기준). `ME_AREA` 는 `area`(위 다섯 가운데 하나, 아니거나 없으면 400 `INVALID_AREA`), `DAY_SKY` 는 `date`(`YYYY-MM-DD` 그대로, 아니거나 없으면 400 `INVALID_DATE`). 그 종류가 쓰지 않는 필드는 읽지 않는다.

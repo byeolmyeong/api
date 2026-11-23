@@ -90,7 +90,7 @@ class ShareV2ApiIntegrationTest {
 		)
 	}
 
-	/** 완성된 나 탭 풀이. 영역마다 제목은 "<영역>-영역제목", 첫 문단 제목은 "<영역>-첫문단". 연애는 문단이 없다. */
+	/** 완성된 나 탭 풀이. 영역마다 제목(한 줄 요약)은 "<영역>-영역제목", 첫 문단 제목은 "<영역>-첫문단". 연애는 문단이 없다. */
 	private fun meReport(): Map<String, Any> = mapOf(
 		"areas" to listOf("PERSONALITY", "LOVE", "RELATIONSHIP", "WORK", "EMOTION").map { area ->
 			val paragraphs = if (area == "LOVE") emptyList() else (1..4).map { i ->
@@ -189,16 +189,17 @@ class ShareV2ApiIntegrationTest {
 	}
 
 	@Test
-	fun `나 탭 영역 카드는 연애면 영역 제목, 나머지는 첫 문단 제목을 싣는다`() {
+	fun `나 탭 영역 카드는 모든 영역에서 그 영역의 한 줄 요약(영역 제목)을 싣는다`() {
 		insertDetail("ME", meReport())
 
 		val personality = share("""{"kind":"ME_AREA","area":"PERSONALITY"}""")["card"]
 		assertEquals(setOf("kind", "nickname", "area", "title"), keys(personality))
 		assertEquals("ME_AREA", personality["kind"].asString())
 		assertEquals("PERSONALITY", personality["area"].asString())
-		assertEquals("PERSONALITY-첫문단", personality["title"].asString())
+		assertEquals("PERSONALITY-영역제목", personality["title"].asString(), "첫 문단 제목이 아니다")
 		assertEquals("LOVE-영역제목", share("""{"kind":"ME_AREA","area":"LOVE"}""")["card"]["title"].asString())
-		assertEquals("WORK-첫문단", share("""{"kind":"ME_AREA","area":"WORK"}""")["card"]["title"].asString())
+		assertEquals("WORK-영역제목", share("""{"kind":"ME_AREA","area":"WORK"}""")["card"]["title"].asString())
+		assertEquals("EMOTION-영역제목", mapper.readTree(preview("""{"kind":"ME_AREA","area":"EMOTION"}""").body())["card"]["title"].asString(), "미리 받기도 같다")
 	}
 
 	@Test

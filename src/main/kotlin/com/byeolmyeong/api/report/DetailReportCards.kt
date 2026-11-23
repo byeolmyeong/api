@@ -11,12 +11,12 @@ import org.springframework.stereotype.Component
 @Component
 class DetailReportCards(private val me: MeReportService, private val timing: TimingReportService) {
 
-	/** 나 탭 영역: 연애는 영역 제목(문단이 없다), 나머지는 첫 문단 제목. */
+	/** 나 탭 영역: 모든 영역에서 그 영역의 한 줄 요약(영역 제목, 결정 036 덧붙임 2026-11-23). */
 	@EventListener
 	fun on(event: MeAreaCardRequested) {
 		val current = me.current(event.ownerId).takeIf { it.status == ReportStatus.DONE } ?: return
 		val area = current.report?.areas?.firstOrNull { it.area.name == event.area } ?: return
-		event.title = if (area.area == MeReportArea.LOVE) area.title else area.paragraphs.firstOrNull()?.title
+		event.title = area.title
 	}
 
 	/** 다음 큰 변화: 오늘 뒤에 처음 오는 마디의 해 · 만 나이 · 제목. 없으면(모두 지난 마디) 답하지 않는다. */
