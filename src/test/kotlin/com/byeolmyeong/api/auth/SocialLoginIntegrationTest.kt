@@ -48,6 +48,8 @@ private const val PLACE = 1841277 // 서울(출생지 목록의 id)
 private const val TERMS = "2026-11-20"
 /** 함께 받는 옛 약관 · 처리방침 버전(결정 045, application.properties 의 byeolmyeong.legal.*-previous-versions). */
 private const val OLD_TERMS = "2026-11-19"
+/** 지금 처리방침 버전 — 제품 분석(앰플리튜드)을 더한 판(앱 결정 081). 이용약관은 그대로 [TERMS] 이고, [TERMS] 처리방침은 옛 버전으로 함께 받는다. */
+private const val PRIVACY_NOW = "2026-11-26"
 private val TEST_KEY: RSAKey = RSAKeyGenerator(2048).keyID("test").generate()
 private val mapper = JsonMapper()
 
@@ -251,6 +253,13 @@ class SocialLoginIntegrationTest {
 			val details = jdbc.queryForList("select detail::text from audit_logs where action = 'TERMS_AGREED' and actor_id = ?", String::class.java, owner)
 			assertEquals(json("""{"termsVersion":"$terms","privacyVersion":"$privacy"}"""), json(details.single()!!), "감사 기록에는 보낸 버전")
 		}
+	}
+
+	@Test
+	fun `처리방침 새 판(제품 분석을 더한 2026-11-26)이 201 이고 계정에 남는다 — 이용약관은 그대로(앱 결정 081)`() {
+		assertEquals(201, signup(signupToken("privacy-now"), adult(), terms = TERMS, privacy = PRIVACY_NOW).statusCode())
+		assertEquals(PRIVACY_NOW, accountColumn("privacy-now", "privacy_version"))
+		assertEquals(400, signup(signupToken("privacy-now-terms"), adult(), terms = PRIVACY_NOW, privacy = PRIVACY_NOW).statusCode(), "이용약관에는 그 판이 없다")
 	}
 
 	@Test
