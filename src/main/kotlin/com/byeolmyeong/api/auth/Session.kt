@@ -57,6 +57,8 @@ private val OPEN_WHEN_SUSPENDED = listOf(
 	"GET" to "/account",
 	"DELETE" to "/auth/session",
 	"DELETE" to "/account",
+	// 로그아웃할 때 앱이 기기 토큰도 지운다(결정 042 — 정지 중 로그아웃한 기기 잠금 화면에 알림이 남지 않게)
+	"DELETE" to "/push/devices/*",
 )
 
 private fun matchesAny(endpoints: List<Pair<String, String>>, request: HttpServletRequest): Boolean {

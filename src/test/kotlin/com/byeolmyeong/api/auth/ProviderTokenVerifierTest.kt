@@ -64,8 +64,18 @@ class ProviderTokenVerifierTest {
 			Provider.APPLE to "https://appleid.apple.com",
 			Provider.KAKAO to "https://kauth.kakao.com",
 		)) {
-			assertEquals(ProviderIdentity(provider, "provider-user-1", AUD), verifier(provider).verify(token(iss)), "$provider $iss")
+			// 끝나는 때는 아래 테스트가 본다(결정 047 — 웹 구글 토큰 한 번만).
+			assertEquals(ProviderIdentity(provider, "provider-user-1", AUD), verifier(provider).verify(token(iss)).copy(expiresAt = null), "$provider $iss")
 		}
+	}
+
+	@Test
+	fun `토큰의 jti · azp · 끝나는 때를 함께 돌려준다(결정 047)`() {
+		val exp = Instant.now().plusSeconds(600).truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+		val identity = verifier(Provider.GOOGLE).verify(token("https://accounts.google.com", azp = AUD, expiresAt = exp))
+		assertEquals(AUD, identity.authorizedParty)
+		assertEquals(exp, identity.expiresAt)
+		assertEquals(null, identity.tokenId, "jti 가 없는 토큰은 null")
 	}
 
 	@Test

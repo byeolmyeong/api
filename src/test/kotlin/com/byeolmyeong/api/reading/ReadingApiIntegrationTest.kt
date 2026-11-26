@@ -127,6 +127,10 @@ class ReadingApiIntegrationTest {
 		assertEquals(first.body(), second.body())
 		assertEquals(1, generator.prompts.size, "두 번째는 저장본이다")
 		assertEquals(1, rows())
+		assertEquals(
+			listOf("READING_DONE"), jdbc.queryForList("select kind from notifications", String::class.java),
+			"처음 저장할 때만 별명을 지었다는 알림이 한 줄 생긴다(결정 035 — ReadingCreated)",
+		)
 
 		val json = mapper.readTree(first.body())
 		assertEquals(listOf("headline", "sections", "strengths", "cautions", "createdAt", "shareId"), json.propertyNames().toList())

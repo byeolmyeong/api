@@ -60,13 +60,13 @@ last_reviewed: 2026-11-20
 - 주는 것: 서비스 이름 `api-blue` · `api-green`, 파일 `upstream.caddy` · `active_color`(지금 받는 색).
 - 검증: 로컬에서 `docker compose config` 통과 · 두 색을 번갈아 띄워 Caddy 가 붙는지.
 
-### 4. swap-script · 상태: 완료(스테이징 검증 전)
+### 4. swap-script · 상태: 완료
 - 읽을 것: 태스크 3
 - 할 것: `deploy/swap.sh [jar 경로 | --restart]` — ① 지금 색(`active_color`, 없으면 지금 떠 있는 것)과 쉬는 색을 정한다 ② 새 jar 를 쉬는 색 파일로(`--restart` 면 지금 jar 그대로 — `.env` 만 바꿨을 때) ③ `docker compose up -d api-<쉬는 색>` ④ Caddy 컨테이너 안에서 `wget -qO- http://api-<쉬는 색>:8080/health` 가 200 일 때까지(최대 3분, 아니면 쉬는 색을 내리고 실패로 끝 — 받는 쪽은 그대로) ⑤ `upstream.caddy` 를 쉬는 색으로 쓰고 `caddy reload` ⑥ 5초 뒤 `docker compose stop api-<옛 색>`(차분한 종료, 최대 200초) ⑦ `active_color` 기록 · 새 jar 를 `app.jar.good` 으로. 모든 단계 `event=swap_*` 로그.
 - 하지 말 것: 받는 쪽을 바꾸기 전에 옛 색을 내리지 않는다. Postgres · Caddy 를 다시 만들지 않는다.
 - 검증: 스테이징 VM 에서 0.1초마다 `/health` 와 가벼운 공개 경로(`GET /app-config`)를 부르며 `swap.sh` 두 번(새 jar · `--restart`) → 실패 0(로그로 센 표 첨부).
 
-### 5. workflow-and-runbook · 상태: 완료(스테이징 검증 전)
+### 5. workflow-and-runbook · 상태: 완료
 - 읽을 것: 태스크 4, `.github/workflows/deploy.yml` · `docs/deploy.md` · `deploy/bootstrap-vm.sh`
 - 할 것: "바꿔 띄우기" 를 `swap.sh /opt/byeolmyeong/app.jar.new` 로. `docker compose pull` · `up -d --remove-orphans` 를 앱 배포에서 뺀다. 되돌리기 = `swap.sh app.jar.good`(이것도 끊김 없이). 처음 한 번 옮겨 가기(지금 `api` → `api-blue`)는 끊김이 한 번 있으므로 점검 모드를 켜고 하는 손 절차를 `docs/deploy.md` 에. 운영 절차표의 "`.env` 를 바꾼 뒤" 를 `./swap.sh --restart` 로, "Postgres · Caddy 업데이트" 줄을 새로(점검 모드 → pull → up → 끔). `docs/architecture.md` 의 배포 줄.
 - 검증: 스테이징 배포 한 번(Actions) 동안 태스크 4 의 요청 고리 실패 0 · 운영은 소유자가 `main` 에 합칠 때.
@@ -117,3 +117,11 @@ last_reviewed: 2026-11-20
   - 워크플로: SSH keepalive, swap.sh 는 다른 이름으로 올려 `mv`, 서버 이미지(JRE)는 배포 때 받는다(실패해도 계속).
   - 문서: 두 서버가 겹치는 동안의 규칙을 `.claude/rules/two-servers-overlap.md` · architecture.md 데이터 절에, 020 의 대체 범위(1 · 2 · 4번)를 바로, 옮겨 가기에서 Caddyfile 은 Caddy 를 다시 만들기 직전에 올린다, 옮기기 전에 합쳐진 배포는 수동 실행으로 다시.
   - 가짜 docker 로 swap.sh 경우 8가지(처음 · 배포 · --restart · 뜨지 않는 jar · 다시 읽기는 적용됐는데 exec 실패 · 다시 읽기 실패 · prev 되돌리기 · --init 두 번)를 돌려 받는 쪽 · jar 기록이 맞는지 봤다.
+- 2026-11-20 스테이징 · 운영 검증(0.1초 고리, 요청마다 새 HTTPS 연결). 표 전체는 docs/plans/2026-11-20-prod-to-a1.md "스테이징 실측".
+  - 스테이징 옮기기: Caddy 를 다시 만드는 순간 3.2초(실패 24). 배포 · --restart · 되돌리기(app.jar.prev) · 다시 앞으로: 바꿀 때마다 실패 0~2 — Caddy 다시 읽기 순간의 새 연결 1건(아홉 번 중 네 번), 새 JVM 이 뜨는 동안의 10초 시간 초과(가끔). E2.1.Micro 에서 새 JVM 시작 89~187초.
+  - **옛 색을 내리는 동안 쓰던 생성(실제 모델)**: 옛 색에 바로 넣은 나 탭 풀이가 SIGTERM 20초 뒤 DONE(`report_drain_started active=5` → `me_report_done` → `report_drain_done` → 종료). 진짜 jar · 진짜 SIGTERM · 가짜 모델로도 같은 순서.
+  - 운영 옮기기(21:20~21:22, 소유자 "전환 해", 점검 없이): 3.7초(실패 30), 그 밖 0.
+  - **운영 첫 무중단 배포(main eb5496c, V19~V30)**: 실패 0 / 요청 501, 새 JVM 71.5초, swap_done active=green.
+- 이 과정에서 찾아 고친 것: Caddy 관리 API 는 127.0.0.1 에만 듣는다(d9e1961) · `/health` 기다림 3분 → 5분(#44, 187초 시작) · **운영 배포의 원격 스크립트를 stdin 으로 넘겨 백업의 `docker compose exec` 가 남은 줄(swap.sh)을 먹고 "성공" 하던 것**(#48 — `bash -c "$(cat)"`, `< /dev/null`, `swap_done` 없으면 실패) · 옮겨 가기 ④ 질의가 옛 DB 에 없는 표에서 실패(#47).
+- 스테이징 생성이 20:49 부터 모두 HTTP 400 이었던 것은 배포가 아니라 Anthropic 사용 한도였다(소유자가 한도를 올리고 스테이징 키를 나눔).
+

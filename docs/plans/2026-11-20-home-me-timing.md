@@ -214,11 +214,11 @@ last_reviewed: 2026-11-20
 
 ### S④ 그날의 하늘 · 오늘의 하늘 (결정 034)
 
-#### 13. s4-migration · 상태: 대기
+#### 13. s4-migration · 상태: 완료(PR #39, develop f25f23b — V30)
 - 할 것: `V23__day_skies.sql`.
 - 검증: 깨끗한 DB · V22 DB 에서 돈다, 같은 (owner, chart_hash, date) 두 번째 insert 거절
 
-#### 14. s4-day-sky · 상태: 대기
+#### 14. s4-day-sky · 상태: 완료(PR #39, develop f25f23b)
 - 읽을 것: 결정 034, `reading/ReadingService.kt`(진행 중 생성 표시 · 기다리기)
 - 할 것: `sky` 에 `POST /day-sky` — 날짜 범위, 눈여겨볼 날이면 그 문구 · 칩 · 근거, 아니면 그날 가장 센 통과(달 포함)로 근거, 모델은 흐름 · 실천(+ 제목), 검증(칸 · "~기" · 숫자 · 금지 표현), 저장 · 같은 사람 같은 날 동시 요청 하나만, 생성 한도(새로 만들 때만). 지시문 `day-sky.md`. 계약 표 · "데이터" · 생성 한도 목록 같은 커밋.
 - 하지 말 것: 아침 일괄 생성 · 알림을 만들지 않는다(범위 밖).
@@ -227,26 +227,26 @@ last_reviewed: 2026-11-20
 
 ### S⑤ 알림함 (결정 035)
 
-#### 15. s5-migration · 상태: 대기
+#### 15. s5-migration · 상태: 진행(PR #40 — V32)
 - 할 것: `V24__notifications.sql`.
 - 검증: 깨끗한 DB · V23 DB 에서 돈다, 계정 삭제 시 함께 지워짐
 
-#### 16. s5-events · 상태: 대기
+#### 16. s5-events · 상태: 진행(PR #40)
 - 할 것: `reading.ReadingCreated(ownerId)`(그 차트의 SUMMARY_V2 를 처음 저장했을 때), `synastry.SynastryReportDone(ownerId, synastryId)`. `ArchitectureTest` 의 EVENTS · docs/architecture.md 의존 규칙에 `MeReportDone` · `TimingReportDone` · 이 둘을 더한다.
 - 검증: 이벤트에 글 · 출생 정보 필드 없음(타입 검사), 저장본을 돌려준 요청은 이벤트 없음
 
-#### 17. s5-notifications · 상태: 대기
+#### 17. s5-notifications · 상태: 진행(PR #40)
 - 할 것: 새 기능 패키지 `notification` — 리스너(커밋 뒤 · 자기 트랜잭션 · 실패는 삼키고 `event` 로그), `GET /notifications` · `POST /notifications/{id}/read`, 매일 04:00(한국) 30일 지난 행 지우기, `SynastryDeleted` 에 그 궁합 알림 지우기. 계약 표 · 모듈 · "데이터" 같은 커밋. 계약 표의 `PUT /devices/push-token` · 모듈의 `push` 에 "구현 전" 표시(문서와 코드의 어긋남).
 - 하지 말 것: 알림 문구를 서버에 두지 않는다.
 - 검증: 통합 테스트 — 완성마다 한 행, 남의 알림 read 404, 31일 된 행 지움, unread 수, 100개 상한
 
 ### S⑥ 공유 v2 (결정 036)
 
-#### 18. s6-migration · 상태: 대기
+#### 18. s6-migration · 상태: 진행(어드민 세션 11 — PR #43)
 - 할 것: `V25__share_kinds.sql`.
 - 검증: 옛 네 종류 행이 그대로 남고 새 종류 insert 가 된다
 
-#### 19. s6-share-kinds · 상태: 대기
+#### 19. s6-share-kinds · 상태: 진행(어드민 세션 11 — PR #43)
 - 읽을 것: 결정 012 · 036, `share/*`
 - 할 것: 새 종류 넷 · 카드 모양 · 묻는 이벤트(`NicknameCardRequested` · `MeAreaCardRequested` · `NextBigCardRequested` · `DaySkyCardRequested`, 허용 목록에 추가) · 답하는 쪽(reading · report · sky). 계약 표 · "공유" 같은 커밋.
 - 하지 말 것: 카드에 출생 날짜 · 시각 · 곳 · 도수를 넣지 않는다.
@@ -327,3 +327,6 @@ last_reviewed: 2026-11-20
 - 12: 시기 풀이 없음 · 생성 고리가 `MeReportService` 안에만 → 공통 고리 `DetailReportService`(자리 잡기 · 받을 수 있나 · 한도 · 감사 기록 · 조각 · 심장박동 · 그만두기 · 끝내기, `DetailReportKind` 는 `DetailReportRepository.kt` 로)를 ME · TIMING 이 같이 쓰고, `POST` · `GET /timing-report`(9줄 묶음 약 넷 · 구간 이름 고정 · 맡긴 구간에만 summary · body · detail · practices · reason · `current.mainId` 는 읽을 때 · `TimingReportDone`). 지시문 `timing-report.md`. 단위 `TimingReportDraftTest` 6(빨강: 컴파일 실패 먼저), 통합 `TimingReportApiIntegrationTest` 9 · `DetailReportExecutorFullIntegrationTest` 1 · `DetailReportQueueWaitIntegrationTest` 2(공통 고리 — 나 탭이 일꾼을 채우면 시기 풀이가 FAILED, 줄 대기 11분도 WRITING, 두 종류 모두 심장박동), `MeReportApiIntegrationTest` 16 그대로. 대표 구간 · 실천 검사를 일부러 빼면 통합 테스트 3개가 실패하는 것을 봤다. 계획과 다른 점: 공통 고리의 이름은 `DetailReportService`(`*Repository` 는 같은 패키지의 `*Service` 만 부를 수 있다 — `ArchitectureTest`) · 시기 풀이의 모양은 옛 `ReportTiming` 에 칸을 더해 같이 쓴다(옛 리포트에는 그 칸 · `mainId` 키가 나오지 않는다) · 감사 기록 `REPORT_REQUESTED { kind: TIMING }`. 커밋 `1c98257`.
 - S③ 검증: Docker 없이 도는 단위 테스트 37클래스 218 초록(전 33 · 197). Docker 데몬이 응답하지 않아 통합 테스트는 로컬 PG 15(스크래치, Testcontainers 대신 임시 설정 — 커밋하지 않음)에서 전체 665 중 659 통과, 나머지 6(`AppConfigApiIntegrationTest` 3 · `AdminClosedIntegrationTest` 2 · `ChartApiIntegrationTest` 1)은 S② 때와 같은 까닭(모든 문맥이 한 DB 를 나눠 써서 남은 관리자 · 설정 행)이다. 최종 판정은 PR 의 CI(`./gradlew build`).
 - S③ 리뷰(PR #32, 차단 0) 반영: ① 이번 달이 요청마다 평생 시기 구간을 다시 계산(요청당 약 0.26초 CPU, 시기 탭이 석 달을 부르면 약 0.8초) → `sky/IntervalCache`(차트 해시마다 10분 · 최대 500개 · LRU, 서버 메모리). 결정 032 의 4 "요청마다 계산한다(가볍다)" 와 다른 점은 이 하나 — 눈여겨볼 날은 그대로 요청마다 계산하고 응답은 같다. `IntervalCacheTest` 3(같은 차트는 10분 안 다시 계산 안 함 · LRU · 기본 계산 = `computeIntervals`). 커밋 `5db344d`. ② `dayPhrase`(겹침 피하기 전 첫 번호, 주석이 틀리고 운영 코드가 안 씀) 뺌 — 테스트는 한 날만 든 달의 `monthPhrases` 로, S④ 줄에 "그날의 하늘 제목은 그달의 `monthPhrases(notableDays)` 에서". 커밋 `aecc85e`. ③ 공통 고리의 끝내기에서 오류가 나면 그 행을 바로 `FAILED`(빨강: `WRITING` 으로 남는 것 먼저 봄) — 커밋 `47d7ae3`. 시기 풀이 429 뒤 `FAILED` · 옛 `/reports` 의 시기에 `mainId` · 새 칸이 없음 테스트 — 커밋 `3a362e6`. ④ 문구표 초안 머리에 승인 표시. 그대로 두고 열린 항목으로 넘긴 것: 시각 모름의 달 대상 날 · 이번 달 내내 규칙의 새 결정 여부 · 기본 문구 반복 · 26자 두 줄 · "운명" 재시도 비율과 120초 시간 초과(스테이징 로그). Docker 가 다시 돌아 이번 확인은 Testcontainers: `MonthSky*` 10 · `TimingReportApiIntegrationTest` 10 · `GenerationQuotaIntegrationTest` 6 · `ReportApiIntegrationTest` 25 통과.
+- 13 · 14(S④, 2026-11-20, PR #39 — 서브에이전트가 쓰고 메인이 이어 받아 확인 · 독립 리뷰 1회): `day_skies` · `POST /day-sky` · `prompts/day-sky.md` · `DaySkyService.daySky(ownerId, date, countQuota)`. 그날의 하늘 14 · 마이그레이션 5 · 단위 6 초록(빨강: 컴파일 실패 먼저). 계획과 다른 점: 마이그레이션 번호 V23 → **V30**(앞 번호는 다른 묶음이 먼저 씀) · 근거가 달이면 칩을 `MIND` 로 둔다(문구표 3절 칩 표에 달 줄이 없음) · 서버 안 만들기용 `countQuota = false`(푸시의 아침 미리 만들기 — 결정 042) · 결정 041(출생 정보가 바뀌면 옛 차트의 행을 지움)을 `sky` 도 듣는다 — 그래서 `V30__day_skies.sql` 의 주석 "(옛 행은 남는다)" 는 옛 말이다(합쳐진 마이그레이션이라 고치지 않는다). 리뷰가 남긴 제안(다음에): 모델이 쓴 제목의 끝맺음 · 길이 · 천체 이름 검사, 눈여겨볼 날 고르는 식을 `MonthSkyService` 와 한 함수로, 그날의 하늘 생성의 감사 기록 여부(소유자 질문).
+- 15 ~ 17(S⑤, 2026-11-20, PR #40): `notifications`(V32) · `reading.ReadingCreated` · `synastry.SynastryReportDone` · `notification` 패키지. 계획과 다른 점: 궁합 · 문의가 지워지면 알림도 지우는 일을 `SynastryDeleted` 듣기 대신 외래 키 `on delete cascade` 로(결과는 같다 — 결정 035 의 6), 종류에 `INQUIRY_ANSWERED { inquiryId }`(앱 계획 · 결정 039). 계약 표의 `PUT /devices/push-token` 은 S⑩(결정 042)이 `POST/DELETE /push/devices` 로 바꾼다.
+- 18 · 19(S⑥): 어드민 세션(11)이 맡았다(67 결정, 2026-11-20) — PR #43.

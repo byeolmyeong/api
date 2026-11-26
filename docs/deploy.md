@@ -18,7 +18,7 @@ last_reviewed: 2026-11-18
 | 서버 주소 | `https://api.byeolmyeong.com` | `https://api-staging.byeolmyeong.com` |
 | 앱 웹(버셀, 앱 결정 037) | `app.byeolmyeong.com` | `app.staging.byeolmyeong.com` |
 | 관리 화면(버셀) | `admin.byeolmyeong.com` | 없음 — 어드민은 운영만(소유자 2026-11-20). 버셀 프로젝트 `byeolmyeong-admin` 이 `main` 만 올린다 |
-| 오라클 VM 이름 | `byeolmyeong-prod` | `byeolmyeong-staging` |
+| 오라클 VM 이름 | `byeolmyeong-prod-a1`(Ampere A1 2 OCPU · 12GB · arm64, 2026-11-26 부터 — 결정 050. 옛 `byeolmyeong-prod` 는 멈췄다가 지운다) | `byeolmyeong-staging` |
 | DB 백업 | 매일 04:00 + 배포 직전 → VM 7개 + Object Storage 30일 | 없음(버려도 되는 데이터) |
 | `.env` 의 `DEPLOY_ENV`(결정 022) | `prod` | `staging` — 없거나 비면 운영으로 본다 |
 | 개발용 로그인 | 끔 | 켬(실제 출생 정보는 넣지 않는다). `DEPLOY_ENV` 가 `staging` 이 아니면 서버가 시작하지 않는다 |
@@ -150,8 +150,8 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 1. (맥, 저장소 `develop`) `scp -i ~/.ssh/byeolmyeong-oci deploy/compose.yaml deploy/swap.sh deploy/restore.sh ubuntu@<IP>:/opt/byeolmyeong/` — 돌고 있는 컨테이너는 그대로다(옛 `api` 는 "고아" 경고가 뜬다). **Caddyfile 은 아직 올리지 않는다**(옛 Caddy 가 그 사이 다시 시작하면 `upstream.caddy` 가 붙어 있지 않아 뜨지 못한다).
 2. (VM) 지금 jar 로 블루를 옛 서버 옆에 띄운다: `chmod +x swap.sh restore.sh && cp app.jar app-blue.jar && docker compose up -d --no-deps api-blue` → `until docker compose exec -T caddy wget -q -O /dev/null http://api-blue:8080/health; do sleep 2; done`
 3. `./swap.sh --init`(받는 쪽 파일을 `api-blue` 로) · `docker compose pull caddy`(고정한 태그를 미리 받아 끊김을 줄인다).
-4. 운영: 관리 화면에서 점검 모드를 켠다. 쓰는 중인 생성이 끝날 때까지 기다린다 — 아래가 `0` 이면 된다(옛 jar 는 끌 때 생성을 기다리지 않는다):
-   `docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select (select count(*) from reports where status='WRITING' and active_at > now() - interval '1 minute') + (select count(*) from detail_reports where status='WRITING' and active_at > now() - interval '1 minute') + (select count(*) from synastry_reports where status='WRITING' and active_at > now() - interval '1 minute')"`
+4. 운영: 관리 화면에서 점검 모드를 켠다. 쓰는 중인 생성이 끝날 때까지 기다린다 — 아래가 모두 `| 0` 이면 된다(옛 jar 는 끌 때 생성을 기다리지 않는다). 옛 DB 에 아직 없는 표(예: `detail_reports` 는 V22)는 건너뛴다:
+   `for t in reports detail_reports synastry_reports; do docker compose exec -T postgres psql -U <DB 사용자> -d byeolmyeong -tAc "select '$t', count(*) from $t where status = 'WRITING' and active_at > now() - interval '1 minute'" 2> /dev/null; done`
 5. (맥) `scp -i ~/.ssh/byeolmyeong-oci deploy/Caddyfile ubuntu@<IP>:/opt/byeolmyeong/` → (VM) Caddy 를 새 마운트 · 태그로 다시 만든다(여기서 몇 초 끊긴다): `docker compose up -d --no-deps caddy` → `curl -s https://<서버 주소>/health` 200 · `docker compose exec -T caddy wget -qO- http://127.0.0.1:2019/config/apps/http/servers | grep -o 'api-blue:8080'`
 6. `echo blue > active_color && cp app-blue.jar app.jar.good`
 7. 옛 서버를 내리고 지운다: `docker stop -t 60 byeolmyeong-api-1 && docker rm byeolmyeong-api-1 && rm -f app.jar app.jar.new`
@@ -162,3 +162,4 @@ VM 에서 하는 명령은 모두 `cd /opt/byeolmyeong` 뒤에 한다. 접속: `
 1. (맥) `./gradlew bootJar && scp -i ~/.ssh/byeolmyeong-oci -r deploy/compose.yaml deploy/Caddyfile deploy/swap.sh deploy/backup.sh deploy/restore.sh deploy/initdb build/libs/app.jar ubuntu@<IP>:/opt/byeolmyeong/`
 2. (VM) `chmod +x swap.sh backup.sh restore.sh initdb/*.sh && ./swap.sh --init && docker compose up -d postgres caddy`
 3. `./swap.sh app.jar && rm app.jar` → `event=swap_done`. 그 뒤로는 배포 워크플로가 올린다.
+4. (다른 VM 의 데이터를 옮길 때만) 덤프 복원은 3 **뒤에** 한다: `./restore.sh <덤프> --into-live` 는 `active_color` 가 없으면(서버를 한 번도 띄우지 않은 VM) `step=read_active_color` 로 멈춘다. 복원 뒤 `docker compose start api-$(cat active_color)`. 운영 덤프는 VM 끼리 사설 주소로만 옮긴다(맥을 거치지 않는다, `restore.sh` 머리말).

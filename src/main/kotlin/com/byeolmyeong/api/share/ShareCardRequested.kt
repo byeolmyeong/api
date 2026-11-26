@@ -1,6 +1,7 @@
 package com.byeolmyeong.api.share
 
 import com.byeolmyeong.api.chart.Relation
+import com.byeolmyeong.api.chart.Sign
 import java.time.LocalDate
 import java.util.UUID
 
@@ -31,4 +32,29 @@ class RankingCardRequested(val ownerId: UUID, val relation: Relation) {
 class NextTurnCardRequested(val ownerId: UUID) {
 	var date: LocalDate? = null
 	var theme: String? = null
+}
+
+// ── 공유 v2(결정 036) ──
+
+/** 지금 차트의 요약 해석 v2: 한 줄 별명과 그 차트의 해 별자리. */
+class NicknameCardRequested(val ownerId: UUID) {
+	var headline: String? = null
+	var sunSign: Sign? = null
+}
+
+/** 지금 차트의 완성된 나 탭 풀이에서 [area] 영역의 제목(연애는 영역 제목, 나머지는 첫 문단 제목). */
+class MeAreaCardRequested(val ownerId: UUID, val area: String) {
+	var title: String? = null
+}
+
+/** 저장된 그날의 하늘(결정 034)의 제목. 만들지 않은 날이면 답이 없다. */
+class DaySkyCardRequested(val ownerId: UUID, val date: LocalDate) {
+	var title: String? = null
+}
+
+/** 지금 차트의 완성된 시기 풀이에서 오늘 뒤의 첫 마디: 해 · 만 나이 · 제목. */
+class NextBigCardRequested(val ownerId: UUID) {
+	var year: Int? = null
+	var age: Int? = null
+	var title: String? = null
 }

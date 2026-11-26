@@ -71,16 +71,29 @@ class AuthService(
 	fun account(ownerId: UUID): AccountResponse = checkNotNull(accounts.account(ownerId)) { "세션의 계정이 없다" }
 
 	/**
-	 * 보낸 칸만 바꾼다(결정 025 · 027 · 028). 닉네임이 틀리면 400 `INVALID_NICKNAME`, 프로필이 1~8 밖이면 400 `INVALID_AVATAR`,
-	 * 닉네임을 다른 계정이 쓰면 409 `NICKNAME_TAKEN` — 모두 아무것도 바꾸지 않는다.
-	 * 동의(마케팅 · 푸시)가 바뀔 때만 감사 기록(동의/철회만, 닉네임·이메일 없이). 프로필 바꾸기는 남기지 않는다.
+	 * 로그인 중 닉네임 확인(결정 051). 규칙은 가입 중 확인 · 바꾸기와 같다 — 틀리면 400 `INVALID_NICKNAME`, 영문 대소문자는 같은 이름,
+	 * 내 지금 닉네임(대소문자만 다른 것 포함)이면 쓸 수 있다.
 	 */
-	fun updateAccount(ownerId: UUID, nickname: String?, marketingConsent: Boolean?, pushConsent: Boolean?, avatar: Int?): AccountResponse {
-		val name = nickname?.let { normalizeNickname(it) ?: throw BadRequestException("INVALID_NICKNAME") }
-		val picture = avatar?.let(::requireAvatar)
+	fun nicknameAvailable(ownerId: UUID, nickname: String?): Boolean {
+		val name = normalizeNickname(nickname) ?: throw BadRequestException("INVALID_NICKNAME")
+		return !accounts.nicknameTakenByOther(ownerId, name)
+	}
+
+	/**
+	 * 보낸 칸만 바꾼다(결정 025 · 027 · 028 · 042). 닉네임이 틀리면 400 `INVALID_NICKNAME`, 프로필이 1~8 밖이면 400 `INVALID_AVATAR`,
+	 * 받는 시간이 5분 단위 `HH:mm` 이 아니면 400 `INVALID_TODAY_SKY_TIME`, 닉네임을 다른 계정이 쓰면 409 `NICKNAME_TAKEN` — 모두 아무것도 바꾸지 않는다.
+	 * 동의(마케팅 · 푸시)가 바뀔 때만 감사 기록(동의/철회만, 닉네임·이메일 없이). 프로필 · 오늘의 하늘 알림 바꾸기는 남기지 않는다.
+	 */
+	fun updateAccount(ownerId: UUID, patch: AccountPatchRequest): AccountResponse {
+		val name = patch.nickname?.let { normalizeNickname(it) ?: throw BadRequestException("INVALID_NICKNAME") }
+		val picture = patch.avatar?.let(::requireAvatar)
+		val skyTime = patch.todaySkyTime?.let { parseTodaySkyTime(it) ?: throw BadRequestException("INVALID_TODAY_SKY_TIME") }
+		val marketingConsent = patch.marketingConsent
+		val pushConsent = patch.pushConsent
 		tx.execute {
 			name?.let { accounts.updateNickname(ownerId, it) }
 			picture?.let { accounts.updateAvatar(ownerId, it) }
+			if (patch.todaySkyPush != null || skyTime != null) accounts.updateTodaySky(ownerId, patch.todaySkyPush, skyTime)
 			if (marketingConsent != null && accounts.setMarketingConsent(ownerId, marketingConsent)) {
 				events.publishEvent(AuditEvent(AuditAction.MARKETING_CONSENT_CHANGED, AuditActor.user(ownerId), detail = mapOf("consent" to marketingConsent.toString())))
 			}
@@ -156,13 +169,18 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 
 	/** 계정 화면의 값(결정 025 · 027 · 028). 없으면 null. 닉네임·이메일은 로그에 남기지 않는다. */
 	fun account(id: UUID): AccountResponse? = jdbc.query(
-		"select nickname, email, provider, marketing_consented_at, push_consented_at, avatar, suspended_at is not null as suspended from accounts where id = ?",
+		"""
+		select nickname, email, provider, marketing_consented_at, push_consented_at, avatar, suspended_at is not null as suspended,
+		       coalesce(today_sky_push, push_consented_at is not null) as today_sky_on, to_char(today_sky_time, 'HH24:MI') as today_sky_time
+		from accounts where id = ?
+		""".trimIndent(),
 		{ rs, _ ->
 			val consentedAt = rs.getTimestamp("marketing_consented_at")?.toInstant()
 			val pushAt = rs.getTimestamp("push_consented_at")?.toInstant()
 			AccountResponse(
 				rs.getString("nickname"), rs.getString("email"), rs.getString("provider"), consentedAt != null, consentedAt,
 				pushAt != null, pushAt, (rs.getObject("avatar") as Number?)?.toInt(), rs.getBoolean("suspended"),
+				rs.getBoolean("today_sky_on"), rs.getString("today_sky_time"),
 			)
 		},
 		id,
@@ -178,7 +196,7 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 		jdbc.queryForObject("select exists(select 1 from accounts where lower(nickname) = lower(?))", Boolean::class.java, nickname) == true
 
 	/** 다른 계정이 이 닉네임을 쓰는가. 내 행은 빼고 본다(내 닉네임의 대소문자만 바꾸는 건 된다). */
-	private fun nicknameTakenByOther(id: UUID, nickname: String): Boolean = jdbc.queryForObject(
+	fun nicknameTakenByOther(id: UUID, nickname: String): Boolean = jdbc.queryForObject(
 		"select exists(select 1 from accounts where lower(nickname) = lower(?) and id <> ?)", Boolean::class.java, nickname, id,
 	) == true
 
@@ -208,6 +226,14 @@ class AccountRepository(private val jdbc: JdbcTemplate) {
 		} else {
 			jdbc.update("update accounts set push_consented_at = null where id = ? and push_consented_at is not null", id) > 0
 		}
+
+	/** 오늘의 하늘 알림(결정 042 의 3). null 인 칸은 그대로 둔다. */
+	fun updateTodaySky(id: UUID, on: Boolean?, time: java.time.LocalTime?) {
+		jdbc.update(
+			"update accounts set today_sky_push = coalesce(?::boolean, today_sky_push), today_sky_time = coalesce(?::time, today_sky_time) where id = ?",
+			on, time, id,
+		)
+	}
 
 	/** 프로필 번호(1~8, 결정 028)를 바꾼다. */
 	fun updateAvatar(id: UUID, avatar: Int) {

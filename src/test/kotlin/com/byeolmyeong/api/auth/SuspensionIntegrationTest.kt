@@ -66,6 +66,7 @@ class SuspensionIntegrationTest {
 			Triple("GET", "/reading", null),
 			Triple("PATCH", "/account", """{"avatar":2}"""),
 			Triple("GET", "/auth/session", null),
+			Triple("GET", "/auth/analytics-id", null),
 			Triple("POST", "/charts", """{"date":"1990-03-15"}"""),
 			Triple("GET", "/no-such-path", null),
 		)) {

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 /** 세션 토큰. 웹이 쿠키로 받기로 했으면 null 이고 본문에서 빠진다(결정 021). */
@@ -36,7 +37,10 @@ data class LoginResponse(val status: String, val token: String? = null, val sign
 /** 애플 서버 알림의 본문. */
 data class AppleNotificationRequest(val payload: String?)
 
-/** `GET/PATCH /account` 의 응답(결정 025 · 027 · 028). 없는 값은 null. */
+/**
+ * `GET/PATCH /account` 의 응답(결정 025 · 027 · 028 · 042). 없는 값은 null.
+ * [todaySkyPush] 는 오늘의 하늘 알림이 실제로 켜졌는지(직접 정하지 않았으면 푸시 수신 동의), [todaySkyTime] 은 받는 한국 시각 `HH:mm`.
+ */
 data class AccountResponse(
 	val nickname: String?,
 	val email: String?,
@@ -48,6 +52,8 @@ data class AccountResponse(
 	val avatar: Int?,
 	/** 이용 정지(결정 044). 참이면 앱이 정지 화면(앱 결정 065 의 5)을 띄운다. 사유는 주지 않는다. */
 	val suspended: Boolean,
+	val todaySkyPush: Boolean,
+	val todaySkyTime: String,
 )
 
 /** `POST /auth/nickname-check`(결정 025). */
@@ -55,12 +61,14 @@ data class NicknameCheckRequest(val signupToken: String? = null, val nickname: S
 
 data class NicknameCheckResponse(val available: Boolean)
 
-/** `PATCH /account`. 보낸 칸만 바꾼다(결정 025 · 027 · 028). */
+/** `PATCH /account`. 보낸 칸만 바꾼다(결정 025 · 027 · 028 · 042). */
 data class AccountPatchRequest(
 	val nickname: String? = null,
 	val marketingConsent: Boolean? = null,
 	val pushConsent: Boolean? = null,
 	val avatar: Int? = null,
+	val todaySkyPush: Boolean? = null,
+	val todaySkyTime: String? = null,
 )
 
 /**
@@ -140,6 +148,10 @@ class AuthController(
 	@GetMapping("/auth/session")
 	fun session(): ResponseEntity<Void> = ResponseEntity.noContent().build()
 
+	/** 분석 도구에 보내는 사용자 id(앱 결정 040 · 081). 세션 확인(`GET /auth/session` 204)과 따로 둔다 — 더하기만 해서 옛 앱이 깨지지 않는다. */
+	@GetMapping("/auth/analytics-id")
+	fun analyticsId(): AnalyticsIdResponse = AnalyticsIdResponse(analyticsIdOf(owner.id()))
+
 	/** 로그아웃. 이 세션만 지운다(결정 021). */
 	@DeleteMapping("/auth/session")
 	fun logout(response: HttpServletResponse): ResponseEntity<Void> {
@@ -152,10 +164,15 @@ class AuthController(
 	@GetMapping("/account")
 	fun account(): AccountResponse = auth.account(owner.id())
 
+	/** 로그인 중 닉네임 확인(결정 051) — 마이에서 닉네임을 바꾸기 전에. 가입 중 확인과 같은 규칙, 내 지금 닉네임이면 true. */
+	@GetMapping("/account/nickname-check")
+	fun accountNicknameCheck(@RequestParam(required = false) nickname: String?): NicknameCheckResponse =
+		NicknameCheckResponse(auth.nicknameAvailable(owner.id(), nickname))
+
 	/** 닉네임·수신 동의(마케팅 · 푸시)·프로필을 바꾼다(결정 025 · 027 · 028). 보낸 칸만. */
 	@PatchMapping("/account")
 	fun updateAccount(@RequestBody request: AccountPatchRequest): AccountResponse =
-		auth.updateAccount(owner.id(), request.nickname, request.marketingConsent, request.pushConsent, request.avatar)
+		auth.updateAccount(owner.id(), request)
 
 	/** 계정 삭제. 세션의 주인만 지운다. 웹의 쿠키도 지운다. */
 	@DeleteMapping("/account")
@@ -172,3 +189,6 @@ class AuthController(
 		return TokenResponse(null)
 	}
 }
+
+/** `GET /auth/analytics-id` 의 응답. 계정 id 는 내보내지 않는다. */
+data class AnalyticsIdResponse(val analyticsId: String)

@@ -1,6 +1,7 @@
 package com.byeolmyeong.api.share
 
 import com.byeolmyeong.api.chart.Relation
+import com.byeolmyeong.api.chart.Sign
 import com.fasterxml.jackson.annotation.JsonInclude
 import java.time.LocalDate
 
@@ -8,7 +9,7 @@ import java.time.LocalDate
 // 응답 형태의 원본은 docs/architecture.md "공유", 고른 것의 이유는 docs/decisions/012-share-cards-snapshot.md.
 // 여기 적힌 필드가 공개 조회(`GET /shared/{shareId}`)에 나가는 전부다. 근거·본문·출생 정보·소유자를 더하지 않는다.
 
-enum class ShareKind { READING, SCORE, RANKING, NEXT_TURN }
+enum class ShareKind { READING, SCORE, RANKING, NEXT_TURN, NICKNAME, ME_AREA, DAY_SKY, NEXT_BIG }
 
 enum class Season { SPRING, SUMMER, AUTUMN, WINTER }
 
@@ -39,8 +40,38 @@ data class NextTurnCard(val year: Int, val season: Season, val theme: String) : 
 	override val kind get() = ShareKind.NEXT_TURN
 }
 
+// 공유 v2(결정 036): 닉네임 · 해 별자리 · 날짜 · 해와 만 나이가 들어간다. 출생 날짜 · 시각 · 곳 · 다른 별자리 · 도수는 넣지 않는다.
+// [nickname] 은 계정의 닉네임 — 옛 계정이라 없으면 키가 없다.
+
+/** 내 별명 카드: 지금 차트의 요약 해석 v2 의 한 줄 별명과 해 별자리. */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class NicknameCard(val nickname: String?, val sunSign: Sign, val headline: String) : ShareCard {
+	override val kind get() = ShareKind.NICKNAME
+}
+
+/** 나 탭 영역 카드: 연애는 영역 제목, 나머지는 첫 문단 제목. [area] 는 영역 이름(PERSONALITY · LOVE · RELATIONSHIP · WORK · EMOTION). */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class MeAreaCard(val nickname: String?, val area: String, val title: String) : ShareCard {
+	override val kind get() = ShareKind.ME_AREA
+}
+
+/** 그날의 하늘 카드: 그 날짜(YYYY-MM-DD)와 저장된 그날의 하늘 제목. */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class DaySkyCard(val nickname: String?, val date: String, val title: String) : ShareCard {
+	override val kind get() = ShareKind.DAY_SKY
+}
+
+/** 다음 큰 변화 카드: 시기 풀이의 다음 큰 마디의 해 · 만 나이 · 제목. */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class NextBigCard(val nickname: String?, val year: Int, val age: Int, val title: String) : ShareCard {
+	override val kind get() = ShareKind.NEXT_BIG
+}
+
 /** `POST /shares` 의 응답. [card] 는 공개 조회가 주는 것과 같다. */
 data class Share(val shareId: String, val card: ShareCard)
+
+/** `POST /shares/preview` 의 응답 — 저장하지 않은 카드뿐이다(결정 051). */
+data class SharePreview(val card: ShareCard)
 
 const val RANKING_TOP = 3
 

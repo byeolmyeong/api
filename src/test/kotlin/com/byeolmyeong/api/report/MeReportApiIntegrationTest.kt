@@ -450,6 +450,7 @@ class MeReportApiIntegrationTest {
 		generator.reset()
 		assertEquals(WRITING, post(token).body())
 		await(token, "DONE")
+		settle() // DONE 을 커밋한 뒤 일꾼이 완성 이벤트를 낸다 — 세기 전에 끝나길 기다린다
 		assertEquals(5, generator.requests.size)
 		assertEquals(1, rows())
 		assertEquals(1, events.owners.size)

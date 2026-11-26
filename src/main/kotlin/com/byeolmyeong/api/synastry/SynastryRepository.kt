@@ -136,6 +136,9 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 		)
 	}
 
+	/** 그 궁합의 소유자. 지워졌으면 null. */
+	fun ownerOf(id: UUID): UUID? = jdbc.queryForList("select owner_id from synastries where id = ?", UUID::class.java, id).firstOrNull()
+
 	/** 소유자의 궁합 하나를 지운다(리포트는 `on delete cascade`). 남의 것이면 지우지 않고 false. */
 	fun delete(ownerId: UUID, id: UUID): Boolean = jdbc.update("delete from synastries where owner_id = ? and id = ?", ownerId, id) == 1
 

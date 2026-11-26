@@ -63,6 +63,7 @@ class LoginService(
 	private val legal: LegalVersions,
 	private val tx: TransactionTemplate,
 	private val events: ApplicationEventPublisher,
+	private val idTokenOnce: IdTokenOnceService,
 ) {
 	private val verifiers = verifiers.associateBy { it.provider }
 
@@ -87,7 +88,10 @@ class LoginService(
 		} else {
 			checkNotNull(idToken)
 		}
-		return verifiers.getValue(provider).verify(token)
+		val identity = verifiers.getValue(provider).verify(token)
+		// 앱이 보낸 ID 토큰만(서버가 코드로 받은 카카오 토큰은 아니다). 확인을 다 한 뒤에 선점한다(결정 047).
+		if (code == null) idTokenOnce.claim(identity)
+		return identity
 	}
 
 	/**

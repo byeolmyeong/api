@@ -310,6 +310,7 @@ class TimingReportApiIntegrationTest {
 		assertEquals(0, rows(), "바꾸면 옛 차트의 풀이를 지운다(결정 041)")
 		assertEquals(WRITING, post(token).body())
 		await(token, "DONE")
+		settle() // DONE 을 커밋한 뒤 일꾼이 완성 이벤트를 낸다 — 세기 전에 끝나길 기다린다
 		assertEquals(1, rows())
 		assertEquals(2, events.owners.size)
 	}
@@ -364,6 +365,7 @@ class TimingReportApiIntegrationTest {
 		generator.reset()
 		assertEquals(WRITING, post(token).body())
 		await(token, "DONE")
+		settle() // DONE 을 커밋한 뒤 일꾼이 완성 이벤트를 낸다 — 세기 전에 끝나길 기다린다
 		assertEquals(1, events.owners.size)
 	}
 
@@ -447,9 +449,19 @@ class TimingReportApiIntegrationTest {
 		)
 
 		assertEquals(ReportStatus.WRITING, details.request(owner, DetailReportKind.ME, "finish-fails") { job })
+		// 맡긴 직후에는 일꾼이 아직 일을 잡기 전이라 "바쁜 일꾼 0 · 줄 0" 으로 보여 settle() 이 바로 지나갈 수 있다.
+		// 행이 쓰는 중을 벗어날 때까지 본다 — 10초는 멈춘 것으로 보는 2분보다 한참 짧다("바로").
+		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+		var statuses: List<String?>
+		while (true) {
+			statuses = jdbc.queryForList("select status from detail_reports where chart_hash = 'finish-fails'", String::class.java)
+			if (statuses != listOf("WRITING")) break
+			check(System.nanoTime() < deadline) { "10초 안에 쓰는 중을 벗어나지 않는다" }
+			Thread.sleep(10)
+		}
 		settle()
 
-		assertEquals(listOf("FAILED"), jdbc.queryForList("select status from detail_reports where chart_hash = 'finish-fails'", String::class.java), "2분 기다리지 않고 바로")
+		assertEquals(listOf("FAILED"), statuses, "2분 기다리지 않고 바로")
 		assertTrue(output.all.contains("event=me_report_finish_failed error=IllegalStateException"))
 		assertFalse(output.all.contains("본문을 만들다 실패"), "예외의 글은 로그에 남기지 않는다")
 	}
