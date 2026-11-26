@@ -148,6 +148,10 @@ class AuthController(
 	@GetMapping("/auth/session")
 	fun session(): ResponseEntity<Void> = ResponseEntity.noContent().build()
 
+	/** 분석 도구에 보내는 사용자 id(앱 결정 040 · 081). 세션 확인(`GET /auth/session` 204)과 따로 둔다 — 더하기만 해서 옛 앱이 깨지지 않는다. */
+	@GetMapping("/auth/analytics-id")
+	fun analyticsId(): AnalyticsIdResponse = AnalyticsIdResponse(analyticsIdOf(owner.id()))
+
 	/** 로그아웃. 이 세션만 지운다(결정 021). */
 	@DeleteMapping("/auth/session")
 	fun logout(response: HttpServletResponse): ResponseEntity<Void> {
@@ -185,3 +189,6 @@ class AuthController(
 		return TokenResponse(null)
 	}
 }
+
+/** `GET /auth/analytics-id` 의 응답. 계정 id 는 내보내지 않는다. */
+data class AnalyticsIdResponse(val analyticsId: String)
