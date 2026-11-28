@@ -14,6 +14,8 @@ import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.GenerationQuota
 import com.byeolmyeong.api.web.GenerationRateLimitedException
 import com.byeolmyeong.api.web.NotFoundException
+import com.byeolmyeong.api.web.PurchaseRequiredException
+import com.byeolmyeong.api.web.UpdateRequiredException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
@@ -123,6 +125,7 @@ class ReportService(
 	@Qualifier("reportExecutor") private val executor: Executor,
 	private val events: ApplicationEventPublisher,
 	private val quota: GenerationQuota,
+	private val entitlement: EntitlementPolicy,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -158,9 +161,16 @@ class ReportService(
 		event.theme = next.title
 	}
 
-	/** 지금 차트의 리포트를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다. */
-	fun request(ownerId: UUID): ReportStatus {
+	/**
+	 * 지금 차트의 리포트를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다.
+	 * 새로 시작할 때만 자세한 풀이와 같은 판정을 거친다(결정 056 의 12 — 옛 앱 426 · 상품이 없으면 402 · 묻지 못하면 503, 행을 만들지 않는다).
+	 * 이 경로의 받기는 1.0.0 수령자로 치지 않는다(앱이 부르지 않는 옛 경로 — 계획 S⑤ 정리에서 뺀다).
+	 */
+	fun request(ownerId: UUID, appVersion: String?): ReportStatus {
 		val birth = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
+		repository.find(ownerId, birth.hash, STALE_SECONDS)?.let(::statusOf)?.takeIf { it == ReportStatus.DONE || it == ReportStatus.WRITING }?.let { return it }
+		if (entitlement.requiresUpdate(appVersion)) throw UpdateRequiredException()
+		if (!entitlement.hasDetail(ownerId)) throw PurchaseRequiredException()
 		// 차트는 자리를 잡기 전에 계산한다: 계산이 실패해도 WRITING 인 채 남는 행이 없다.
 		val chart = birth.chart()
 		val run = repository.claim(ownerId, birth.hash, STALE_SECONDS)

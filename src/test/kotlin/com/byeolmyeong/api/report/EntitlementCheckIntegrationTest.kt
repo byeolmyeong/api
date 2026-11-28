@@ -378,4 +378,36 @@ class EntitlementCheckIntegrationTest {
 		assertEquals(200 to """{"detail":true}""", read(token))
 		assertEquals(listOf("STORE"), entitlementRows())
 	}
+
+	private fun oldReportRows(): Int = jdbc.queryForObject("select count(*) from reports", Int::class.java)!!
+
+	@Test
+	fun `옛 심층 리포트 받기도 같은 판정이다 - 안 산 사람 402 · 1점1점0 미만 앱 426 · 산 사람 202`() {
+		val token = token()
+
+		assertEquals(402 to PURCHASE_REQUIRED, post("/reports", token).let { it.statusCode() to it.body() })
+		assertEquals(426 to UPDATE_REQUIRED, postFromApp("/reports", token, "1.0.0").let { it.statusCode() to it.body() })
+		assertEquals(0, oldReportRows())
+		assertEquals(0, requestedAudits())
+
+		revenueCat.answer = { true }
+		clock.now = clock.now.plusSeconds(61) // 담아 둔 "없음" 이 지난 뒤
+		assertEquals(202, post("/reports", token).statusCode())
+		assertEquals(listOf("STORE"), entitlementRows())
+		assertEquals(1, oldReportRows())
+	}
+
+	@Test
+	fun `옛 심층 리포트도 결제 시작 전에는 묻지 않고 받으며 쓰는 중이면 시작 뒤에도 묻지 않는다`() {
+		clock.now = PURCHASE_STARTS.minusSeconds(1)
+		val token = token()
+		generator.gate = CountDownLatch(1)
+
+		assertEquals(202 to """{"status":"WRITING"}""", postFromApp("/reports", token, "1.0.0").let { it.statusCode() to it.body() })
+
+		clock.now = PURCHASE_STARTS.plusSeconds(1)
+		revenueCat.fails()
+		assertEquals(202 to """{"status":"WRITING"}""", postFromApp("/reports", token, "1.0.0").let { it.statusCode() to it.body() })
+		assertTrue(revenueCat.asked.isEmpty())
+	}
 }
