@@ -29,14 +29,14 @@ last_reviewed: 2026-11-12
 - `synastry` — 직접 입력 궁합: 나 기준 점수(`chart` 계산), 키워드·한 줄 요약 생성, 목록·랭킹, 궁합 리포트(202 로 답하고 뒤에서 영역마다 쓴다). 상대의 출생 정보·행성 위치는 요청 안에서만 쓰고 저장하지 않는다(결정 010). 초대·수락은 아직 없다(태스크 9 의 나머지).
 - `direction` — 방향성 제시(해 볼 만한 것 3개). 주제는 이성·미래·궁합이다. 방향성 제시에만 있는 것(지시문, 돌려받을 구조, 항목 개수·근거·조언형·숫자 검증, 미래 주제의 "지금의 시기" 가리기)을 갖고, 생성은 `generation.TextGenerator` 로 한다. 미래 주제의 시기는 `chart` 로 직접 계산한다(`report` 의 저장본을 읽지 않는다). 궁합 주제는 상대의 출생 정보를 요청으로 다시 받아 그 안에서만 쓰고(결정 010), 글이 붙는 궁합의 소유자·관계 유형·점수·그때의 내 차트 해시는 `synastries` 표에서 읽기만 한다(`synastry` 의 클래스를 쓰지 않는다). 결정: docs/decisions/009-direction-storage-and-advice-check.md, docs/decisions/011-direction-future-and-synastry.md
 - `inquiry` — 문의하기와 내 문의. 문의 글을 검증해 저장하고(보낸 앱의 헤더도), 내 문의 목록 · 한 건을 답과 함께 준다(답은 `admin` 이 쓴다 — 같은 테이블만 본다). 메일 발송은 없다. 계정별 시간당 제한을 여기서 건다. 결정: docs/decisions/013-inquiries-stored-on-server.md · 039-inquiry-answers.md
-- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(찾기 · 작성자 · 상태 · 메모 · 답 · 임시 저장 · 처리한 관리자 — 처음 답하면 `InquiryAnswered` 를 낸다, 결정 039), 현황 수치(개수 · 비율만)와 접속 차트(결정 043), FAQ 편집, 앱 설정 편집(최소 버전·강제 업데이트, 결정 016). 한 일은 `AdminAudit` 으로 감사 기록에 알린다(결정 015). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
+- `admin` — 관리자 API(`/admin/**`). 앱 사용자와 완전히 따로인 관리자 계정·로그인·세션(`AdminSessionInterceptor`·`CurrentAdmin`), 첫 관리자 만들기, 관리자 관리, 문의 관리(찾기 · 작성자 · 상태 · 메모 · 답 · 임시 저장 · 처리한 관리자 — 처음 답하면 `InquiryAnswered` 를 낸다, 결정 039), 현황 수치(개수 · 비율만)와 접속 차트(결정 043), FAQ 편집, 공지사항 편집 · 공개("알림 보내기"를 켠 공지를 처음 공개하면 `NoticePublished` 를 낸다, 결정 055), 앱 설정 편집(최소 버전·강제 업데이트, 결정 016). 한 일은 `AdminAudit` 으로 감사 기록에 알린다(결정 015). 다른 기능의 테이블은 자기 SQL 로 읽는다. 다른 기능 패키지를 모른다(`auth` 도 쓰지 않는다). 결정: docs/decisions/014-admin-back-office.md
 - `audit` — 감사 기록(결정 015). 다른 기능과 `auth` 가 낸 `web.AuditEvent` 를 듣고(`AuditRecorder`, 커밋 뒤·자기 트랜잭션·실패는 삼킨다) `audit_logs` 에 넣기만 한다(1년 지난 행은 날마다 한 번 지운다 — 결정 043 의 8). 관리자가 읽는 경로(`GET /admin/audit-logs`)도 여기 있다 — 경로가 `/admin/` 아래라 관리자 세션 검사가 걸리지만 `admin` 의 코드는 쓰지 않는다. 다른 기능은 이 패키지를 모른다.
 - `appconfig` — 앱 설정의 공개 조회(`GET /app-config`)와 점검·강제 업데이트(`AppUpdateInterceptor`: 점검이 켜져 있으면 모든 요청을 503 으로 — 결정 017, 그다음 앱이 보낸 플랫폼·버전 헤더를 보고 낮은 버전을 426 으로 막는다. 세션 검사보다 먼저, `/admin/**`·`/health`·`/app-config` 는 뺀다). `app_configs`·`app_maintenance` 를 읽기만 하고 잠깐 캐시한다. 값을 쓰는 것은 `admin` 이다(결정 016).
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
 - `notice` — 공지사항의 공개 조회(`GET /notices`, 세션 없음, 결정 055). `notices` 테이블을 읽기만 한다. 글을 쓰고 공개하는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(FAQ 와 같은 틀).
 - `share` — 공유 카드 8종(요약 해석·궁합 점수·랭킹·다음 변곡점, 공유 v2 의 내 별명·나 탭 영역·그날의 하늘·다음 큰 변화 — 결정 036): 만들기·공개 조회·지우기. 공유하는 순간의 공개 글만 `shares` 에 따로 저장하고(스냅샷) 공개 조회는 그 표만 읽는다. 카드의 글은 그 글을 가진 기능에게 이벤트(`ReadingCardRequested` 등)로 묻는다. 이름을 이니셜로, 날짜를 해 + 계절로 줄이는 것도 여기서 한다. 결정: docs/decisions/012-share-cards-snapshot.md
-- `push` — 기기 토큰과 알림 발송.
-- `notification` — 알림함(`GET /notifications` · `POST /notifications/{id}/read`, 결정 035). 완성 이벤트(별명 지음 · 나 탭 풀이 · 시기 풀이 · 궁합 리포트 · 문의 답변)를 커밋 뒤에 듣고 한 줄씩 넣는다. 문구는 앱이 갖는다. 30일 지난 줄은 날마다 지운다.
+- `push` — 기기 토큰과 알림 발송. 공지 알림(`admin.NoticePublished`)은 푸시 동의 + 정지 아님인 계정의 기기 모두에 보낸다(결정 055).
+- `notification` — 알림함(`GET /notifications` · `POST /notifications/{id}/read`, 결정 035). 완성 이벤트(별명 지음 · 나 탭 풀이 · 시기 풀이 · 궁합 리포트 · 문의 답변)를 커밋 뒤에 듣고 한 줄씩 넣는다. 알림을 켠 공지가 공개되면(`admin.NoticePublished`) 모든 계정에 한 줄씩 넣는다(결정 055). 문구는 앱이 갖는다. 30일 지난 줄은 날마다 지운다.
 - `sky` — 시기 탭의 이번 달(`GET /timing/month`, 결정 032). 요청 때마다 `chart` 로 계산하고(그달의 지나가는 별 · 평생 시기 구간) `generation` 의 문구표 · 시기 표에서 글을 골라 준다. 저장하지 않고 모델을 부르지 않으며 생성 한도에 세지 않는다 — 계정별 분당 요청 수만 센다. 그날의 하늘(`POST /day-sky`, 결정 034)도 여기에 둔다 — 서버가 근거 · (눈여겨볼 날이면) 제목 · 칩을 정하고 모델이 흐름 · 실천(+ 제목)을 쓴 글을 소유자 · 차트 · 날짜마다 한 번 저장한다(`day_skies`).
 
 ## 디렉터리 구조
@@ -53,7 +53,7 @@ src/main/kotlin/com/byeolmyeong/api/
   synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · SynastryDeleted(이벤트) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증) · DirectionFuture(미래: 지금의 시기·대상) · DirectionSynastry(궁합: 재료·지시문)
   inquiry/     InquiryController(문의하기 · 내 문의) · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증 · 옛 앱 갈래 · 보낸 앱)
-  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸 · 답 칸만 쓴다) · InquiryAnswered(이벤트) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다 · 접속 차트) · AdminFaqController · AdminFaqService(+ AdminFaqRepository) · AdminAppConfigController(+ AdminAppConfigService · AdminAppConfigRepository) · AppConfigChanged(이벤트) · AdminAudit(감사 기록에 알린다)
+  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸 · 답 칸만 쓴다) · InquiryAnswered(이벤트) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다 · 접속 차트) · AdminFaqController · AdminFaqService(+ AdminFaqRepository) · AdminNoticeController(+ NoticeFields — 본문 검증) · AdminNoticeService(+ AdminNoticeRepository — 공개 · 알림 한 번) · NoticePublished(이벤트) · AdminAppConfigController(+ AdminAppConfigService · AdminAppConfigRepository) · AppConfigChanged(이벤트) · AdminAudit(감사 기록에 알린다)
   audit/       AuditRecorder(이벤트를 듣는다) · AuditService(+ AuditRepository — 넣고 읽고, 1년 지난 행을 날마다 지운다) · AuditLogController(`GET /admin/audit-logs`)
   appconfig/   AppConfigController(+ AppConfigService: 캐시·막을지 판정 · AppConfigRepository) · AppUpdateInterceptor(+ AppUpdateConfig: 순서·빼는 경로)
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
@@ -73,7 +73,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 |---|---|
 | `chart` 는 Kotlin 표준·java.time·astronomy-engine 외에는 의존하지 않는다(Spring·DB·다른 패키지 금지) | 계산은 홀로 검증된다 |
 | `birth` 는 `chart` 외 다른 기능 패키지에 의존하지 않는다 | 시각 변환도 순수하게 둔다 |
-| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`·`sky`·`notification`·`notice`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 나 탭 풀이 · 시기 풀이가 완성됐다는 `report.MeReportDone` · `report.TimingReportDone`(알림함이 듣는다 — 결정 029 · 035), 궁합이 지워졌다는 `synastry.SynastryDeleted`(`direction` 이 그 궁합의 글을 지운다 — 결정 019), 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012, 공유 v2 의 `NicknameCardRequested`(reading)·`MeAreaCardRequested`·`NextBigCardRequested`(report)·`DaySkyCardRequested`(sky) — 결정 036)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)와 관리자가 문의에 처음 답했다는 `admin.InquiryAnswered`(알림함 S⑤ · 푸시 S⑩ 가 듣는다 — 결정 039)와 출생 정보가 바뀌었다는 `profile.BirthProfileChanged`(`reading` · `report` · `sky` 가 옛 차트의 저장분을 지운다 — 결정 041), 별명을 처음 지었다는 `reading.ReadingCreated` 와 궁합 리포트가 완성됐다는 `synastry.SynastryReportDone`(알림함이 듣는다 — 결정 035), 오늘의 하늘 알림을 보낼 때가 됐다는 `sky.TodaySkyDue`(`push` 가 보낸다 — 결정 042 의 6)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015). 관리자의 탈퇴 대행도 공통 패키지의 `web.AccountDeletionRequested` 로 `auth` 에 알린다(공통 `auth` 는 기능의 이벤트 클래스를 알 수 없다 — 결정 043 의 1). 관리자가 광고 푸시를 보냈다는 `admin.PushEventRequested` · push 가 다 보냈다는 `admin.PushEventSent`(결정 043 의 6)도 허용된 이벤트다. | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게. 관리자가 실패한 자세한 풀이를 다시 만들게 했다는 `admin.GenerationRetryRequested`(`report` 가 듣고 다시 시작한다 — 결정 043 의 1)도 허용된 이벤트다 |
+| 기능 패키지(`profile`·`reading`·`report`·`synastry`·`direction`·`inquiry`·`admin`·`faq`·`audit`·`appconfig`·`share`·`push`·`sky`·`notification`·`notice`)는 서로 직접 의존하지 않는다. 기능 사이 연결은 Spring 이벤트(`ReportDone`·`InviteAccepted`, 나 탭 풀이 · 시기 풀이가 완성됐다는 `report.MeReportDone` · `report.TimingReportDone`(알림함이 듣는다 — 결정 029 · 035), 궁합이 지워졌다는 `synastry.SynastryDeleted`(`direction` 이 그 궁합의 글을 지운다 — 결정 019), 공유 카드의 글을 묻는 `share` 의 `ReadingCardRequested`·`ScoreCardRequested`·`RankingCardRequested`·`NextTurnCardRequested` — 결정 012, 공유 v2 의 `NicknameCardRequested`(reading)·`MeAreaCardRequested`·`NextBigCardRequested`(report)·`DaySkyCardRequested`(sky) — 결정 036)로만 한다. 관리자가 앱 설정을 고쳤다는 `admin.AppConfigChanged`(`appconfig` 가 캐시를 비운다 — 결정 016)와 관리자가 문의에 처음 답했다는 `admin.InquiryAnswered`(알림함 S⑤ · 푸시 S⑩ 가 듣는다 — 결정 039)와 출생 정보가 바뀌었다는 `profile.BirthProfileChanged`(`reading` · `report` · `sky` 가 옛 차트의 저장분을 지운다 — 결정 041), 별명을 처음 지었다는 `reading.ReadingCreated` 와 궁합 리포트가 완성됐다는 `synastry.SynastryReportDone`(알림함이 듣는다 — 결정 035), 오늘의 하늘 알림을 보낼 때가 됐다는 `sky.TodaySkyDue`(`push` 가 보낸다 — 결정 042 의 6)도 허용된 이벤트다. 감사 기록은 기능의 이벤트가 아니라 공통 패키지의 `web.AuditEvent` 로 알린다(`auth` 도 내야 해서 — 결정 015). 관리자의 탈퇴 대행도 공통 패키지의 `web.AccountDeletionRequested` 로 `auth` 에 알린다(공통 `auth` 는 기능의 이벤트 클래스를 알 수 없다 — 결정 043 의 1). 관리자가 광고 푸시를 보냈다는 `admin.PushEventRequested` · push 가 다 보냈다는 `admin.PushEventSent`(결정 043 의 6), 알림을 켠 공지가 공개됐다는 `admin.NoticePublished`(알림함 · 푸시가 듣는다 — 결정 055)도 허용된 이벤트다. | 기능 하나를 고칠 때 다른 기능이 같이 깨지지 않게. 관리자가 실패한 자세한 풀이를 다시 만들게 했다는 `admin.GenerationRetryRequested`(`report` 가 듣고 다시 시작한다 — 결정 043 의 1)도 허용된 이벤트다 |
 | 기능 패키지는 `chart`·`birth`·`auth`(소유자 얻기)·`web`(공통)·`generation`(글 생성 공통) 에만 의존할 수 있다 | 공통으로 쓰는 것만 아래로 둔다 |
 | `generation` 은 `chart` 외 다른 패키지에 의존하지 않는다 | 글 생성 공통은 차트만 안다. 누구의 글인지·어디에 저장하는지는 기능이 맡는다 |
 | `auth`·`web`·`generation` 은 기능 패키지에 의존하지 않는다 | 공통이 기능을 알면 순환이 생긴다 |
@@ -125,7 +125,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /reports/me` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report? }` · 지금 프로필의 차트 기준 · `report` 는 `DONE` 일 때만(`sections` 와 `timing` 이 언제나 함께 온다) · 저장한 출생 정보가 없으면 `NONE` |
 | `GET /timing/month?month=YYYY-MM` | 세션 | `month` 선택 — 없거나 빈 값이면 한국 날짜의 이번 달 | 200 `MonthSky` · 형식이 틀리면 400 `INVALID_MONTH` · 지난달 · 이번 달 · 다음 달(한국 날짜) 밖이면 400 `MONTH_OUT_OF_RANGE` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 계정별 분당 `month-per-minute`(60)을 넘으면 429 `RATE_LIMITED` · 저장하지 않고 모델 · 생성 한도를 쓰지 않는다 · 시기 풀이 없이 열린다 · 아래 "이번 달" |
 | `POST /day-sky` | 세션 | `{ date?: "YYYY-MM-DD" }` — 본문이 없거나 `date` 가 없거나 null 이면 한국 날짜의 오늘(오늘의 하늘) | 200 `DaySky` · 형식이 틀리면(빈 글자 · 없는 날 포함) 400 `INVALID_DATE` · 지난달 1일 ~ 다음 달 말일(한국 날짜) 밖이면 400 `DATE_OUT_OF_RANGE` · 본문이 JSON 객체가 아니면 400 `INVALID_REQUEST` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다 · 다시 보내면 된다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 같은 차트 · 같은 날은 저장된 글을 바로 준다 · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) · 아래 "그날의 하늘" |
-| `GET /notifications` | 세션 | 없음 | 200 `{ unread, items[{ id, kind, createdAt, read, synastryId?, inquiryId? }] }` · 최근 30일 · 새것부터 · 100개까지 · `kind` = `READING_DONE`(별명 지음) · `ME_REPORT_DONE` · `TIMING_REPORT_DONE` · `SYNASTRY_REPORT_DONE`(궁합 리포트 — 1.0.0 앱은 숨김) · `INQUIRY_ANSWERED`(문의 답변 — `inquiryId` 로 답변 보기) · `synastryId` · `inquiryId` 는 그 종류일 때만 있고 아니면 키가 없다 · `unread` 는 30일 안의 안 읽은 수(홈의 종 점) · 문구는 앱이 갖는다(결정 035) |
+| `GET /notifications` | 세션 | 없음 | 200 `{ unread, items[{ id, kind, createdAt, read, synastryId?, inquiryId?, noticeId? }] }` · 최근 30일 · 새것부터 · 100개까지 · `kind` = `READING_DONE`(별명 지음) · `ME_REPORT_DONE` · `TIMING_REPORT_DONE` · `SYNASTRY_REPORT_DONE`(궁합 리포트 — 1.0.0 앱은 숨김) · `INQUIRY_ANSWERED`(문의 답변 — `inquiryId` 로 답변 보기) · `NOTICE`(알림을 켠 공지 — `noticeId` 로 그 글, 지운 공지의 줄은 함께 지워진다 · 내린 공지의 줄은 남는다, 결정 055) · `synastryId` · `inquiryId` · `noticeId` 는 그 종류일 때만 있고 아니면 키가 없다 · `unread` 는 30일 안의 안 읽은 수(홈의 종 점) · 문구는 앱이 갖는다(결정 035) |
 | `POST /notifications/{id}/read` | 세션 | 없음 | 204(이미 읽었어도) · 남의 것 · 없는 것 · UUID 가 아닌 값은 404 `NOT_FOUND`(결정 035) |
 | `POST /me-report` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 글을 기다리지 않고 바로 답한다 · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 아래 "나 탭 풀이" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) · 402 `PURCHASE_REQUIRED` 는 예약(1.0.0 에는 나오지 않는다) |
 | `POST /timing-report` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 상태 규칙 · 오류는 `POST /me-report` 와 같다(404 `NO_PROFILE` · 429 `RATE_LIMITED` · 402 `PURCHASE_REQUIRED` 예약) · 아래 "시기 풀이" |
@@ -311,7 +311,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `GET /shared/{shareId}`: 세션 없이 열린다. 저장된 `ShareCard` 를 그대로 준다. 없는(지워진) 식별자는 404 `NOT_FOUND`. 주소별 분당 한도를 넘으면 429 `RATE_LIMITED`. CORS 는 다른 경로와 같다(`ALLOWED_ORIGINS` 에 적힌 앱의 웹 주소만).
   - 이니셜(서버가 만든다): 한글 음절은 첫소리 글자로(지영 → `ㅈㅇ`, 쌍자음은 그대로), 이미 낱자인 한글은 그대로, 그 밖의 글자·숫자는 이어진 덩어리의 첫 글자만 대문자로(`Mike` → `M`, `김 Min` → `ㄱM`), 공백·기호·그림 문자는 뺀다. 남는 것이 없으면 `○`.
 
-## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016·017·018·039·040·043)
+## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016·017·018·039·040·043·055)
 관리 화면(웹)이 부르는 API 다. 앱은 부르지 않는다. 경로는 모두 `/admin/` 아래다.
 
 ### 공통
@@ -358,6 +358,13 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `PUT /admin/app-config/maintenance` | `{ active, message }`(두 키 모두) | 200 `Maintenance` |
 | `GET /admin/push/audience` | 없음 | 200 `{ count }` |
 | `GET /admin/push/status` | 없음 | 200 `PushStatus` |
+| `GET /admin/notices` | 없음 | 200 `[Notice]` 새것부터(임시 저장 포함) |
+| `GET /admin/notices/{id}` | 없음 | 200 `Notice` |
+| `POST /admin/notices` | `{ category, title, body, notify? }` | 201 `Notice` |
+| `PUT /admin/notices/{id}` | `{ category, title, body, notify? }` | 200 `Notice` |
+| `POST /admin/notices/{id}/publish` | `{ notify }` | 200 `Notice` |
+| `POST /admin/notices/{id}/unpublish` | 없음 | 200 `Notice` |
+| `DELETE /admin/notices/{id}` | 없음 | 204 |
 | `GET /admin/push/events?page=&size=` | 쿼리(모두 선택) | 200 `{ items: [PushEvent], page, size, total }` 새것부터 |
 | `POST /admin/push/events` | `{ title, body, target }` | 202 `{ id, recipients }` |
 
@@ -519,6 +526,24 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 앱 쪽 공개 조회는 `GET /faqs`(세션 없음, 위 "API 계약"): 공개한 것만 같은 순서로 `[{ id, question, answer }]`. 응답이 5분 캐시될 수 있어(`Cache-Control: public, max-age=300`) 공개·수정·내리기가 앱에 보이기까지 5분쯤 걸릴 수 있다. 관리 화면의 출처는 `GET /faqs` 를 부를 수 없다(CORS) — 미리 보기는 `GET /admin/faqs` 의 `published` 로 그린다.
 - 처음 글은 서버에 없다(빈 목록). 관리 화면으로 넣는다.
 
+### 공지사항 (결정 055 · 앱 결정 107)
+- `Notice` = `{ id, category, title, body, status, publishedAt, notify, notifiedAt, createdAt, createdBy, updatedAt, updatedBy }`.
+  - `category`: `NOTICE`(공지 — 점검 · 약관 · 처리방침 · 운영 안내) · `UPDATE`(업데이트 — 새 기능 · 판 소식). `title`: 앞뒤 공백을 뗀 1~60자. `body`: 앞뒤 공백을 뗀 1~3000자(가운데 줄바꿈은 그대로). 둘 다 꾸밈 없는 글자다.
+  - `status`: `DRAFT`(임시 저장) · `PUBLISHED`(공개 — 앱 `GET /notices` 에 보인다). `publishedAt`: 공개 중일 때만 공개한 때, 아니면 `null`.
+  - `notify`: 알림 보내기 스위치. `notifiedAt`: 알림함 · 푸시를 보낸 때 또는 `null`(아직). 한 번 보내면 다시 보낼 수 없고 `notify` 는 켜진 채로 남는다.
+  - `createdBy` · `updatedBy`(`{ id, name }`): 만든 관리자 · 마지막으로 바꾼(고치기 · 공개 · 내리기) 관리자. `updatedAt` 은 그때.
+- `GET /admin/notices`: 임시 저장까지 모두. 공개 중이면 공개 시각, 아니면 만든 때가 늦은 것부터.
+- `POST /admin/notices`: 임시 저장으로 만든다. `notify` 는 불리언이고 없으면 `false`. 201 `Notice`.
+- `PUT /admin/notices/{id}`: `category` · `title` · `body` 는 셋 다 보낸다. `notify` 를 빼면 그대로 둔다. 공개 중인 글은 공개한 채로 바뀐다. 200 `Notice`.
+- `POST /admin/notices/{id}/publish { notify }`: 공개한다. `notify` 는 꼭 있어야 하는 불리언이고 스위치에 적힌다. 임시 저장이었으면 지금이 공개 시각, 이미 공개 중이면 공개 시각은 그대로다. 200 `Notice`.
+  - `notify: true` 이고 아직 보내지 않은 글이면 이 요청이 한 번 보낸다: 모든 계정의 알림함에 `NOTICE { noticeId }` 한 줄씩, 푸시 수신 동의 + 정지 아님인 계정의 기기 모두에 푸시(제목 = 공지 제목, 본문 = "공지사항에서 자세히 볼 수 있어요.", data `{ type: "NOTICE", noticeId }`). 두 관리자가 동시에 눌러도, 공개를 두 번 눌러도, 내렸다 다시 공개해도 다시 가지 않는다(응답의 `notifiedAt` 이 처음 그대로). 이미 공개 중이고 아직 보내지 않은 글에 `notify: true` 로 다시 공개하면 그때 보낸다.
+  - 마케팅 동의 · 하루 한 번(광고 푸시)과 상관없다. 한국 시각 21:00 ~ 08:00 에는 소리 없이 간다(아래 "밤 무음"이 생긴 뒤 — 결정 055 의 6). 공지 알림은 광고 푸시 발송 내역에 남지 않는다.
+  - 화면은 알림을 켜고 공개할 때 "공개하고 알림을 보낼까요? 푸시는 되돌릴 수 없습니다." 를 먼저 묻는다(앱 결정 107 의 6).
+- `POST /admin/notices/{id}/unpublish`: 임시 저장으로 내린다(`publishedAt` 은 `null`). 이미 보낸 알림함 줄은 남는다(앱은 목록에 없는 글이면 "지워진 공지예요"). 200 `Notice`.
+- `DELETE /admin/notices/{id}`: 204. 되돌릴 수 없다. 그 공지의 알림함 줄도 함께 지워진다.
+- 오류: 400 `INVALID_CATEGORY`(없거나 둘이 아니다) · `INVALID_TITLE` · `INVALID_BODY`(없거나 `null` 이거나 비었거나 너무 길다 — 앞의 것부터 하나만) · `INVALID_REQUEST`(타입이 틀리다 — `notify: "true"` 도, `publish` 에 `notify` 가 없거나 `null` 인 것도) · **`NOTIFY_NOT_ALLOWED`(업데이트 갈래인데 알림 보내기가 켜지는 요청 — 만들기 · 고치기 · 공개. 이미 알림을 보낸 글을 업데이트 갈래로 바꾸는 것도)** · 404 `NOT_FOUND`.
+- 앱 쪽 공개 조회는 `GET /notices`(세션 없음, 위 "API 계약"). 응답이 5분 캐시될 수 있어 공개 · 고치기 · 내리기 · 지우기가 앱에 보이기까지 5분쯤 걸릴 수 있다. 미리 보기는 `GET /admin/notices/{id}` 로 그린다.
+
 ### 광고 푸시 발송 (결정 043 의 6 · 보내는 길은 결정 042)
 - 대상: 푸시 수신 동의(`push_consented_at`) · 마케팅 수신 동의(`marketing_consented_at`)가 둘 다 있고, 정지가 아니고(`suspended_at`), 기기(`push_devices`)가 하나 이상 등록된 계정. 기기 표(푸시 묶음 S⑩)나 정지 칸(S⑪)이 아직 없는 서버에서는 대상 수가 0 이다.
 - `GET /admin/push/audience` → `{ count }`: 지금의 대상 수.
@@ -540,7 +565,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
     - `USER`: 둘 다 `ownerRef`(12자 16진수) — 문의(`Inquiry.ownerRef`)와 같은 값이라 같은 사람의 문의와 행동을 묶어 볼 수 있다. 계정 id·이름·이메일은 어떤 응답에도 없다.
     - 지금은 `ref` 와 `label` 이 같은 글자지만 화면은 둘을 구분해 쓴다(보여 줄 때는 `label`, 거를 때는 `ref`).
   - `action`: 아래 표의 코드. 서버가 모르는 코드가 늘 수 있으므로 화면은 모르는 코드를 글자 그대로 보여 준다.
-  - `targetType`·`targetId`: 무엇에 한 일인지(`"ADMIN"`·`"INQUIRY"`·`"FAQ"`·`"SYNASTRY"`·`"APP_CONFIG"`·`"USER"`·`"PUSH_EVENT"` 와 그 id) 또는 둘 다 `null`. `INQUIRY` 의 id 는 `GET /admin/inquiries/{id}` 의 id, `ADMIN` 의 id 는 `AdminAccount.id`, `FAQ` 의 id 는 `Faq.id`, `USER` 의 id 는 사용자 관리(`GET /admin/users/{id}`, 결정 043 의 1)의 계정 id, `PUSH_EVENT` 의 id 는 광고 푸시(`GET /admin/push/events` 의 `id`, 결정 043 의 6)다. 대상이 그 뒤 지워졌을 수 있다(그때 그 경로는 404).
+  - `targetType`·`targetId`: 무엇에 한 일인지(`"ADMIN"`·`"INQUIRY"`·`"FAQ"`·`"SYNASTRY"`·`"APP_CONFIG"`·`"USER"`·`"PUSH_EVENT"`·`"NOTICE"` 와 그 id) 또는 둘 다 `null`. `INQUIRY` 의 id 는 `GET /admin/inquiries/{id}` 의 id, `ADMIN` 의 id 는 `AdminAccount.id`, `FAQ` 의 id 는 `Faq.id`, `USER` 의 id 는 사용자 관리(`GET /admin/users/{id}`, 결정 043 의 1)의 계정 id, `PUSH_EVENT` 의 id 는 광고 푸시(`GET /admin/push/events` 의 `id`, 결정 043 의 6), `NOTICE` 의 id 는 공지(`Notice.id`, 결정 055)다. 대상이 그 뒤 지워졌을 수 있다(그때 그 경로는 404).
   - `outcome`: `SUCCESS` · `FAILURE`. `FAILURE` 는 표에 "실패도 남는다" 고 적힌 행동에만 있다. 거절된 요청(400·404·409·429)은 기록되지 않는다.
   - `detail`: 코드 값만 담은 작은 객체 또는 `null`. 키는 행동마다 아래 표와 같다. 글(메모·문의·FAQ)·이름·이메일·출생 정보·비밀번호·토큰은 어디에도 없다.
 - 행동(`action`) — 관리자:
@@ -563,6 +588,11 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `FAQ_PUBLISHED` · `FAQ_UNPUBLISHED` | `PATCH /admin/faqs/{id}` 에 `published: true` · `false` 를 보냈을 때(이미 그 상태였어도 남는다). 글과 함께 보내면 `FAQ_UPDATED` 와 두 줄이 된다 | `ADMIN` | `FAQ` id | `null` |
   | `FAQ_DELETED` | `DELETE /admin/faqs/{id}` | `ADMIN` | `FAQ` id(이제 없는 id) | `null` |
   | `FAQ_REORDERED` | `PUT /admin/faqs/order` | `ADMIN` | 없음 | `{ count }` — 순서를 정한 FAQ 의 수 |
+  | `NOTICE_CREATED` | `POST /admin/notices`(결정 055) | `ADMIN` | `NOTICE` id | `{ category, notify }` |
+  | `NOTICE_UPDATED` | `PUT /admin/notices/{id}` | `ADMIN` | `NOTICE` id | `null` |
+  | `NOTICE_PUBLISHED` | `POST /admin/notices/{id}/publish`(이미 공개 중이었어도 남는다) | `ADMIN` | `NOTICE` id | `{ notify, notified }` — `notify` 는 보낸 값, `notified` 는 이번 요청이 알림함 · 푸시를 보냈는지(한 공지에 한 번만 `true`). 제목 · 본문은 없다 |
+  | `NOTICE_UNPUBLISHED` | `POST /admin/notices/{id}/unpublish` | `ADMIN` | `NOTICE` id | `null` |
+  | `NOTICE_DELETED` | `DELETE /admin/notices/{id}` | `ADMIN` | `NOTICE` id(이제 없는 id) | `null` |
   | `APP_CONFIG_UPDATED` | `PUT /admin/app-config/{platform}`(아래 "앱 설정") | `ADMIN` | `APP_CONFIG` `ios` 또는 `android` | `{ platform, minVersion?, latestVersion?, blockNow }` — `minVersion` · `latestVersion` 은 값이 있을 때만(`latestVersion` 은 키를 보내지 않았으면 그대로 둔 값). 안내 글과 스토어 주소는 없다 |
   | `MAINTENANCE_UPDATED` | `PUT /admin/app-config/maintenance`(아래 "앱 설정" 의 점검) | `ADMIN` | `APP_CONFIG` `maintenance` | `{ active }` — 켰는지 껐는지. 안내 글은 없다 |
   | `USER_SUSPENDED` · `USER_UNSUSPENDED` | 사용자를 정지했을 때 · 정지를 풀었을 때(`POST /admin/users/{id}/suspend` · `unsuspend`, 결정 043 의 1 · 044) | `ADMIN` | `USER` 그 계정의 id | 경로를 만드는 묶음이 정한다(사유 글은 넣지 않는다) |

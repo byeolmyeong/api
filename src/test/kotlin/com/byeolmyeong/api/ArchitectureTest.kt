@@ -54,6 +54,8 @@ class ArchitectureTest {
             "$ROOT.admin.AppConfigChanged",
             // 관리자가 문의에 처음 답했다(결정 039 의 5) — 알림함(계획 S⑤) · 푸시(S⑩)가 듣는다
             "$ROOT.admin.InquiryAnswered",
+            // 관리자가 "알림 보내기"를 켠 공지를 처음 공개했다(결정 055 의 4) — 알림함 · 푸시가 듣는다
+            "$ROOT.admin.NoticePublished",
             // 출생 정보가 바뀌면 reading · report · sky 가 옛 차트의 저장분을 지운다(결정 041)
             "$ROOT.profile.BirthProfileChanged",
             // 관리자가 실패한 자세한 풀이를 다시 만들게 했다(결정 043 의 1) — report 가 다시 시작한다

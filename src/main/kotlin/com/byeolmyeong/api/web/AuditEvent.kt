@@ -15,6 +15,8 @@ enum class AuditAction {
 	// 문의에 답을 저장함(결정 039). detail 은 first=true|false 만
 	INQUIRY_ANSWERED,
 	FAQ_CREATED, FAQ_UPDATED, FAQ_PUBLISHED, FAQ_UNPUBLISHED, FAQ_DELETED, FAQ_REORDERED,
+	// 공지사항(결정 055 의 3). NOTICE_PUBLISHED 의 detail 은 notify · notified(이번에 알림을 보냈는지)만 — 글은 넣지 않는다
+	NOTICE_CREATED, NOTICE_UPDATED, NOTICE_PUBLISHED, NOTICE_UNPUBLISHED, NOTICE_DELETED,
 	APP_CONFIG_UPDATED, MAINTENANCE_UPDATED,
 	// 관리자 v2(결정 043 의 8): 사용자 정지 · 정지 풀기 · 요청받은 탈퇴 대행(대상 USER) · 실패한 생성 다시 하기(대상 USER) · 광고 푸시 보내기(대상 PUSH_EVENT).
 	// 사유 글은 넣지 않는다(정지 · 해제 사유는 account_suspensions, 탈퇴 대행 사유는 저장하지 않는다)
