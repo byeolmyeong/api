@@ -29,6 +29,7 @@ private const val PROFILE = """{"date":"1990-03-15","time":"14:30","placeId":184
 private const val OTHER_PROFILE = """{"date":"1991-07-02","time":"09:10","placeId":1841277}"""
 private const val PURCHASE_REQUIRED = """{"error":"PURCHASE_REQUIRED"}"""
 private const val PURCHASE_CHECK_FAILED = """{"error":"PURCHASE_CHECK_FAILED"}"""
+private const val UPDATE_REQUIRED = """{"error":"UPDATE_REQUIRED"}"""
 
 /** 결제 시작 시각(이 테스트의 설정). 한국 2026-12-10 00:00. */
 private val PURCHASE_STARTS: Instant = Instant.parse("2026-12-09T15:00:00Z")
@@ -105,6 +106,10 @@ class EntitlementCheckIntegrationTest {
 	private fun ownerId(): UUID = jdbc.queryForObject("select id from accounts", UUID::class.java)!!
 
 	private fun post(path: String, token: String): HttpResponse<String> = http(port, "POST", path, token = token)
+
+	/** 앱이 보내는 버전 머리를 실어 받기를 누른다. */
+	private fun postFromApp(path: String, token: String, version: String): HttpResponse<String> =
+		http(port, "POST", path, null, token, "X-App-Platform", "ios", "X-App-Version", version)
 
 	private fun reportRows(): List<String> = jdbc.queryForList("select kind from detail_reports order by kind", String::class.java).filterNotNull()
 
@@ -228,5 +233,52 @@ class EntitlementCheckIntegrationTest {
 		revenueCat.answer = { true }
 		assertEquals(202, post("/me-report", token).statusCode(), "실패는 담아 두지 않아 바로 다시 묻는다")
 		assertEquals(2, revenueCat.asked.size)
+	}
+
+	@Test
+	fun `1점1점0 미만 앱의 새 받기는 상품이 있어도 426 이고 행이 없으며 RevenueCat 을 묻지 않는다`() {
+		val token = token()
+		jdbc.update("insert into entitlements (account_id, source) values (?, 'LEGACY')", ownerId())
+
+		for (version in listOf("1.0.0", "1.0.9", "1")) {
+			val me = postFromApp("/me-report", token, version)
+			assertEquals(426 to UPDATE_REQUIRED, me.statusCode() to me.body(), version)
+		}
+		val timing = postFromApp("/timing-report", token, "1.0.0")
+		assertEquals(426 to UPDATE_REQUIRED, timing.statusCode() to timing.body())
+		assertEquals(emptyList(), reportRows())
+
+		assertEquals(202, postFromApp("/me-report", token, "1.1.0").statusCode())
+		assertEquals(202, postFromApp("/timing-report", token, "1.10").statusCode())
+		assertTrue(revenueCat.asked.isEmpty())
+	}
+
+	@Test
+	fun `버전 머리가 없는 웹과 읽을 수 없는 버전은 426 이 아니라 판정대로 402 다`() {
+		val token = token()
+
+		assertEquals(402 to PURCHASE_REQUIRED, post("/me-report", token).let { it.statusCode() to it.body() })
+		assertEquals(402 to PURCHASE_REQUIRED, postFromApp("/timing-report", token, "1.0.0-beta").let { it.statusCode() to it.body() })
+	}
+
+	@Test
+	fun `1점1점0 미만 앱도 이미 완성됐거나 쓰는 중인 풀이는 그 상태를 받는다`() {
+		val token = token()
+		val owner = ownerId()
+		val hash = profiles.chartInput(owner)!!.hash
+		jdbc.update("insert into detail_reports (id, owner_id, kind, chart_hash, status, body) values (?, ?, 'ME', ?, 'DONE', '{}'::jsonb)", UUID.randomUUID(), owner, hash)
+		jdbc.update("insert into detail_reports (id, owner_id, kind, chart_hash, status) values (?, ?, 'TIMING', ?, 'WRITING')", UUID.randomUUID(), owner, hash)
+
+		assertEquals(202 to """{"status":"DONE"}""", postFromApp("/me-report", token, "1.0.0").let { it.statusCode() to it.body() })
+		assertEquals(202 to """{"status":"WRITING"}""", postFromApp("/timing-report", token, "1.0.0").let { it.statusCode() to it.body() })
+	}
+
+	@Test
+	fun `결제 시작 시각 전에는 1점0점0 앱도 새로 받는다`() {
+		clock.now = PURCHASE_STARTS.minusSeconds(1)
+		val token = token()
+
+		assertEquals(202, postFromApp("/me-report", token, "1.0.0").statusCode())
+		assertEquals(202, postFromApp("/timing-report", token, "1.0.0").statusCode())
 	}
 }

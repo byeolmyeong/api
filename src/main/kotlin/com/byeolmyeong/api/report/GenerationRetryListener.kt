@@ -15,8 +15,9 @@ class GenerationRetryListener(private val me: MeReportService, private val timin
 	@EventListener
 	fun on(event: GenerationRetryRequested) {
 		when (event.kind) {
-			"ME" -> me.request(event.ownerId)
-			"TIMING" -> timing.request(event.ownerId)
+			// 관리자의 요청이라 앱 버전 머리가 없다 — 426 은 없고, 받을 수 있나는 사용자가 누른 것과 같이 본다(결정 056 의 11).
+			"ME" -> me.request(event.ownerId, appVersion = null)
+			"TIMING" -> timing.request(event.ownerId, appVersion = null)
 		}
 	}
 }

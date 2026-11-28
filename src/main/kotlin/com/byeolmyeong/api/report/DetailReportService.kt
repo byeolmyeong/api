@@ -10,6 +10,7 @@ import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.GenerationQuota
 import com.byeolmyeong.api.web.GenerationRateLimitedException
 import com.byeolmyeong.api.web.PurchaseRequiredException
+import com.byeolmyeong.api.web.UpdateRequiredException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.ApplicationEventPublisher
@@ -99,11 +100,13 @@ class DetailReportService(
 
 	/**
 	 * 풀이를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다.
-	 * 새로 시작할 때만 "받을 수 있나"(결정 029 의 4 — 거절이면 402, 행을 만들지 않는다)를 묻고, [prepare](차트 · 조각 만들기)를 자리를 잡기 전에 부른다 —
+	 * 새로 시작할 때만 옛 앱인지(결정 056 의 5 — [appVersion] 이 1.1.0 미만이면 426)와 "받을 수 있나"(결정 029 의 4 · 056 — 거절이면 402, 행을 만들지 않는다)를 묻고,
+	 * [prepare](차트 · 조각 만들기)를 자리를 잡기 전에 부른다 —
 	 * 계산이 실패해도 `WRITING` 인 채 남는 행이 없다. 자리를 잡은 뒤 생성 한도를 한 번 센다(결정 023 — 조각이 여럿이어도, 다시 생성해도 한 번).
 	 */
-	fun <P : Any> request(ownerId: UUID, kind: DetailReportKind, chartHash: String, prepare: () -> DetailJob<P>): ReportStatus {
+	fun <P : Any> request(ownerId: UUID, kind: DetailReportKind, chartHash: String, appVersion: String?, prepare: () -> DetailJob<P>): ReportStatus {
 		repository.status(ownerId, kind, chartHash, STALE_SECONDS)?.takeIf { it == ReportStatus.DONE || it == ReportStatus.WRITING }?.let { return it }
+		if (entitlement.requiresUpdate(appVersion)) throw UpdateRequiredException()
 		if (!entitlement.allows(ownerId, kind)) throw PurchaseRequiredException()
 		val job = prepare()
 		val run = repository.claim(ownerId, kind, chartHash, STALE_SECONDS)

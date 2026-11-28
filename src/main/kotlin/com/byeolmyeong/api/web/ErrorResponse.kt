@@ -17,6 +17,9 @@ class NotFoundException(val code: String) : RuntimeException(code)
 /** 이 풀이를 받을 수 없다 — 상품이 없다(402 `PURCHASE_REQUIRED`, 결정 029 의 4 · 056). 결제 시작 시각 전에는 나오지 않는다. */
 class PurchaseRequiredException : RuntimeException("PURCHASE_REQUIRED")
 
+/** 이 앱 버전으로는 풀이를 새로 받을 수 없다(426 `UPDATE_REQUIRED`, 결정 056 의 5 — 앱 결정 109 의 3). 앱 전체 막기(`appconfig`)와 따로, 받기에만 쓴다. */
+class UpdateRequiredException : RuntimeException("UPDATE_REQUIRED")
+
 /** 상품이 있는지 묻지 못했다(503 `PURCHASE_CHECK_FAILED`, 결정 056 의 4). 열어 주지도 402 로 사라고 하지도 않는다. [reason] 은 로그의 사유 코드다. */
 class PurchaseCheckFailedException(val reason: String) : RuntimeException(reason)
 
@@ -34,6 +37,10 @@ class ErrorResponses {
 	@ExceptionHandler(PurchaseRequiredException::class)
 	fun purchaseRequired(): ResponseEntity<ErrorResponse> =
 		ResponseEntity.status(402).body(ErrorResponse("PURCHASE_REQUIRED"))
+
+	@ExceptionHandler(UpdateRequiredException::class)
+	fun updateRequired(): ResponseEntity<ErrorResponse> =
+		ResponseEntity.status(426).body(ErrorResponse("UPDATE_REQUIRED"))
 
 	@ExceptionHandler(PurchaseCheckFailedException::class)
 	fun purchaseCheckFailed(): ResponseEntity<ErrorResponse> =
