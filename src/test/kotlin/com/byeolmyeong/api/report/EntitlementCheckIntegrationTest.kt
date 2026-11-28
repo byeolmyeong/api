@@ -345,4 +345,37 @@ class EntitlementCheckIntegrationTest {
 		assertEquals(emptyList(), entitlementRows())
 		assertEquals(emptyList(), reportRows())
 	}
+
+	private fun read(token: String): Pair<Int, String> = http(port, "GET", "/entitlements", token = token).let { it.statusCode() to it.body() }
+
+	@Test
+	fun `샀음 읽기는 받기와 같은 판정이다 - 시작 전 모두 · 수령자는 true, 안 산 사람은 false, 묻지 못하면 503`() {
+		val token = token()
+		val owner = ownerId()
+
+		clock.now = PURCHASE_STARTS.minusSeconds(1)
+		assertEquals(200 to """{"detail":true}""", read(token), "결제 시작 전에는 모두 가진 것과 같다")
+		assertTrue(revenueCat.asked.isEmpty())
+
+		clock.now = PURCHASE_STARTS.plusSeconds(1)
+		revenueCat.fails()
+		assertEquals(503 to PURCHASE_CHECK_FAILED, read(token))
+
+		revenueCat.answer = { false }
+		assertEquals(200 to """{"detail":false}""", read(token))
+
+		jdbc.update("insert into entitlements (account_id, source) values (?, 'LEGACY')", owner)
+		assertEquals(200 to """{"detail":true}""", read(token))
+		assertEquals(2, revenueCat.asked.size, "표에 있으면 묻지 않는다")
+		assertEquals(401, http(port, "GET", "/entitlements").statusCode(), "세션이 있어야 한다")
+	}
+
+	@Test
+	fun `샀음 읽기에서 RevenueCat 에 있으면 STORE 로 적는다`() {
+		val token = token()
+		revenueCat.answer = { true }
+
+		assertEquals(200 to """{"detail":true}""", read(token))
+		assertEquals(listOf("STORE"), entitlementRows())
+	}
 }

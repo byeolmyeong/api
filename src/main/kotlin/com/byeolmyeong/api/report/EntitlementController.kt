@@ -2,9 +2,13 @@ package com.byeolmyeong.api.report
 
 import com.byeolmyeong.api.auth.CurrentOwner
 import com.fasterxml.jackson.annotation.JsonInclude
+import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RestController
+
+/** `GET /entitlements` 의 답: 자세한 풀이를 받을 수 있나(결정 056 의 8). 앱은 화면("샀음")만 바꾸고 받기 판정은 여전히 402 를 따른다. */
+data class EntitlementResponse(val detail: Boolean)
 
 /** `POST /entitlements/confirm` 의 답. 스토어 구매가 없으면 `{ detail: false }` 만. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -14,10 +18,15 @@ data class EntitlementConfirmResponse(val detail: Boolean, val me: ReportStatus?
 @RestController
 class EntitlementController(
 	private val owner: CurrentOwner,
+	private val policy: EntitlementPolicy,
 	private val entitlements: EntitlementService,
 	private val me: MeReportService,
 	private val timing: TimingReportService,
 ) {
+
+	/** 받기와 같은 판정(결제 시작 전이면 true). RevenueCat 을 묻지 못하면 503. */
+	@GetMapping("/entitlements")
+	fun read(): EntitlementResponse = EntitlementResponse(policy.hasDetail(owner.id()))
 
 	/**
 	 * 결제 · 복원 직후 앱이 부른다(결정 056 의 7). 스토어 구매가 있으면 `STORE` 로 적고 나 탭 풀이와 시기 풀이를 함께 시작한다(앱 결정 101 의 5-1) —

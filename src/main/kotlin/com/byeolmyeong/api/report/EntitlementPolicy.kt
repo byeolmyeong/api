@@ -17,7 +17,10 @@ private val FIRST_PAYING_APP = AppVersion(1, 1, 0)
 @Component
 class EntitlementPolicy(private val start: PurchaseStart, private val entitlements: EntitlementService) {
 
-	fun allows(ownerId: UUID, kind: DetailReportKind): Boolean = !start.started() || entitlements.owns(ownerId)
+	fun allows(ownerId: UUID, kind: DetailReportKind): Boolean = hasDetail(ownerId)
+
+	/** 그 계정이 자세한 풀이를 받을 수 있나 — `GET /entitlements` 의 `detail` 도 이 값이다(결정 056 의 8). */
+	fun hasDetail(ownerId: UUID): Boolean = !start.started() || entitlements.owns(ownerId)
 
 	/**
 	 * 결제 시작 뒤, 앱이 보낸 `X-App-Version` 이 1.1.0 보다 낮으면 true(426 `UPDATE_REQUIRED` — 상품이 있어도, 앱 결정 109 의 3).
