@@ -33,7 +33,7 @@ enum class PushKind { TODAY_SKY, READING_DONE, ME_REPORT_DONE, TIMING_REPORT_DON
 data class BroadcastResult(val recipients: Int, val succeeded: Int, val failed: Int)
 
 /** 한 사람에게 보낼 알림 하나([sendMany] 용). */
-data class Notice(val accountId: UUID, val title: String, val body: String, val data: Map<String, String> = emptyMap())
+data class PushNotice(val accountId: UUID, val title: String, val body: String, val data: Map<String, String> = emptyMap())
 
 /** 한 번 보낸 결과(sent · skipped · failed 를 나눈다). */
 data class PushResult(val devices: Int, val sent: Int, val failed: Int, val skipped: Int)
@@ -109,7 +109,7 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 	 * 여러 사람에게 각자의 알림을 한꺼번에 보낸다(Expo 를 100건씩 묶어 부른다 — 오늘의 하늘 아침 알림).
 	 * 정지 계정 · 기기 없는 사람은 건너뛴다. `DeviceNotRegistered` 인 토큰은 지운다.
 	 */
-	fun sendMany(kind: PushKind, notices: List<Notice>): PushResult {
+	fun sendMany(kind: PushKind, notices: List<PushNotice>): PushResult {
 		val messages = notices.flatMap { notice ->
 			repository.tokens(notice.accountId).map { PushMessage(it, notice.title, notice.body, notice.data + ("type" to kind.name)) }
 		}
@@ -256,7 +256,7 @@ class PushEvents(
 	@EventListener
 	fun todaySkyDue(event: TodaySkyDue) {
 		try {
-			push.sendMany(PushKind.TODAY_SKY, event.items.map { Notice(it.ownerId, PushMessages.TODAY_SKY_TITLE, it.title, mapOf("date" to it.date.toString())) })
+			push.sendMany(PushKind.TODAY_SKY, event.items.map { PushNotice(it.ownerId, PushMessages.TODAY_SKY_TITLE, it.title, mapOf("date" to it.date.toString())) })
 		} catch (e: RuntimeException) {
 			log.warn("event=push_failed type={} reason={}", PushKind.TODAY_SKY, e.javaClass.simpleName)
 		}
