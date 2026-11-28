@@ -59,7 +59,7 @@ src/main/kotlin/com/byeolmyeong/api/
   share/       ShareController · ShareService · ShareRepository · ShareCard(카드의 모양·이니셜·계절) · ShareCardRequested(이벤트 넷)
   push/        PushDevice(PushDeviceController · PushDeviceService · PushDeviceRepository — 기기 토큰, 결정 042) · ExpoPush(인터페이스 · ExpoPushClient — Expo 푸시 호출, 끄기 스위치) · PushService(PushService · PushRepository · PushMessages 문구표 · PushEvents 이벤트 리스너 · push- 일꾼)
   notification/ Notification(NotificationController · NotificationService — 이벤트 리스너 · 30일 지우기 · NotificationRepository)
-  sky/         TodaySkyMorning(TodaySkyMorningService — 5분마다 받는 시간 30분 전 미리 만들기 · 받는 시간에 TodaySkyDue · TodaySkyMorningRepository) · MonthSkyController · MonthSkyService(계정별 분당 한도) · MonthSky(모양 · 고를 달 · 이번 달 내내 고르기) · IntervalCache(차트 해시마다 평생 구간을 몇 분 기억) · DaySkyController · DaySkyService(저장본 · 진행 중 생성 기다리기 · 생성 한도) · DaySky(모양 · 날짜 읽기 · 서버가 정하는 것 · 지시문 · 검증) · DaySkyRepository
+  sky/         TodaySkyMorning(TodaySkyMorningService — 5분마다 받는 시간 30분 전 ~ 60분 뒤 미리 만들기(빈 생성 일꾼 스레드에서 이어 만든다 — 결정 052) · 받는 시간에 TodaySkyDue · TodaySkyMorningRepository) · MonthSkyController · MonthSkyService(계정별 분당 한도) · MonthSky(모양 · 고를 달 · 이번 달 내내 고르기) · IntervalCache(차트 해시마다 평생 구간을 몇 분 기억) · DaySkyController · DaySkyService(저장본 · 진행 중 생성 기다리기 · 생성 한도) · DaySky(모양 · 날짜 읽기 · 서버가 정하는 것 · 지시문 · 검증) · DaySkyRepository
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
 src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 ```
