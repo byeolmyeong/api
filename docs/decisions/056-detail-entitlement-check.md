@@ -18,13 +18,14 @@ superseded_by:
 - 배포는 블루 · 그린이라 새 jar 가 뜬 뒤에도 옛 jar 가 몇 분(최대 약 8분) 같은 DB 로 요청을 받는다(결정 046).
 
 ## 결정
-1. **결제 시작 시각**: 설정 `byeolmyeong.purchase.starts-at`(환경 변수 `PURCHASE_STARTS_AT`, 오프셋이 붙은 ISO-8601 — 예 `2026-12-10T00:00:00+09:00`). 비어 있거나 아직 오지 않았으면 1.0.0 처럼 **모두 허용**하고 426 도 없다. 읽을 수 없는 값이거나, 값이 있는데 `REVENUECAT_SECRET_KEY` 가 비어 있으면 서버가 시작하지 않는다(배포의 상태 확인에서 바로 드러나게 — 키가 없으면 표에 없는 계정의 받기가 모두 503 이 된다). 출시일에 소유자 승인 뒤 값을 넣고 다시 배포한다(블루그린).
+1. **결제 시작 시각**: 설정 `byeolmyeong.purchase.starts-at`(환경 변수 `PURCHASE_STARTS_AT`, 오프셋이 붙은 ISO-8601 — 예 `2026-12-10T00:00:00+09:00`). 비어 있거나 아직 오지 않았으면 1.0.0 처럼 **모두 허용**하고 426 도 없다. 읽을 수 없는 값이거나, 값이 있는데 `REVENUECAT_SECRET_KEY` 가 비어 있으면 서버가 시작하지 않는다(배포의 상태 확인에서 바로 드러나게 — 키가 없으면 표에 없는 계정의 받기가 모두 503 이 된다). 출시일에 소유자 승인 뒤 값을 넣고 다시 배포한다(블루그린). 값은 다시 배포하는 때보다 10분 넘게 뒤로 둔다 — 겹치는 동안 옛 색은 시작 시각을 몰라 그때 누른 받기를 수령자로 적는다.
+   - **관문: `PURCHASE_STARTS_AT` 을 넣기 전에 RevenueCat 의 복원 동작(Restore behavior)을 "Keep with original App User ID" 로 바꾼다.** 기본값(Transfer)이면 한 번 산 구매가 복원을 누른 다른 계정으로 옮겨 가고, 서버는 옮겨 간 계정마다 `STORE` 를 적어 남기므로(거두지 않는다) 한 번 산 것이 계정마다 퍼진다(101 의 5-3). 절차는 docs/deploy.md "(나) 평소 운영" 의 "결제 켜기".
 2. **표 둘(마이그레이션 하나)**:
    - `entitlements(account_id → accounts cascade, source LEGACY · STORE, created_at)`, `(account_id, source)` 가 키. 계정마다 출처별 한 줄. 출생 정보와 상관없는 계정의 것이라 출생 정보를 바꿔도 남는다 → **다시 받기는 무료**(101 의 6, 남용은 지금의 생성 한도).
    - `entitlement_allowlist(id, email 유일, created_at, created_by → admin_accounts)` — 결제 없이 여는 계정(101 의 5-2).
 3. **판정**(`EntitlementPolicy.allows` — 새로 시작할 때만, 생성 한도 전, 029 의 자리 그대로). 차례대로 처음 맞는 것:
    1. 결제 시작 시각이 없거나 아직 → 허용.
-   2. 계정 이메일(`accounts.email`)이 결제 없이 여는 목록에 있다 → 허용. 대소문자는 가리지 않는다(목록은 소문자로 둔다). 애플 "이메일 가리기" 계정은 가려진 주소 그대로 넣는다. 매번 표를 본다(빼면 바로 닫힌다). `entitlements` 에 적지 않는다.
+   2. 계정 이메일(`accounts.email`)이 결제 없이 여는 목록에 있다 → 허용. 대소문자는 가리지 않는다(목록은 소문자로 둔다). 애플 "이메일 가리기" 계정은 가려진 주소 그대로 넣는다. 매번 표를 본다(빼면 바로 닫힌다). `entitlements` 에 적지 않는다. 위험(받아들임): 카카오는 이메일의 확인 여부를 서버가 받지 않아, 남이 목록의 주소를 카카오 계정 이메일로 적어 가입하면 이 목록을 우회할 수 있다 — 목록이 운영자 · 팀원 용도라 피해가 작다. 생기면 계정 id 로 고르는 쪽으로 바꾼다.
    3. `entitlements` 에 그 계정의 줄이 있다(출처 무관) → 허용. 산 사람의 이후 판정은 표만 본다.
    4. RevenueCat 에 묻는다(아래 4). 상품이 있으면 `STORE` 로 적고 허용(새 기기 복원 등 — 앱의 확인 요청보다 먼저 받기를 누른 경우).
    5. 아니면 거절 → 402 `PURCHASE_REQUIRED`, 행을 만들지 않는다.
@@ -39,7 +40,9 @@ superseded_by:
    - 나 탭 풀이 · 시기 풀이를 새로 시작할 때 "받을 수 있나" 가 시작 전이라 허용하는 그 판단으로 `LEGACY` 를 적는다(같은 시각 판단이라 경계에서 어긋나지 않는다).
    - 서버가 뜰 때와 매시 10분(`byeolmyeong.purchase.legacy-backfill-cron`)에 채운다: `detail_reports` 의 `DONE`(완성한 때 `updated_at` 가 시작 전) ∪ 감사 기록 `REPORT_REQUESTED`(행위자 사용자, `detail.kind` 가 `ME` · `TIMING`, 누른 때 `occurred_at` 가 시작 전, 1년 보관)의 계정 → `LEGACY`(있으면 그대로). **시작 뒤에도 같은 조건으로 돈다.** 마이그레이션이 아니라 서버가 채우는 까닭: 첫 배포 때 마이그레이션 뒤에도 옛 jar 가 몇 분 받은 요청(감사 기록은 남는다)을 다음 번이 따라 적는다. 두 서버가 함께 돌아도 같은 결과다(있으면 그대로) — 일정 잠금이 필요 없다.
    - 수령자는 둘 중 하나만 눌렀어도 둘 다 열린다(101 의 5 — 판정이 `kind` 를 보지 않는다).
+   - **범위는 101 의 5("받은 계정")보다 넓다 — 의도**: 실패만 한 요청(글을 못 만들었거나 생성 한도 429 로 막힌 것 포함)도 수령자로 넣는다. 받기를 눌렀는데 결제 시작 때문에 다시는 못 받는 사람을 만들지 않는 쪽을 골랐다(사용자가 적어 비용이 작다).
 7. **결제 직후 확인** `POST /entitlements/confirm`(세션 — 제안): 앱이 결제 · 복원 직후 부른다. 본문은 없어도 되고, 있으면 `{ noticeVersion? }` — 결제 시트가 보여 준 고지(청약철회 안내)의 판(101 의 5-1 "고지한 화면 판을 기록한다", 영문 · 숫자 · `.` `_` `-` 1~40자, 틀리면 400 `INVALID_NOTICE_VERSION`). `STORE` 줄에 처음 한 번 적는다(비어 있을 때만 채우고 바꾸지 않는다). RevenueCat 을 **캐시 없이** 묻고(실패면 503), 있으면 `STORE` 로 적은 뒤 **나 탭 풀이와 시기 풀이를 함께 시작**한다(101 의 5-1 — 받기 경로와 같은 길이라 이미 완성 · 쓰는 중이면 그대로) → 200 `{ detail: true, me, timing }`(각 풀이의 상태). 없으면 200 `{ detail: false }`(앱은 "복원할 구매가 없어요"). 계정마다 분당 6번(설정 `byeolmyeong.rate-limit.entitlement-confirm-per-minute`)을 넘으면 묻지 않고 429 `RATE_LIMITED`(부를 때마다 RevenueCat 을 부르므로). 결제 없이 여는 계정 · `LEGACY` 도 스토어 구매가 없으면 `false` 다(복원은 스토어 구매만). 다시 불러도 같다(멱등) — 적은 뒤 시작에서 404 `NO_PROFILE` · 429 `RATE_LIMITED` 가 나면 그 답이 가지만 구매는 적혀 있고, 다시 부르면 남은 풀이를 시작한다. 다른 탭의 완성 알림은 지금 알림 그대로다.
+   - **앱은 결제 · 복원 뒤 확인이 성공(200)할 때까지 다시 부른다**(503 · 429 · 네트워크 실패면 조금 뒤에). 판정 길(받기 · `GET /entitlements`)에서 RevenueCat 으로 `STORE` 를 새로 적어도 다른 풀이를 저절로 시작하지는 않는다 — 두 풀이를 함께 시작하는 곳은 확인 하나다(단순하게).
 8. **"샀음" 읽기** `GET /entitlements`(세션 — 제안) → `{ detail: boolean }` = 3 의 판정과 같은 값(결제 시작 전이면 모두 `true`, RevenueCat 실패면 503). 앱은 이 값으로 화면만 바꾸고, 받기 가능 판정은 여전히 402 다.
 9. **결제 없이 여는 계정 관리**: `GET · POST · DELETE /admin/entitlement-allowlist`(관리자, 제안) — 어드민 D② 가 쓴다. 추가 · 삭제는 감사 기록(이메일은 넣지 않는다 — id 만).
 10. **웹**: 결제하지 않는다(101 의 7). 웹의 받기도 같은 판정이라 안 산 계정은 402(웹 앱은 "앱에서 받기" 안내), 산 계정 · 수령자는 웹에서도 받는다. 426 은 웹에 가지 않는다.
@@ -64,7 +67,7 @@ superseded_by:
 
 ## 결과·재검토 조건
 - 계약: docs/architecture.md 의 `POST /me-report` · `POST /timing-report`(402 실제 · 426 · 503), `GET /entitlements` · `POST /entitlements/confirm`, "결제 없이 여는 계정"(관리자 API), 감사 행동 `ENTITLEMENT_ALLOWLIST_ADDED` · `ENTITLEMENT_ALLOWLIST_REMOVED`, 데이터 · 외부 시스템 절. 앱(A③ 결제 시트 · 복원, 1.1.0 의 426 처리)과 어드민(D②)에 맞춤 변경이 필요하다.
-- 설정: `PURCHASE_STARTS_AT` · `REVENUECAT_SECRET_KEY`(이름만 `.env.example` · `deploy/.env.example`). 스테이징에서 실제 구매를 확인하려면 RevenueCat 계정 · 스토어 상품 · 키가 있어야 한다(소유자 준비) — 그전에는 가짜 클라이언트 테스트로 합친다.
+- 설정: `PURCHASE_STARTS_AT` · `REVENUECAT_SECRET_KEY`(이름만 `.env.example` · `deploy/.env.example`). 켜기 전 관문은 1 의 RevenueCat 복원 동작. 스테이징에서 실제 구매를 확인하려면 RevenueCat 계정 · 스토어 상품 · 키가 있어야 한다(소유자 준비) — 그전에는 가짜 클라이언트 테스트로 합친다.
 - [확인 필요] RevenueCat 상품(entitlement) 이름 — 기본 `detail`. 다르면 설정만 바꾼다.
 - [확인 필요] 환불 회수(웹훅)와 RevenueCat 복원 동작("처음 산 사용자에게") — 101.
 - RevenueCat 장애로 503 이 잦으면(로그 `event=purchase_check_failed`) 시간 · 캐시를 다시 본다.
