@@ -191,8 +191,29 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 	fun fail(run: SynastryRun): Boolean =
 		jdbc.update("update synastries set status = 'FAILED' where id = ? and status = 'WRITING' and started_at = ?", run.id, run.startedAt) == 1
 
-	/** 그 궁합의 소유자. 지워졌으면 null. */
-	fun ownerOf(id: UUID): UUID? = jdbc.queryForList("select owner_id from synastries where id = ?", UUID::class.java, id).firstOrNull()
+	/** 완성된 결과를 받아 간 때를 적는다(처음 한 번). */
+	fun markSeen(id: UUID) {
+		jdbc.update("update synastries set seen_at = now() where id = ? and status = 'DONE' and seen_at is null", id)
+	}
+
+	/**
+	 * 완성된 지 [afterSeconds] 초가 지났고 받아 가지도 알리지도 않은 궁합을 [limit] 개까지 잡아 알린 때를 적고 (id, 소유자) 를 준다.
+	 * 한 문장의 조건부 update 이고 잡는 줄은 `for update skip locked` 라, 두 서버가 함께 불러도 줄마다 한 번만 잡힌다(결정 053 의 8).
+	 */
+	fun claimUnnoticed(afterSeconds: Int, limit: Int): List<Pair<UUID, UUID>> = jdbc.query(
+		"""
+		update synastries set notified_at = now()
+		where id in (
+			select id from synastries
+			where status = 'DONE' and done_at is not null and done_at <= now() - make_interval(secs => ?) and seen_at is null and notified_at is null
+			order by done_at limit ?
+			for update skip locked
+		) and status = 'DONE' and seen_at is null and notified_at is null
+		returning id, owner_id
+		""".trimIndent(),
+		{ rs, _ -> rs.getObject("id", UUID::class.java) to rs.getObject("owner_id", UUID::class.java) },
+		afterSeconds, limit,
+	)
 
 	/** 소유자의 궁합 가운데 [ids] 를 지우고 지운 수를 준다. 남의 것 · 없는 것은 지우지 않는다(수가 모자란다). */
 	fun deleteAll(ownerId: UUID, ids: Set<UUID>): Int = jdbc.update("delete from synastries where owner_id = ? and id = any(?)") { ps ->

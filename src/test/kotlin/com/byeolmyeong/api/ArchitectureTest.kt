@@ -58,7 +58,7 @@ class ArchitectureTest {
             "$ROOT.profile.BirthProfileChanged",
             // 관리자가 실패한 자세한 풀이를 다시 만들게 했다(결정 043 의 1) — report 가 다시 시작한다
             "$ROOT.admin.GenerationRetryRequested",
-            // 별명을 처음 지었다 · 궁합 리포트가 완성됐다 — 알림함(결정 035)과 푸시(결정 042)가 듣는다
+            // 별명을 처음 지었다 · 궁합이 나왔는데 30초 안에 받아 가지 않았다(결정 053 의 8) — 알림함(결정 035)과 푸시(결정 042)가 듣는다
             "$ROOT.reading.ReadingCreated",
             "$ROOT.synastry.SynastryReportDone",
             // 관리자가 광고 푸시를 보냈다 · push 가 다 보냈다(결정 043 의 6) — push(S⑩)가 보내고 admin 이 내역을 채운다

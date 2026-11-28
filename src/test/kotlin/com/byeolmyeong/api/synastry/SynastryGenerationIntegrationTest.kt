@@ -143,11 +143,9 @@ class SynastryGenerationIntegrationTest {
 		assertEquals(PRACTICES, sections.last()["practices"].values().map { it.asString() })
 		assertTrue(sections.dropLast(1).none { it.has("practices") })
 		assertEquals(done["report"], mapper.readTree(storedBody()))
-		// 완성되면 알림함에 궁합 줄이 그 궁합 id 로 하나 생긴다(결정 035 — SynastryReportDone)
-		val until = System.currentTimeMillis() + 5_000
-		fun notified() = jdbc.queryForList("select kind || ':' || synastry_id from notifications", String::class.java)
-		while (notified().isEmpty() && System.currentTimeMillis() < until) Thread.sleep(20)
-		assertEquals(listOf("SYNASTRY_REPORT_DONE:$id"), notified())
+		// 완성된 결과를 받아 갔으니(GET 이 DONE) 받아 간 때를 적고, 완성되자마자 알리지는 않는다 — 30초 안에 받아 가지 않았을 때만(결정 053 의 8)
+		assertTrue(jdbc.queryForObject("select seen_at is not null and done_at is not null from synastries", Boolean::class.java)!!)
+		assertEquals(0, jdbc.queryForObject("select count(*) from notifications", Int::class.java))
 		// 완성된 궁합은 다시 하기를 불러도 새로 쓰지 않는다
 		val again = retry(token, id)
 		assertEquals(202, again.statusCode())

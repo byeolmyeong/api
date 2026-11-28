@@ -39,6 +39,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 처음 한 번 + 다시 생성 2번(요약 해석과 같다). */
 private const val MAX_ATTEMPTS = 3
 
+/** "나왔어요" 알림을 한 번에 잡는 최대 수. 남으면 다음 번(10초 뒤)이 잡는다. */
+private const val NOTICE_BATCH = 100
+
 /**
  * `WRITING` 인데 살아 있다는 표시(`active_at`)가 이만큼 끊기면 멈춘 것으로 본다(서버가 쓰는 도중 꺼진 경우. 심층 리포트와 같다).
  * 표시는 `byeolmyeong.report.heartbeat-seconds`(15초)마다 적으므로 여덟 번을 놓쳐야 한다.
@@ -64,6 +67,7 @@ class SynastryService(
 	private val events: ApplicationEventPublisher,
 	private val quota: GenerationQuota,
 	@Value("\${byeolmyeong.synastry.daily-limit}") private val dailyLimit: Int,
+	@Value("\${byeolmyeong.synastry.notice-after-seconds}") private val noticeAfterSeconds: Int,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -80,6 +84,23 @@ class SynastryService(
 				log.warn("event=synastry_report_heartbeat_failed error={}", e.javaClass.simpleName)
 			}
 		}
+	}
+
+	/**
+	 * "○○ 님과의 궁합이 나왔어요"(결정 053 의 8): 완성 뒤 [noticeAfterSeconds] 안에 결과를 받아 가지 않은 궁합을 잡아 한 번 알린다
+	 * (알림함 · 푸시가 [SynastryReportDone] 을 듣는다). 조건부 update 로 줄마다 한 서버만 잡으므로 배포 중 두 서버가 함께 돌아도 한 번이다.
+	 * 잡은 뒤 이벤트를 내기 전에 서버가 꺼지면 그 알림은 빠진다(두 번 가는 것보다 한 번 빠지는 쪽 — 결정 042).
+	 */
+	@Scheduled(fixedDelayString = "\${byeolmyeong.synastry.notice-check-seconds}", timeUnit = TimeUnit.SECONDS)
+	fun noticeReady() {
+		val ready = try {
+			repository.claimUnnoticed(noticeAfterSeconds, NOTICE_BATCH)
+		} catch (e: Exception) {
+			log.warn("event=synastry_ready_notice_failed error={}", e.javaClass.simpleName)
+			return
+		}
+		for ((id, ownerId) in ready) events.publishEvent(SynastryReportDone(ownerId, id))
+		if (ready.isNotEmpty()) log.info("event=synastry_ready_noticed count={}", ready.size)
 	}
 
 	/** 나(저장된 프로필)와 [partner](요청에 적힌 상대)의 궁합을 계산해 `WRITING` 으로 넣고, 글은 뒤에서 쓴다. */
@@ -125,12 +146,14 @@ class SynastryService(
 	/**
 	 * 궁합 하나. 완성됐으면 이렇게 본 이유(상대 출생 정보가 있을 때 읽을 때 계산)와 네 영역의 글을 싣는다.
 	 * 완성된 글이 지금의 내 차트로 쓴 것이 아니면(출생 정보를 바꿨다) 여기서 다시 쓰기 시작하고 그 상태를 준다(결정 053 의 5).
+	 * 완성된 결과를 돌려주면 받아 간 때를 적는다 — 그 궁합에는 "나왔어요" 알림을 보내지 않는다(결정 053 의 8).
 	 */
 	fun get(ownerId: UUID, id: UUID): Synastry {
 		val stored = find(ownerId, id)
 		val synastry = stored.synastry
 		if (synastry.status != SynastryStatus.DONE) return synastry
 		if (rewriteIfStale(ownerId, stored)) return find(ownerId, id).synastry
+		repository.markSeen(id)
 		return synastry.copy(reasons = reasons(ownerId, stored), report = repository.findReport(id))
 	}
 
@@ -344,8 +367,8 @@ class SynastryService(
 					log.info("event=synastry_report_discarded attempts={}", attempts)
 				}
 			} else if (repository.complete(run, summary, report, chartHash)) {
+				// 알림은 바로 내지 않는다: 정해진 시간 안에 받아 가지 않았을 때만 noticeReady 가 낸다(결정 053 의 8).
 				log.info("event=synastry_report_done attempts={} elapsed_ms={}", attempts, elapsed)
-				repository.ownerOf(run.id)?.let { events.publishEvent(SynastryReportDone(it, run.id)) }
 			} else {
 				// 그 사이 궁합이나 계정이 지워졌거나, 멈춘 줄 알고 다시 시작한 생성이 자리를 잡았다.
 				log.info("event=synastry_report_discarded attempts={}", attempts)
