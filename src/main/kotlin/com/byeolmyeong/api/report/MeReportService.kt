@@ -21,10 +21,13 @@ class MeReportService(private val profiles: BirthProfileService, private val det
 		return MeReportStatusResponse(status, report)
 	}
 
-	/** 지금 차트의 나 탭 풀이를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다. 차트는 새로 시작할 때만 계산한다. */
-	fun request(ownerId: UUID): ReportStatus {
+	/**
+	 * 지금 차트의 나 탭 풀이를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다. 차트는 새로 시작할 때만 계산한다.
+	 * [appVersion] 은 요청의 `X-App-Version`(없으면 null — 웹 · 관리자의 다시 만들기)이다.
+	 */
+	fun request(ownerId: UUID, appVersion: String?): ReportStatus {
 		val birth = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
-		return details.request(ownerId, DetailReportKind.ME, birth.hash) { meJob(birth.chart()) }
+		return details.request(ownerId, DetailReportKind.ME, birth.hash, appVersion) { meJob(birth.chart()) }
 	}
 
 	private fun meJob(chart: Chart): DetailJob<MeAreaDraft> {

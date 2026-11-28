@@ -24,10 +24,10 @@ class TimingReportService(private val profiles: BirthProfileService, private val
 		return TimingReportStatusResponse(status, timing?.let { timingReportNow(it, LocalDate.now(KOREA_ZONE)) })
 	}
 
-	/** 지금 차트의 시기 풀이를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다. */
-	fun request(ownerId: UUID): ReportStatus {
+	/** 지금 차트의 시기 풀이를 만들기 시작한다. 이미 완성됐거나 쓰는 중이면 시작하지 않고 그 상태를 돌려준다. [appVersion] 은 나 탭 풀이와 같다. */
+	fun request(ownerId: UUID, appVersion: String?): ReportStatus {
 		val birth = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
-		return details.request(ownerId, DetailReportKind.TIMING, birth.hash) { timingJob(birth) }
+		return details.request(ownerId, DetailReportKind.TIMING, birth.hash, appVersion) { timingJob(birth) }
 	}
 
 	private fun timingJob(birth: ChartInput): DetailJob<TimingBatchTexts> {

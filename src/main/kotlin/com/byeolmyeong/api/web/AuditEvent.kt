@@ -21,6 +21,8 @@ enum class AuditAction {
 	// 관리자 v2(결정 043 의 8): 사용자 정지 · 정지 풀기 · 요청받은 탈퇴 대행(대상 USER) · 실패한 생성 다시 하기(대상 USER) · 광고 푸시 보내기(대상 PUSH_EVENT).
 	// 사유 글은 넣지 않는다(정지 · 해제 사유는 account_suspensions, 탈퇴 대행 사유는 저장하지 않는다)
 	USER_SUSPENDED, USER_UNSUSPENDED, USER_DELETED_BY_ADMIN, GENERATION_RETRIED, PUSH_EVENT_SENT,
+	// 결제 없이 여는 계정을 넣음 · 뺌(결정 056 의 9, 대상 ENTITLEMENT_ALLOWLIST). 이메일은 넣지 않는다
+	ENTITLEMENT_ALLOWLIST_ADDED, ENTITLEMENT_ALLOWLIST_REMOVED,
 
 	// 사용자
 	USER_LOGIN, PROFILE_SAVED, READING_GENERATED, REPORT_REQUESTED, SYNASTRY_CREATED, SYNASTRY_REPORT_REQUESTED, SYNASTRY_DELETED,
