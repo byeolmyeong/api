@@ -13,6 +13,8 @@ import com.byeolmyeong.api.reading.validDraft
 import com.byeolmyeong.api.report.timingJson
 import com.byeolmyeong.api.report.validArea
 import com.byeolmyeong.api.synastry.areaJson
+import com.byeolmyeong.api.synastry.awaitSynastry
+import com.byeolmyeong.api.synastry.createSynastry
 import com.byeolmyeong.api.synastry.summaryJson
 import com.byeolmyeong.api.web.ownerRef
 import org.junit.jupiter.api.BeforeEach
@@ -47,7 +49,6 @@ private const val ME = """{"date":"$MY_DATE","time":"$MY_TIME","placeId":$MAPO}"
 private const val OTHER_ME = """{"date":"1991-04-16","time":null,"placeId":null}"""
 private const val PARTNER_NAME = "지우비밀이름"
 private const val PARTNER_DATE = "1988-07-21"
-private const val PARTNER = """{"date":"$PARTNER_DATE","time":null}"""
 private const val INQUIRY_BODY = "문의비밀글-앱이 자꾸 꺼져요 도와주세요"
 private const val REPLY_EMAIL = "user-secret@example.com"
 
@@ -122,7 +123,7 @@ class UserAuditIntegrationTest {
 	private fun awaitReports() {
 		val deadline = System.currentTimeMillis() + 30_000
 		while (System.currentTimeMillis() < deadline) {
-			val writing = jdbc.queryForObject("select (select count(*) from reports where status = 'WRITING') + (select count(*) from synastry_reports where status = 'WRITING')", Int::class.java)!!
+			val writing = jdbc.queryForObject("select (select count(*) from reports where status = 'WRITING') + (select count(*) from synastries where status = 'WRITING')", Int::class.java)!!
 			if (writing == 0) return
 			Thread.sleep(50)
 		}
@@ -150,11 +151,9 @@ class UserAuditIntegrationTest {
 
 	private fun post(path: String, body: String? = null): HttpResponse<String> = http(port, "POST", path, body, token)
 
-	private fun createSynastry(relation: String = "LOVE"): String {
-		val response = post("/synastry/direct", """{"name":"$PARTNER_NAME","relation":"$relation","date":"$PARTNER_DATE","time":null}""")
-		assertEquals(200, response.statusCode())
-		return mapper.readTree(response.body())["id"].asString()
-	}
+	/** 궁합을 만들고 [expected] 가 될 때까지 기다린 뒤 id 를 준다. */
+	private fun createSynastry(relation: String = "LOVE", expected: String = "DONE"): String =
+		createSynastry(port, token, """{"name":"$PARTNER_NAME","relation":"$relation","date":"$PARTNER_DATE","time":null}""", expected)["id"].asString()
 
 	@Test
 	fun `로그인이 남는다`() {
@@ -229,27 +228,32 @@ class UserAuditIntegrationTest {
 	}
 
 	@Test
-	fun `궁합 글의 생성 실패는 FAILURE 로 남는다`() {
+	fun `궁합 글을 만들지 못해도 감사 기록은 만들기 한 줄이고 실패는 궁합의 상태가 보여 준다`() {
 		saveProfile()
 		generator.fail = true
-		assertEquals(502, post("/synastry/direct", """{"name":"$PARTNER_NAME","relation":"WORK","date":"$PARTNER_DATE","time":null}""").statusCode())
-		val row = single("SYNASTRY_CREATED", "FAILURE")
-		assertEquals(listOf(null, null, """{"relation": "WORK"}"""), listOf(row["target_type"], row["target_id"], row["detail"]))
+
+		val id = createSynastry("FRIEND", expected = "FAILED")
+
+		val row = single("SYNASTRY_CREATED")
+		assertEquals(listOf("SYNASTRY", id, """{"relation": "FRIEND"}"""), listOf(row["target_type"], row["target_id"], row["detail"]))
 	}
 
 	@Test
-	fun `궁합 리포트는 만들기 시작한 요청만 남는다`() {
+	fun `다시 하기는 다시 쓰기 시작한 요청만 남는다`() {
 		saveProfile()
-		val id = createSynastry()
+		generator.fail = true
+		val id = createSynastry(expected = "FAILED")
+		awaitReports()
+		generator.fail = false
 		clear()
 
-		assertEquals(202, post("/synastry/$id/report", PARTNER).statusCode())
+		assertEquals(202, post("/synastry/$id/retry").statusCode())
 		val row = single("SYNASTRY_REPORT_REQUESTED")
 		assertEquals(listOf("SYNASTRY", id, null), listOf(row["target_type"], row["target_id"], row["detail"]))
 
-		awaitReports()
-		assertEquals(202, post("/synastry/$id/report", PARTNER).statusCode())
-		assertEquals(200, http(port, "GET", "/synastry/$id/report", token = token).statusCode())
+		awaitSynastry(port, token, id)
+		assertEquals(202, post("/synastry/$id/retry").statusCode(), "완성된 궁합은 다시 쓰지 않는다")
+		assertEquals(200, http(port, "GET", "/synastry/$id", token = token).statusCode())
 		assertEquals(1, rows().size)
 	}
 
@@ -351,7 +355,6 @@ class UserAuditIntegrationTest {
 		assertEquals(200, post("/readings").statusCode())
 		assertEquals(202, post("/reports").statusCode())
 		val synastry = createSynastry()
-		assertEquals(202, post("/synastry/$synastry/report", PARTNER).statusCode())
 		assertEquals(200, post("/directions", """{"topic":"LOVE"}""").statusCode())
 		assertEquals(200, post("/directions", """{"topic":"FUTURE"}""").statusCode())
 		assertEquals(200, post("/directions", """{"topic":"SYNASTRY","synastryId":"$synastry","date":"$PARTNER_DATE","time":null}""").statusCode())
@@ -369,7 +372,7 @@ class UserAuditIntegrationTest {
 		val dump = jdbc.queryForList(
 			"select concat_ws('|', actor_type, actor_id, actor_label, action, target_type, target_id, outcome, detail::text) from audit_logs", String::class.java,
 		).joinToString("\n")
-		assertEquals(14, dump.lines().size)
+		assertEquals(13, dump.lines().size)
 		val tokenHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.toByteArray()))
 		val secrets = listOf(
 			MY_DATE, MY_TIME, MAPO.toString(), "1991-04-16", "04-16", PARTNER_DATE, "07-21", PARTNER_NAME, "지우", "내비밀이름",

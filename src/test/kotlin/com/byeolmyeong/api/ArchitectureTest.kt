@@ -59,11 +59,11 @@ class ArchitectureTest {
             // 공지 알림의 결과 — push · notification 이 알리고 admin 이 공지 행에 적는다(결정 055 의 4)
             "$ROOT.admin.NoticePushSent",
             "$ROOT.admin.NoticeInboxAdded",
-            // 출생 정보가 바뀌면 reading · report · sky 가 옛 차트의 저장분을 지운다(결정 041)
+            // 출생 정보가 바뀌면 reading · report · sky 가 옛 차트의 저장분을 지운다(결정 041) · synastry 가 궁합 점수를 다시 계산한다(결정 053)
             "$ROOT.profile.BirthProfileChanged",
             // 관리자가 실패한 자세한 풀이를 다시 만들게 했다(결정 043 의 1) — report 가 다시 시작한다
             "$ROOT.admin.GenerationRetryRequested",
-            // 별명을 처음 지었다 · 궁합 리포트가 완성됐다 — 알림함(결정 035)과 푸시(결정 042)가 듣는다
+            // 별명을 처음 지었다 · 궁합이 나왔는데 30초 안에 받아 가지 않았다(결정 053 의 8) — 알림함(결정 035)과 푸시(결정 042)가 듣는다
             "$ROOT.reading.ReadingCreated",
             "$ROOT.synastry.SynastryReportDone",
             // 관리자가 광고 푸시를 보냈다 · push 가 다 보냈다(결정 043 의 6) — push(S⑩)가 보내고 admin 이 내역을 채운다

@@ -2,8 +2,8 @@
 type: decision
 tags: [알림함, 알림, 읽음, 30일 보관, 이벤트]
 status: active
-last_reviewed: 2026-11-20
-superseded_by:
+last_reviewed: 2026-11-28
+superseded_by: 053-synastry-v2.md (4 의 궁합 리포트 완성 알림을 넣는 때만 — 완성 뒤 30초 안에 받아 가지 않았을 때. 나머지는 유효)
 ---
 # 035. 알림함은 서버에 종류 넷(별명 · 나 탭 풀이 · 시기 풀이 · 궁합 리포트 완성)을 30일 두고, 읽음은 누를 때 표시한다
 

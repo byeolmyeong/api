@@ -6,6 +6,7 @@ import com.byeolmyeong.api.admin.InquiryAnswered
 import com.byeolmyeong.api.reading.ReadingCreated
 import com.byeolmyeong.api.report.TimingReportDone
 import com.byeolmyeong.api.report.MeReportDone
+import com.byeolmyeong.api.synastry.SynastryReportDone
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -20,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /** Expo 대신 받은 알림을 모아 두고, 정해 둔 토큰에는 DeviceNotRegistered 로 답한다. */
 class RecordingExpoPush : ExpoPush {
@@ -103,6 +105,30 @@ class PushEventsIntegrationTest {
 		assertEquals(setOf("자세한 풀이가 다 됐어요"), sent.map { it.title }.toSet())
 		assertEquals(setOf("성격 · 연애 · 관계 · 일 · 감정을 읽어 보세요."), sent.map { it.body }.toSet())
 		assertEquals(setOf(mapOf("type" to "ME_REPORT_DONE")), sent.map { it.data }.toSet())
+	}
+
+	@Test
+	fun `궁합이 나왔으면 부를 이름이 든 제목으로 보내고 점수 · 사이는 적지 않으며 지워진 궁합에는 보내지 않는다`() {
+		val synastry = UUID.randomUUID()
+		jdbc.update(
+			"insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash) values (?, ?, '하린', 'LOVE', 87, '한줄', '[\"a\",\"b\",\"c\"]'::jsonb, 'h')",
+			synastry, me,
+		)
+
+		events.publishEvent(SynastryReportDone(me, synastry))
+
+		val sent = awaitSent(2)
+		assertEquals(setOf("ExponentPushToken[me-phone]", "ExponentPushToken[me-tablet]"), sent.map { it.to }.toSet())
+		assertEquals(setOf("하린 님과의 궁합이 나왔어요"), sent.map { it.title }.toSet())
+		assertEquals(setOf("점수와 풀이를 볼 수 있어요."), sent.map { it.body }.toSet())
+		assertEquals(setOf(mapOf("type" to "SYNASTRY_REPORT_DONE", "synastryId" to synastry.toString())), sent.map { it.data }.toSet())
+		for (message in sent) assertTrue("87" !in message.title + message.body && "연애" !in message.title + message.body, "잠금 화면에 점수 · 사이를 적지 않는다(앱 결정 104 의 9)")
+
+		// 남의 궁합 · 지워진 궁합에는 보내지 않는다
+		expo.sent.clear()
+		events.publishEvent(SynastryReportDone(other, synastry))
+		events.publishEvent(SynastryReportDone(me, UUID.randomUUID()))
+		assertEquals(0, awaitSent(1).size)
 	}
 
 	@Test

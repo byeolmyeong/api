@@ -54,8 +54,10 @@ class FakeDirectionGenerator : TextGenerator {
 	var respond: (DirectionPrompt, Int) -> DirectionDraft? = ::validDirection
 
 	override fun generate(request: GenerationRequest): JsonNode? {
-		// 궁합 주제의 테스트는 먼저 궁합을 만든다(`POST /synastry/direct`). 그 요약 요청은 방향성 제시의 것이 아니라 세지 않는다.
+		// 궁합 주제의 테스트는 먼저 궁합을 만든다(`POST /synastry`). 그 요약 · 네 영역 요청은 방향성 제시의 것이 아니라 세지 않는다.
+		// 방향성 제시에는 궁합의 사이 · 점수만 있으면 되므로 네 영역은 실패시킨다(그 궁합은 FAILED 로 남는다).
 		if (request.purpose == "synastry_summary") return mapper.valueToTree(mapOf("keywords" to listOf("가짜키워드하나", "가짜키워드둘", "가짜키워드셋"), "headline" to "가짜한줄요약"))
+		if (request.purpose.startsWith("synastry_report_")) throw GenerationException("NOT_A_DIRECTION")
 		val schema: JsonNode = mapper.valueToTree(request.schema)
 		val vocabulary = schema["properties"]["items"]["items"]["properties"]["basis"]["items"]["enum"].values().map { it.asString() }
 		val prompt = DirectionPrompt(request.purpose, request.instructions, request.userText, vocabulary)

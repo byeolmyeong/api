@@ -9,6 +9,7 @@ import com.byeolmyeong.api.reading.ReadingCreated
 import com.byeolmyeong.api.report.MeReportDone
 import com.byeolmyeong.api.report.TimingReportDone
 import com.byeolmyeong.api.sky.TodaySkyDue
+import com.byeolmyeong.api.synastry.SynastryReportDone
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.ApplicationEventPublisher
@@ -29,8 +30,8 @@ import java.util.UUID
 /** 답변 첫 줄을 푸시 본문에 넣을 때 자르는 길이(코드 포인트, 결정 042 의 4). */
 private const val ANSWER_PREVIEW = 60
 
-/** 결정 042 의 4 의 종류(앱이 `data.type` 으로 받아 갈 곳을 고른다). [NOTICE] 는 결정 055 의 4. */
-enum class PushKind { TODAY_SKY, READING_DONE, ME_REPORT_DONE, TIMING_REPORT_DONE, INQUIRY_ANSWERED, EVENT, NOTICE }
+/** 결정 042 의 4 의 종류(앱이 `data.type` 으로 받아 갈 곳을 고른다). [NOTICE] 는 결정 055 의 4, [SYNASTRY_REPORT_DONE] 은 결정 053. */
+enum class PushKind { TODAY_SKY, READING_DONE, ME_REPORT_DONE, TIMING_REPORT_DONE, INQUIRY_ANSWERED, EVENT, NOTICE, SYNASTRY_REPORT_DONE }
 
 /** 광고 푸시 한 번의 결과(사람 수로 센다): 대상 · 기기 하나라도 받은 사람 · 하나도 못 받은 사람. */
 data class BroadcastResult(val recipients: Int, val succeeded: Int, val failed: Int)
@@ -50,6 +51,10 @@ object PushMessages {
 	const val TIMING_REPORT_DONE_BODY = "지금 나의 시기와 올해의 흐름을 볼 수 있어요."
 	const val INQUIRY_ANSWERED_TITLE = "문의에 답변이 왔어요"
 	const val TODAY_SKY_TITLE = "오늘의 하늘"
+	const val SYNASTRY_REPORT_DONE_BODY = "점수와 풀이를 볼 수 있어요."
+
+	/** "○○ 님과의 궁합이 나왔어요"(앱 결정 104 의 9 — 점수 · 사이는 적지 않는다). */
+	fun synastryReportDoneTitle(name: String): String = "$name 님과의 궁합이 나왔어요"
 
 	/** 공지 알림의 둘째 줄(결정 055 의 4 · 앱 결정 107 의 5). 제목은 공지 제목. */
 	const val NOTICE_BODY = "공지사항에서 자세히 볼 수 있어요."
@@ -75,7 +80,7 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	/** 풀이 완성 · 문의 답변(결정 042 의 4 — "늘"). 문구에 필요한 값은 여기서 읽는다. 보낼 것이 없으면(답이 지워짐 등) 아무것도 하지 않는다. */
-	fun notify(accountId: UUID, kind: PushKind, inquiryId: UUID? = null): PushResult {
+	fun notify(accountId: UUID, kind: PushKind, inquiryId: UUID? = null, synastryId: UUID? = null): PushResult {
 		val (title, body, data) = when (kind) {
 			PushKind.READING_DONE -> Triple(PushMessages.READING_DONE_TITLE, PushMessages.readingDoneBody(repository.nickname(accountId)), emptyMap())
 			PushKind.ME_REPORT_DONE -> Triple(PushMessages.ME_REPORT_DONE_TITLE, PushMessages.ME_REPORT_DONE_BODY, emptyMap())
@@ -83,6 +88,10 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 			PushKind.INQUIRY_ANSWERED -> {
 				val answer = inquiryId?.let { repository.answer(accountId, it) } ?: return PushResult(0, 0, 0, 0)
 				Triple(PushMessages.INQUIRY_ANSWERED_TITLE, PushMessages.answerPreview(answer), mapOf("inquiryId" to inquiryId.toString()))
+			}
+			PushKind.SYNASTRY_REPORT_DONE -> {
+				val name = synastryId?.let { repository.synastryName(accountId, it) } ?: return PushResult(0, 0, 0, 0)
+				Triple(PushMessages.synastryReportDoneTitle(name), PushMessages.SYNASTRY_REPORT_DONE_BODY, mapOf("synastryId" to synastryId.toString()))
 			}
 			PushKind.TODAY_SKY, PushKind.EVENT, PushKind.NOTICE -> error("$kind 는 이 길로 보내지 않는다")
 		}
@@ -211,6 +220,10 @@ class PushRepository(private val jdbc: JdbcTemplate) {
 	fun nickname(accountId: UUID): String? =
 		jdbc.queryForList("select nickname from accounts where id = ?", String::class.java, accountId).firstOrNull()
 
+	/** 그 계정의 그 궁합의 부를 이름(결정 053 의 8). 지워졌거나 남의 것이면 null. */
+	fun synastryName(accountId: UUID, synastryId: UUID): String? =
+		jdbc.queryForList("select name from synastries where id = ? and owner_id = ?", String::class.java, synastryId, accountId).firstOrNull()
+
 	/** 그 계정의 그 문의의 답. 없으면 null. */
 	fun answer(accountId: UUID, inquiryId: UUID): String? =
 		jdbc.queryForList("select answer_body from inquiries where id = ? and owner_id = ?", String::class.java, inquiryId, accountId).firstOrNull()
@@ -235,7 +248,7 @@ class PushExecutorConfig {
 
 /**
  * 별명 지음 · 풀이 완성 · 문의 답변 이벤트를 듣고(커밋 뒤) 푸시를 보낸다(결정 042 의 5). 알림함(결정 035)과 같은 이벤트다.
- * 궁합 리포트 완성은 1.0.0 에 보내지 않는다(앱 결정 055).
+ * 궁합은 완성 뒤 30초 안에 결과를 받아 가지 않았을 때 낸 `SynastryReportDone` 만 듣는다(결정 053 의 8).
  * 실패는 삼키고 로그만 남긴다 — 이벤트를 낸 일은 그대로 끝난다.
  */
 @Component
@@ -259,6 +272,11 @@ class PushEvents(
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
 	fun timingReportDone(event: TimingReportDone) {
 		later(PushKind.TIMING_REPORT_DONE) { push.notify(event.ownerId, PushKind.TIMING_REPORT_DONE) }
+	}
+
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+	fun synastryReportDone(event: SynastryReportDone) {
+		later(PushKind.SYNASTRY_REPORT_DONE) { push.notify(event.ownerId, PushKind.SYNASTRY_REPORT_DONE, synastryId = event.synastryId) }
 	}
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)

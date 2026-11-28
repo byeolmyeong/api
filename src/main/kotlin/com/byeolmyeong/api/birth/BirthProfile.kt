@@ -43,8 +43,10 @@ class BirthProfileService(private val repository: BirthProfileRepository, privat
 	fun find(ownerId: UUID): BirthProfile? = repository.find(ownerId)
 
 	/** 소유자가 저장해 둔 출생 정보의 차트 입력. 저장한 적 없으면 null. */
-	fun chartInput(ownerId: UUID): ChartInput? {
-		val profile = find(ownerId) ?: return null
+	fun chartInput(ownerId: UUID): ChartInput? = find(ownerId)?.let(::chartInput)
+
+	/** 출생 정보 하나의 차트 입력. 소유자의 저장된 출생 정보와 궁합에 저장된 상대의 출생 정보(결정 053)가 같은 길로 계산된다. */
+	fun chartInput(profile: BirthProfile): ChartInput {
 		val utc = toUtc(profile.date, profile.time)
 		// 시각을 모르면 저장된 곳이 없고 위경도는 차트에도 해시에도 쓰이지 않는다(0.0 은 자리만 채운다).
 		if (profile.time == null) return ChartInput(utc, lat = 0.0, lon = 0.0, timeKnown = false)

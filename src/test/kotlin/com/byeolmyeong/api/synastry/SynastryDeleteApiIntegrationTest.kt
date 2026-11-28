@@ -20,7 +20,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-private const val PARTNER_BIRTH = """{"date":"1988-07-21","time":"06:10","placeId":$MAPO}"""
 private const val NOT_FOUND = """{"error":"NOT_FOUND"}"""
 
 /** 궁합 지우기 `DELETE /synastry/{id}`(결정 019): 리포트와 그 궁합의 방향성 제시도 함께, 공유 카드는 그대로. */
@@ -70,11 +69,15 @@ class SynastryDeleteApiIntegrationTest {
 	@AfterEach
 	fun tearDown() = settle()
 
-	private fun synastry(name: String = "지우", relation: String = "LOVE"): String {
-		val response = http(port, "POST", "/synastry/direct", directBody(name = name, relation = relation, date = "1988-07-21", time = "06:10", placeId = MAPO), token)
-		assertEquals(200, response.statusCode(), response.body())
+	/** 궁합 하나를 만들기 시작하고 id 를 준다(완성을 기다리지 않는다). */
+	private fun start(name: String = "지우", relation: String = "LOVE"): String {
+		val response = http(port, "POST", "/synastry", directBody(name = name, relation = relation, date = "1988-07-21", time = "06:10", placeId = MAPO), token)
+		assertEquals(202, response.statusCode(), response.body())
 		return mapper.readTree(response.body())["id"].asString()
 	}
+
+	/** 완성된 궁합 하나의 id. */
+	private fun synastry(name: String = "지우", relation: String = "LOVE"): String = start(name, relation).also { awaitSynastry(port, token, it) }
 
 	private fun delete(id: String, token: String? = this.token) = http(port, "DELETE", "/synastry/$id", token = token)
 
@@ -86,22 +89,10 @@ class SynastryDeleteApiIntegrationTest {
 
 	private fun listedIds(path: String): List<String> = mapper.readTree(http(port, "GET", path, token = token).body()).toList().map { it["id"].asString() }
 
-	private fun awaitReport(id: String, expected: String) {
-		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
-		while (mapper.readTree(http(port, "GET", "/synastry/$id/report", token = token).body())["status"].asString() != expected) {
-			check(System.nanoTime() < deadline) { "리포트가 $expected 가 되지 않는다" }
-			Thread.sleep(20)
-		}
-	}
-
 	@Test
 	fun `지우면 궁합과 리포트와 그 궁합의 방향성 제시가 사라지고 나머지는 그대로다`() {
 		val gone = synastry("지우")
 		val kept = synastry("하늘")
-		assertEquals(202, http(port, "POST", "/synastry/$gone/report", PARTNER_BIRTH, token).statusCode())
-		assertEquals(202, http(port, "POST", "/synastry/$kept/report", PARTNER_BIRTH, token).statusCode())
-		awaitReport(gone, "DONE")
-		awaitReport(kept, "DONE")
 		direction(me, "SYNASTRY", gone)
 		direction(me, "SYNASTRY", kept)
 		direction(me, "LOVE", "some-chart-hash")
@@ -112,7 +103,7 @@ class SynastryDeleteApiIntegrationTest {
 		assertEquals("", response.body())
 
 		assertEquals(404, http(port, "GET", "/synastry/$gone", token = token).statusCode())
-		assertEquals(404, http(port, "GET", "/synastry/$gone/report", token = token).statusCode())
+		assertEquals(404, http(port, "POST", "/synastry/$gone/retry", token = token).statusCode())
 		assertEquals(listOf(kept), listedIds("/synastry"))
 		assertEquals(listOf(kept), listedIds("/synastry/ranking?relation=LOVE"))
 		assertEquals(listOf(kept), jdbc.queryForList("select synastry_id::text from synastry_reports", String::class.java))
@@ -121,7 +112,7 @@ class SynastryDeleteApiIntegrationTest {
 			jdbc.query("select topic, target from directions order by topic") { rs, _ -> rs.getString(1) to rs.getString(2) },
 			"그 궁합에 붙은 궁합 주제의 글만 지운다",
 		)
-		assertEquals(200, http(port, "GET", "/synastry/$kept/report", token = token).statusCode())
+		assertEquals(200, http(port, "GET", "/synastry/$kept", token = token).statusCode())
 	}
 
 	@Test
@@ -174,20 +165,70 @@ class SynastryDeleteApiIntegrationTest {
 	}
 
 	@Test
-	fun `쓰는 중인 리포트는 지운 뒤에 되살아나지 않는다`() {
-		val id = synastry()
+	fun `쓰는 중인 궁합은 지운 뒤에 되살아나지 않는다`() {
 		val gate = CountDownLatch(1).also { generator.gate = it }
-		assertEquals(202, http(port, "POST", "/synastry/$id/report", PARTNER_BIRTH, token).statusCode())
-		assertEquals(1, count("synastry_reports"))
+		val id = start()
+		assertEquals(1, count("synastries"))
 
 		assertEquals(204, delete(id).statusCode())
-		assertEquals(0, count("synastry_reports"))
+		assertEquals(0, count("synastries"))
 
 		gate.countDown()
 		settle()
 		assertEquals(0, count("synastry_reports"), "끝난 생성이 아무것도 넣지 않는다")
 		assertEquals(0, count("synastries"))
-		assertEquals(404, http(port, "GET", "/synastry/$id/report", token = token).statusCode())
+		assertEquals(404, http(port, "GET", "/synastry/$id", token = token).statusCode())
+	}
+
+	private fun deleteMany(body: String?, token: String? = this.token) = http(port, "POST", "/synastry/delete", body, token)
+
+	@Test
+	fun `여러 명을 한 번에 지우면 그 궁합들과 저장한 출생 정보 · 글 · 방향성 제시가 사라지고 한 명마다 감사 기록이 남는다`() {
+		val (first, kept, third) = listOf("하나", "둘", "셋").map { synastry(it) }
+		for (id in listOf(first, kept, third)) direction(me, "SYNASTRY", id)
+		jdbc.update("delete from audit_logs")
+
+		// 같은 id 가 두 번 와도 한 번이다
+		val response = deleteMany("""{"ids":["$first","$third","$first"]}""")
+
+		assertEquals(204, response.statusCode(), response.body())
+		assertEquals("", response.body())
+		assertEquals(listOf(kept), listedIds("/synastry"))
+		assertEquals(listOf(kept), jdbc.queryForList("select synastry_id::text from synastry_reports", String::class.java))
+		assertEquals(listOf(kept), jdbc.queryForList("select target from directions", String::class.java))
+		assertEquals(0, jdbc.queryForObject("select count(*) from synastries where partner_birth_date is not null and id <> ?::uuid", Int::class.java, kept))
+		assertEquals(
+			setOf(first, third),
+			jdbc.queryForList("select target_id from audit_logs where action = 'SYNASTRY_DELETED'", String::class.java).toSet(),
+		)
+		assertEquals(2, count("audit_logs"))
+	}
+
+	@Test
+	fun `여러 명 지우기에 남의 것 · 없는 것 · id 가 아닌 값이 하나라도 섞이면 404 이고 아무것도 지우지 않는다`() {
+		val mine = synastry()
+		val other = UUID.randomUUID()
+		val theirs = UUID.randomUUID()
+		jdbc.update("insert into accounts (id, provider, provider_user_id) values (?, 'TEST', 'someone-else')", other)
+		jdbc.update(
+			"insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash) values (?, ?, '남의것', 'LOVE', 70, '한줄', '[\"a\",\"b\",\"c\"]'::jsonb, 'hash')",
+			theirs, other,
+		)
+		jdbc.update("delete from audit_logs")
+
+		for (mixed in listOf(theirs.toString(), UUID.randomUUID().toString(), "not-a-uuid")) {
+			val response = deleteMany("""{"ids":["$mine","$mixed"]}""")
+			assertEquals(404, response.statusCode(), mixed)
+			assertEquals(NOT_FOUND, response.body(), mixed)
+		}
+		for (body in listOf(null, "not json", "{}", """{"ids":[]}""", """{"ids":null}""", """{"ids":"$mine"}""", """{"ids":[null]}""")) {
+			val response = deleteMany(body)
+			assertEquals(400, response.statusCode(), "$body")
+			assertEquals("""{"error":"INVALID_REQUEST"}""", response.body(), "$body")
+		}
+		assertEquals(401, deleteMany("""{"ids":["$mine"]}""", token = null).statusCode())
+		assertEquals(2, count("synastries"))
+		assertEquals(0, count("audit_logs"), "거절된 요청은 감사 기록에 없다")
 	}
 
 	@Test

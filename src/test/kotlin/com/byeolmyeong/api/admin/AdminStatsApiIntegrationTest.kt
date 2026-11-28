@@ -112,9 +112,12 @@ class AdminStatsApiIntegrationTest {
 				)
 			}
 		}
-		for ((index, status) in listOf("DONE", "WRITING", "WRITING", "FAILED").withIndex()) {
-			jdbc.update("insert into synastry_reports (synastry_id, status, body) values (?, ?, ?::jsonb)", synastries[index], status, if (status == "DONE") text else null)
+		// 궁합 글의 상태는 궁합 행에 있다(결정 053 의 9). 새로 온 별은 글이 없어 세지 않는다.
+		for ((index, status) in listOf("DONE", "WRITING", "WRITING", "FAILED", "NEW_STAR").withIndex()) {
+			jdbc.update("update synastries set status = ?, active_at = now() where id = ?", status, synastries[index])
 		}
+		// 살아 있다는 표시가 2분 넘게 끊긴 WRITING 은 앱이 보는 것과 같이 FAILED 로 센다
+		jdbc.update("update synastries set active_at = now() - interval '3 minutes' where id = ?", synastries[2])
 		for ((owner, topic) in listOf(today to "LOVE", threeDays to "LOVE", today to "FUTURE")) {
 			jdbc.update("insert into directions (id, owner_id, topic, target, body) values (?, ?, ?, 'h1', ?::jsonb)", UUID.randomUUID(), owner, topic, text)
 		}
@@ -136,7 +139,7 @@ class AdminStatsApiIntegrationTest {
 					"readings": {"total": 3},
 					"reports": {"total": 6, "byStatus": {"DONE": 3, "WRITING": 1, "FAILED": 2}},
 					"synastries": {"total": 5},
-					"synastryReports": {"total": 4, "byStatus": {"DONE": 1, "WRITING": 2, "FAILED": 1}},
+					"synastryReports": {"total": 4, "byStatus": {"DONE": 1, "WRITING": 1, "FAILED": 2}},
 					"directions": {"total": 3, "byTopic": {"LOVE": 2, "FUTURE": 1}},
 					"inquiries": {"total": 7, "byStatus": {"NEW": 3, "IN_PROGRESS": 1, "ANSWERED": 1, "DONE": 2}},
 					"users": {"total": 4, "joinedToday": 1, "joined7d": 2},

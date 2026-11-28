@@ -46,7 +46,7 @@ private val MY_SIDE_WORDS = listOf("태양", "달", "수성", "금성", "화성"
 
 /**
  * 방향성 제시의 궁합 주제: 궁합 한 건마다 한 편. 상대의 출생 정보는 저장돼 있지 않아 처음 만들 때 다시 받고, 글만 저장한다(결정 010·011).
- * 궁합은 실제 경로(`POST /synastry/direct`)로 만든다.
+ * 궁합은 실제 경로(`POST /synastry`)로 만든다. 방향성 제시는 그 궁합의 사이 · 점수만 읽는다(1.1.0 앱은 부르지 않는다 — 결정 053).
  */
 @Import(TestcontainersConfiguration::class, DirectionApiIntegrationTest.FakeGeneratorConfig::class)
 @SpringBootTest(
@@ -81,11 +81,18 @@ class DirectionSynastryApiIntegrationTest {
 		return token
 	}
 
-	/** 궁합을 만들고 id 를 돌려준다. [partner] 는 상대의 출생 정보(JSON 의 키들). */
+	/** 궁합을 만들고 글 쓰기가 끝난 뒤의 궁합을 돌려준다(가짜 생성기가 네 영역을 실패시켜 FAILED). [partner] 는 상대의 출생 정보(JSON 의 키들). */
 	private fun synastry(token: String, partner: String = PARTNER, relation: String = "LOVE", name: String = "지우"): JsonNode {
-		val response = http(port, "POST", "/synastry/direct", """{"name":"$name","relation":"$relation",$partner}""", token)
-		assertEquals(200, response.statusCode(), response.body())
-		return mapper.readTree(response.body())
+		val response = http(port, "POST", "/synastry", """{"name":"$name","relation":"$relation",$partner}""", token)
+		assertEquals(202, response.statusCode(), response.body())
+		val id = mapper.readTree(response.body())["id"].asString()
+		val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(20)
+		while (true) {
+			val synastry = mapper.readTree(http(port, "GET", "/synastry/$id", token = token).body())
+			if (synastry["status"].asString() != "WRITING") return synastry
+			check(System.nanoTime() < deadline) { "궁합 글 쓰기가 끝나지 않는다" }
+			Thread.sleep(20)
+		}
 	}
 
 	private fun direction(token: String, synastryId: String, partner: String? = PARTNER) =
@@ -140,15 +147,15 @@ class DirectionSynastryApiIntegrationTest {
 	@Test
 	fun `재료는 서버가 다시 계산한 연결과 점수이고 근거는 내 쪽 요소뿐이며 이름과 출생 정보를 주지 않는다`() {
 		val token = tokenWithProfile()
-		val created = synastry(token, relation = "WORK", name = "지우")
+		val created = synastry(token, relation = "FRIEND", name = "지우")
 
 		assertEquals(200, direction(token, created["id"].asString()).statusCode())
 
 		val prompt = generator.prompts.single()
 		assertEquals("direction_synastry", prompt.purpose)
-		val score = synastryScore(chartOf(MY_DATE, MY_TIME), chartOf(PARTNER_DATE, PARTNER_TIME, HAEUNDAE), Relation.WORK)
+		val score = synastryScore(chartOf(MY_DATE, MY_TIME), chartOf(PARTNER_DATE, PARTNER_TIME, HAEUNDAE), Relation.FRIEND)
 		assertEquals(score, created["score"].asInt())
-		assertTrue(prompt.facts.contains("[관계 유형]\n일"), prompt.facts)
+		assertTrue(prompt.facts.contains("[관계 유형]\n친구"), prompt.facts)
 		assertTrue(prompt.facts.contains("[점수]") && prompt.facts.contains("${score}점"), prompt.facts)
 		assertTrue(prompt.facts.contains("[잘 맞는 연결]") && prompt.facts.contains("[부딪히는 연결]"))
 		assertTrue(Regex("나의 \\S+\\(\\S+\\) – 상대의 \\S+\\(\\S+\\): ").containsMatchIn(prompt.facts), prompt.facts)
@@ -374,14 +381,16 @@ class DirectionSynastryApiIntegrationTest {
 			String::class.java,
 		)
 		val storedRaw = tables.joinToString("\n") { table ->
-			jdbc.queryForList("select row_to_json(t)::text from $table t", String::class.java).joinToString("\n")
+			// 상대의 출생 정보는 궁합 행의 그 칸에만 둔다(결정 053 의 2 — SynastryApiIntegrationTest 가 본다)
+			jdbc.queryForList("select (to_jsonb(t) - 'partner_birth_date' - 'partner_birth_time' - 'partner_place_id')::text from $table t", String::class.java).joinToString("\n")
 		}
 		// 무작위 id 와 시각 표기에 우연히 같은 숫자가 나올 수 있어 그것들은 지우고 본다
 		val noise = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{4}-\d{2}-\d{2}[T ][\d:.]+|[0-9a-f]{64}""")
 		val stored = noise.replace(storedRaw, "")
 		val logged = noise.replace(output.all, "")
 		assertTrue(stored.contains("가짜실천하나 해 보기"), "글은 저장한다")
-		val longitudes = created["overlay"]["theirs"].values().map { it["longitude"].asString() }
+		// 상대의 행성 황경(겹친 휠은 없어졌다 — 결정 053 의 2. 서버와 같은 계산으로 구한다)
+		val longitudes = chartOf(PARTNER_DATE, PARTNER_TIME, HAEUNDAE).positions.map { (kotlin.math.floor(it.longitude * 100.0) / 100.0).toString() }
 		assertEquals(10, longitudes.size)
 		for (secret in listOf("1988", "07-21", "06:10", HAEUNDAE.toString(), "상대의 ") + longitudes) {
 			assertFalse(stored.contains(secret), "DB 에 상대의 '$secret' 이 있다")

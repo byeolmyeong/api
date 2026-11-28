@@ -12,7 +12,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 private const val WINDOW_MILLIS = 60_000L
 
 /**
- * `POST /charts`·`GET /places`·`POST /synastry/direct`·`GET /faqs`·`GET /notices`(+ 한 건, 한도를 함께 센다)·`GET /app-config`·`GET /shared/{shareId}`·`/auth/login`·`/auth/signup`·`/auth/nickname-check`
+ * `POST /charts`·`GET /places`·`POST /synastry`·`GET /faqs`·`GET /notices`(+ 한 건, 한도를 함께 센다)·`GET /app-config`·`GET /shared/{shareId}`·`/auth/login`·`/auth/signup`·`/auth/nickname-check`
  * 의 주소별 요청 수 제한. 한도를 넘으면 429. 로그인 · 가입 · 닉네임 확인은 한 한도를 같이 쓴다(결정 021 — 카카오 코드는 확인 전에 카카오를 부른다).
  */
 @Configuration
@@ -30,7 +30,8 @@ class RateLimitConfig(
 	override fun addInterceptors(registry: InterceptorRegistry) {
 		registry.addInterceptor(RateLimitInterceptor(chartsPerMinute)).addPathPatterns("/charts")
 		registry.addInterceptor(RateLimitInterceptor(placesPerMinute)).addPathPatterns("/places")
-		registry.addInterceptor(RateLimitInterceptor(synastryPerMinute)).addPathPatterns("/synastry/direct")
+		// 궁합 만들기만 센다(같은 경로의 목록 `GET /synastry` 는 세지 않는다 — 결정 053 의 4)
+		registry.addInterceptor(RateLimitInterceptor(synastryPerMinute, method = "POST")).addPathPatterns("/synastry")
 		registry.addInterceptor(RateLimitInterceptor(faqsPerMinute)).addPathPatterns("/faqs")
 		registry.addInterceptor(RateLimitInterceptor(noticesPerMinute)).addPathPatterns("/notices", "/notices/*")
 		registry.addInterceptor(RateLimitInterceptor(appConfigPerMinute)).addPathPatterns("/app-config")
@@ -39,10 +40,12 @@ class RateLimitConfig(
 	}
 }
 
-private class RateLimitInterceptor(limit: Int) : HandlerInterceptor {
+/** [method] 가 있으면 그 메서드의 요청만 센다. */
+private class RateLimitInterceptor(limit: Int, private val method: String? = null) : HandlerInterceptor {
 	private val limiter = RateLimiter(limit, WINDOW_MILLIS, System::currentTimeMillis)
 
 	override fun preHandle(request: HttpServletRequest, response: HttpServletResponse, handler: Any): Boolean {
+		if (method != null && request.method != method) return true
 		// 주소는 연결의 상대 주소다. 프록시 뒤에 두게 되면 전달 헤더 설정을 함께 정한다.
 		if (limiter.tryAcquire(request.remoteAddr)) return true
 		response.status = 429
