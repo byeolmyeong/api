@@ -1,7 +1,10 @@
 package com.byeolmyeong.api.report
 
 import com.byeolmyeong.api.auth.CurrentOwner
+import com.byeolmyeong.api.web.ErrorResponse
 import com.fasterxml.jackson.annotation.JsonInclude
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestHeader
@@ -38,4 +41,8 @@ class EntitlementController(
 		if (!entitlements.confirm(ownerId)) return EntitlementConfirmResponse(detail = false)
 		return EntitlementConfirmResponse(detail = true, me = me.request(ownerId, appVersion), timing = timing.request(ownerId, appVersion))
 	}
+
+	@ExceptionHandler(ConfirmRateLimitedException::class)
+	fun rateLimited(): ResponseEntity<ErrorResponse> =
+		ResponseEntity.status(429).body(ErrorResponse("RATE_LIMITED"))
 }

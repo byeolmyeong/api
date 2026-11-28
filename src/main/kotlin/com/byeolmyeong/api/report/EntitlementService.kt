@@ -1,6 +1,8 @@
 package com.byeolmyeong.api.report
 
 import org.slf4j.LoggerFactory
+import com.byeolmyeong.api.web.RateLimiter
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.springframework.jdbc.core.JdbcTemplate
@@ -16,6 +18,11 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** RevenueCat 의 답을 계정마다 담아 두는 시간(결정 056 의 4). */
 private val STORE_ANSWER_TTL: Duration = Duration.ofMinutes(1)
+
+private const val MINUTE_MILLIS = 60_000L
+
+/** 결제 직후 확인을 한 계정이 분당 한도보다 많이 불렀다(429 `RATE_LIMITED`, 결정 056 의 7). */
+class ConfirmRateLimitedException : RuntimeException("RATE_LIMITED")
 
 /** 상품을 가진 까닭(결정 056 의 2). 글자는 `entitlements.source` 와 같다. */
 enum class EntitlementSource {
@@ -36,8 +43,12 @@ class EntitlementService(
 	private val start: PurchaseStart,
 	private val revenueCat: RevenueCat,
 	private val clock: Clock,
+	@Value("\${byeolmyeong.rate-limit.entitlement-confirm-per-minute}") confirmPerMinute: Int,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
+
+	// 확인은 부를 때마다 RevenueCat 을 부르므로 계정마다 분당 수를 센다(서버 메모리).
+	private val confirmLimiter = RateLimiter(confirmPerMinute, MINUTE_MILLIS, clock::millis)
 
 	private class StoreAnswer(val owned: Boolean, val until: Instant)
 
@@ -58,8 +69,13 @@ class EntitlementService(
 	/**
 	 * 결제 · 복원 직후의 확인(결정 056 의 7): RevenueCat 을 담아 둔 답 없이 묻고, 있으면 `STORE` 로 적는다. 스토어 구매만 본다 —
 	 * 결제 없이 여는 계정 · `LEGACY` 라도 스토어 구매가 없으면 false. 묻지 못하면 `web.PurchaseCheckFailedException`.
+	 * 계정마다 분당 `byeolmyeong.rate-limit.entitlement-confirm-per-minute` 번을 넘으면 묻지 않고 [ConfirmRateLimitedException].
 	 */
 	fun confirm(ownerId: UUID): Boolean {
+		if (!confirmLimiter.tryAcquire(ownerId.toString())) {
+			log.warn("event=entitlement_confirm_rate_limited")
+			throw ConfirmRateLimitedException()
+		}
 		if (!askStore(ownerId)) return false
 		recordStore(ownerId)
 		return true

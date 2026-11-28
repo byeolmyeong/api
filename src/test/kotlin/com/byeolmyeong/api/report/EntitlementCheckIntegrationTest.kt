@@ -426,4 +426,21 @@ class EntitlementCheckIntegrationTest {
 		assertEquals(202 to """{"status":"WRITING"}""", postFromApp("/reports", token, "1.0.0").let { it.statusCode() to it.body() })
 		assertTrue(revenueCat.asked.isEmpty())
 	}
+
+	@Test
+	fun `확인은 계정마다 분당 6번까지이고 넘으면 429 이며 RevenueCat 을 묻지 않는다 - 다른 계정은 따로 센다`() {
+		val token = token()
+
+		repeat(6) { assertEquals(200, confirm(token).statusCode(), "${it + 1}번째") }
+		val limited = confirm(token)
+
+		assertEquals(429 to """{"error":"RATE_LIMITED"}""", limited.statusCode() to limited.body())
+		assertEquals(6, revenueCat.asked.size)
+
+		val other = "entitlement-confirm-other-session"
+		val otherId = UUID.randomUUID()
+		jdbc.update("insert into accounts (id, provider, provider_user_id) values (?, 'DEV', 'confirm-other')", otherId)
+		jdbc.update("insert into sessions (token_hash, account_id) values (?, ?)", com.byeolmyeong.api.synastry.sha256(other), otherId)
+		assertEquals(200, confirm(other).statusCode())
+	}
 }
