@@ -28,7 +28,7 @@ private val AFTER_START: Instant = STARTS_AT.plusSeconds(1)
  * 시작 뒤에도 같은 조건으로 돈다. 받기를 누를 때 적는 것은 `EntitlementCheckIntegrationTest`. 시계는 가짜로 바꿔 끼우고, 행의 때는 직접 적는다.
  */
 @Import(TestcontainersConfiguration::class, EntitlementLegacyIntegrationTest.Fakes::class)
-@SpringBootTest(properties = ["byeolmyeong.purchase.starts-at=2026-12-10T00:00:00+09:00"])
+@SpringBootTest(properties = ["byeolmyeong.purchase.starts-at=2026-12-10T00:00:00+09:00", "byeolmyeong.purchase.revenuecat-secret-key=not-used-fake-revenuecat"])
 class EntitlementLegacyIntegrationTest {
 
 	@TestConfiguration(proxyBeanMethods = false)

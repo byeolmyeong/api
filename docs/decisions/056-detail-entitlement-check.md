@@ -18,7 +18,7 @@ superseded_by:
 - 배포는 블루 · 그린이라 새 jar 가 뜬 뒤에도 옛 jar 가 몇 분(최대 약 8분) 같은 DB 로 요청을 받는다(결정 046).
 
 ## 결정
-1. **결제 시작 시각**: 설정 `byeolmyeong.purchase.starts-at`(환경 변수 `PURCHASE_STARTS_AT`, 오프셋이 붙은 ISO-8601 — 예 `2026-12-10T00:00:00+09:00`). 비어 있거나 아직 오지 않았으면 1.0.0 처럼 **모두 허용**하고 426 도 없다. 읽을 수 없는 값이면 서버가 시작하지 않는다(배포의 상태 확인에서 바로 드러나게). 출시일에 소유자 승인 뒤 값을 넣고 다시 배포한다(블루그린).
+1. **결제 시작 시각**: 설정 `byeolmyeong.purchase.starts-at`(환경 변수 `PURCHASE_STARTS_AT`, 오프셋이 붙은 ISO-8601 — 예 `2026-12-10T00:00:00+09:00`). 비어 있거나 아직 오지 않았으면 1.0.0 처럼 **모두 허용**하고 426 도 없다. 읽을 수 없는 값이거나, 값이 있는데 `REVENUECAT_SECRET_KEY` 가 비어 있으면 서버가 시작하지 않는다(배포의 상태 확인에서 바로 드러나게 — 키가 없으면 표에 없는 계정의 받기가 모두 503 이 된다). 출시일에 소유자 승인 뒤 값을 넣고 다시 배포한다(블루그린).
 2. **표 둘(마이그레이션 하나)**:
    - `entitlements(account_id → accounts cascade, source LEGACY · STORE, created_at)`, `(account_id, source)` 가 키. 계정마다 출처별 한 줄. 출생 정보와 상관없는 계정의 것이라 출생 정보를 바꿔도 남는다 → **다시 받기는 무료**(101 의 6, 남용은 지금의 생성 한도).
    - `entitlement_allowlist(id, email 유일, created_at, created_by → admin_accounts)` — 결제 없이 여는 계정(101 의 5-2).
@@ -30,7 +30,7 @@ superseded_by:
    5. 아니면 거절 → 402 `PURCHASE_REQUIRED`, 행을 만들지 않는다.
    - 상품은 하나라 `kind`(나 탭 · 시기)를 가리지 않는다.
 4. **RevenueCat 확인**: REST v1 `GET https://api.revenuecat.com/v1/subscribers/{app_user_id}`(공식 문서 "Customers"), 머리 `Authorization: Bearer <비밀 키>`. 앱의 RevenueCat 사용자 id = 서버 계정 id(UUID 글자). 응답의 `subscriber.entitlements` 에 상품 이름(설정 `byeolmyeong.purchase.revenuecat-entitlement`, 기본 `detail` — 제안)이 있고 `expires_date` 가 `null`(평생 — 비소모성) 이거나 지금보다 뒤면 "있음". 이 사전은 지난 것도 담으므로 날짜를 본다.
-   - 비밀 키는 환경 변수 `REVENUECAT_SECRET_KEY` 에만 둔다. 로그 · 문서에 값을 적지 않는다.
+   - 비밀 키는 환경 변수 `REVENUECAT_SECRET_KEY` 에만 둔다. 로그 · 문서에 값을 적지 않는다. 결제 시작 시각이 있는데 비어 있으면 서버가 시작하지 않는다(1).
    - 결과는 계정마다 **1분** 서버 메모리에 둔다(안 산 사람이 여러 번 눌러도 한 번 묻는다). 성공한 답만 둔다. 서버를 바꾸면 비워진다(괜찮다 — 다시 물으면 된다).
    - **실패하면 허용하지 않는다**: 비밀 키 없음 · 연결 실패 · 시간 초과(연결 3초 · 읽기 5초) · 2xx 가 아님 · 읽을 수 없는 본문이면 503 `PURCHASE_CHECK_FAILED`(제안 — 돈을 받지 않고 열어 주지 않게, 그리고 산 사람에게 "사세요" 를 보이지 않게). 다시 시도하지 않는다. 행을 만들지 않는다. 로그는 사유 코드만(`event=purchase_check_failed reason=…`).
    - 이 부름은 RevenueCat 에 고객이 없으면 만든다(201). 같은 계정 id 라 앱이 나중에 쓰는 고객과 같다.

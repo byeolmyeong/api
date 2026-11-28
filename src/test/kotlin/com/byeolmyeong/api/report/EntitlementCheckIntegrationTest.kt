@@ -42,7 +42,7 @@ private val PURCHASE_STARTS: Instant = Instant.parse("2026-12-09T15:00:00Z")
 @Import(TestcontainersConfiguration::class, EntitlementCheckIntegrationTest.Fakes::class)
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-	properties = [DEV_AUTH_ON, "byeolmyeong.purchase.starts-at=2026-12-10T00:00:00+09:00"],
+	properties = [DEV_AUTH_ON, "byeolmyeong.purchase.starts-at=2026-12-10T00:00:00+09:00", "byeolmyeong.purchase.revenuecat-secret-key=not-used-fake-revenuecat"],
 )
 class EntitlementCheckIntegrationTest {
 
