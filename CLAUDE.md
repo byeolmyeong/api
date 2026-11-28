@@ -39,7 +39,7 @@ Spring Boot · Kotlin(JVM 21) · Gradle(Kotlin DSL) · PostgreSQL · Claude API(
 - 차트 계산은 `chart` 패키지의 순수 함수에서만 한다. AI 에게 계산을 맡기지 않는다. 근거: docs/decisions/002-chart-calculation.md
 - 초대로 연결된 상대의 출생 정보와 행성 위치를 다른 사람에게 내려보내지 않는다. 직접 입력한 상대의 출생 정보는 그 궁합에만 쓰고(지우면 함께 지워진다) 응답 · 로그 · 감사 · 분석에 넣지 않는다. 상대의 이름은 AI 에 보내지 않는다(결정 053).
 - AI 생성 호출은 인터페이스 하나 뒤에 둔다. 실패·빈 응답·근거가 차트와 안 맞는 응답은 저장하지 않는다.
-- 요청 속도 제한·만 14세 판정·궁합 점수·변곡점 구간은 서버에서만 판정·계산한다. 기능 횟수 제한은 없다(docs/decisions/003-follow-app-decisions-2026-11-11.md).
+- 요청 속도 제한·만 14세 판정·궁합 점수·변곡점 구간은 서버에서만 판정·계산한다. 기능 횟수 제한은 없다(docs/decisions/003-follow-app-decisions-2026-11-11.md) — 궁합의 하루 50개는 사용자에게 보이지 않는 남용 막기다(결정 053 의 6).
 - API 키는 환경 변수에만 둔다. 출생 정보는 로그에 남기지 않는다.
 - API 계약(경로·요청·응답)을 바꾸면 docs/architecture.md 의 계약 표를 같은 커밋에서 고치고, 앱 저장소에 맞춤 변경이 필요하다고 보고한다.
 - 결정이 바뀌면 코드보다 먼저 docs/decisions/에 새 ADR. 원본은 docs/raw/, 종합은 docs/synthesis/.
