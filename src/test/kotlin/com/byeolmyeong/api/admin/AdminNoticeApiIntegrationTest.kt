@@ -109,7 +109,8 @@ class AdminNoticeApiIntegrationTest {
 
 	@Test
 	fun `공지를 만들면 임시 저장이고 앱에는 보이지 않는다`() {
-		val before = Instant.now().minusSeconds(2)
+		// 만든 때는 DB 시계(now())로 적힌다 — 테스트 JVM 시계와 견주면 Docker 의 시계가 조금 어긋날 때 흔들린다
+		val before = jdbc.queryForObject("select date_trunc('second', now())", java.time.OffsetDateTime::class.java)!!.toInstant()
 		val response = create("NOTICE", "  점검 안내  ", "  12월 3일 새벽에 점검합니다.\n\n잠시 쓸 수 없어요.  ")
 		assertEquals(201, response.statusCode())
 		val notice = response.json()
@@ -123,7 +124,7 @@ class AdminNoticeApiIntegrationTest {
 		assertTrue(notice["notifyStartedAt"].isNull)
 		assertTrue(notice["push"].isNull, "알림을 보내지 않았으면 결과도 없다")
 		assertTrue(notice["inbox"].isNull)
-		assertTrue(Instant.parse(notice["createdAt"].asString()).isAfter(before))
+		assertTrue(!Instant.parse(notice["createdAt"].asString()).isBefore(before), "만든 때는 만들기 전 DB 시각보다 앞서지 않는다")
 		assertEquals(ROOT_ID, notice["createdBy"]["name"].asString())
 		assertEquals(ROOT_ID, notice["updatedBy"]["name"].asString())
 
