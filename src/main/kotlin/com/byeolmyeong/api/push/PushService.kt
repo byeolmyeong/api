@@ -1,6 +1,8 @@
 package com.byeolmyeong.api.push
 
 import com.byeolmyeong.api.admin.InquiryAnswered
+import com.byeolmyeong.api.admin.NoticePublished
+import com.byeolmyeong.api.admin.NoticePushSent
 import com.byeolmyeong.api.admin.PushEventRequested
 import com.byeolmyeong.api.admin.PushEventSent
 import com.byeolmyeong.api.reading.ReadingCreated
@@ -21,19 +23,20 @@ import org.springframework.stereotype.Service
 import org.springframework.context.event.EventListener
 import org.springframework.transaction.event.TransactionPhase
 import org.springframework.transaction.event.TransactionalEventListener
+import java.time.Clock
 import java.util.UUID
 
 /** 답변 첫 줄을 푸시 본문에 넣을 때 자르는 길이(코드 포인트, 결정 042 의 4). */
 private const val ANSWER_PREVIEW = 60
 
-/** 결정 042 의 4 의 종류(앱이 `data.type` 으로 받아 갈 곳을 고른다). */
-enum class PushKind { TODAY_SKY, READING_DONE, ME_REPORT_DONE, TIMING_REPORT_DONE, INQUIRY_ANSWERED, EVENT }
+/** 결정 042 의 4 의 종류(앱이 `data.type` 으로 받아 갈 곳을 고른다). [NOTICE] 는 결정 055 의 4. */
+enum class PushKind { TODAY_SKY, READING_DONE, ME_REPORT_DONE, TIMING_REPORT_DONE, INQUIRY_ANSWERED, EVENT, NOTICE }
 
 /** 광고 푸시 한 번의 결과(사람 수로 센다): 대상 · 기기 하나라도 받은 사람 · 하나도 못 받은 사람. */
 data class BroadcastResult(val recipients: Int, val succeeded: Int, val failed: Int)
 
 /** 한 사람에게 보낼 알림 하나([sendMany] 용). */
-data class Notice(val accountId: UUID, val title: String, val body: String, val data: Map<String, String> = emptyMap())
+data class PushNotice(val accountId: UUID, val title: String, val body: String, val data: Map<String, String> = emptyMap())
 
 /** 한 번 보낸 결과(sent · skipped · failed 를 나눈다). */
 data class PushResult(val devices: Int, val sent: Int, val failed: Int, val skipped: Int)
@@ -47,6 +50,9 @@ object PushMessages {
 	const val TIMING_REPORT_DONE_BODY = "지금 나의 시기와 올해의 흐름을 볼 수 있어요."
 	const val INQUIRY_ANSWERED_TITLE = "문의에 답변이 왔어요"
 	const val TODAY_SKY_TITLE = "오늘의 하늘"
+
+	/** 공지 알림의 둘째 줄(결정 055 의 4 · 앱 결정 107 의 5). 제목은 공지 제목. */
+	const val NOTICE_BODY = "공지사항에서 자세히 볼 수 있어요."
 
 	/** 닉네임이 없는 옛 계정은 닉네임 없이. */
 	fun readingDoneBody(nickname: String?): String =
@@ -65,7 +71,7 @@ object PushMessages {
  * `DeviceNotRegistered` 인 토큰은 지운다. 다시 보내지 않는다(두 번 가는 것보다 한 번 빠지는 쪽).
  */
 @Service
-class PushService(private val repository: PushRepository, private val expo: ExpoPush) {
+class PushService(private val repository: PushRepository, private val expo: ExpoPush, private val clock: Clock) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	/** 풀이 완성 · 문의 답변(결정 042 의 4 — "늘"). 문구에 필요한 값은 여기서 읽는다. 보낼 것이 없으면(답이 지워짐 등) 아무것도 하지 않는다. */
@@ -78,7 +84,7 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 				val answer = inquiryId?.let { repository.answer(accountId, it) } ?: return PushResult(0, 0, 0, 0)
 				Triple(PushMessages.INQUIRY_ANSWERED_TITLE, PushMessages.answerPreview(answer), mapOf("inquiryId" to inquiryId.toString()))
 			}
-			PushKind.TODAY_SKY, PushKind.EVENT -> error("$kind 는 이 길로 보내지 않는다")
+			PushKind.TODAY_SKY, PushKind.EVENT, PushKind.NOTICE -> error("$kind 는 이 길로 보내지 않는다")
 		}
 		return send(accountId, kind, title, body, data)
 	}
@@ -102,6 +108,25 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 		return result
 	}
 
+	/**
+	 * 공지 알림(결정 055 의 4): 푸시 동의 + 정지 아님인 계정의 기기 모두에 공지 제목을 보낸다(서비스 알림 — 마케팅 동의 · 하루 한 번과 상관없다).
+	 * 제목은 지금 읽는다 — 그 사이 지워졌거나 내려갔으면 보내지 않고 대상 기기 모두를 "보내지 않음"으로 센다. 보내는 순간이 밤이면 소리 없이(결정 057).
+	 */
+	fun notice(noticeId: UUID): PushResult {
+		val devices = repository.serviceAudienceDevices()
+		val title = repository.publishedNoticeTitle(noticeId)
+		if (title == null) {
+			log.info("event=push_skipped type={} reason=NOT_PUBLISHED count={}", PushKind.NOTICE, devices.size)
+			return PushResult(devices.size, 0, 0, devices.size)
+		}
+		val data = mapOf("type" to PushKind.NOTICE.name, "noticeId" to noticeId.toString())
+		val night = QuietHours.isNight(clock.instant())
+		return deliver(PushKind.NOTICE, devices.map { QuietHours.message(it, title, PushMessages.NOTICE_BODY, data, night) })
+	}
+
+	/** 서비스 알림 대상의 기기 수(공지 알림이 실패했을 때 결과를 알리려고). */
+	fun serviceAudienceDeviceCount(): Int = repository.serviceAudienceDevices().size
+
 	/** 광고 대상의 사람 수(발송이 실패했을 때 결과를 알리려고). */
 	fun adAudienceCount(): Int = repository.adAudienceDevices().map { it.first }.distinct().size
 
@@ -109,10 +134,20 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 	 * 여러 사람에게 각자의 알림을 한꺼번에 보낸다(Expo 를 100건씩 묶어 부른다 — 오늘의 하늘 아침 알림).
 	 * 정지 계정 · 기기 없는 사람은 건너뛴다. `DeviceNotRegistered` 인 토큰은 지운다.
 	 */
-	fun sendMany(kind: PushKind, notices: List<Notice>): PushResult {
+	fun sendMany(kind: PushKind, notices: List<PushNotice>): PushResult {
 		val messages = notices.flatMap { notice ->
 			repository.tokens(notice.accountId).map { PushMessage(it, notice.title, notice.body, notice.data + ("type" to kind.name)) }
 		}
+		return deliver(kind, messages)
+	}
+
+	/** 그 계정의 기기 모두에 같은 알림을 보낸다. */
+	fun send(accountId: UUID, kind: PushKind, title: String, body: String, data: Map<String, String> = emptyMap()): PushResult {
+		return deliver(kind, repository.tokens(accountId).map { PushMessage(it, title, body, data + ("type" to kind.name)) })
+	}
+
+	/** [messages] 를 보내고 `DeviceNotRegistered` 인 토큰을 지운다. 결과는 기기 수로 센다(sent · skipped · failed 를 나눈다). */
+	private fun deliver(kind: PushKind, messages: List<PushMessage>): PushResult {
 		if (messages.isEmpty()) return PushResult(0, 0, 0, 0)
 		val outcomes = expo.send(messages)
 		val gone = messages.filterIndexed { i, _ -> outcomes.getOrNull(i) == PushOutcome.DEVICE_NOT_REGISTERED }.map { it.to }
@@ -126,27 +161,10 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 		log.info("event=push_sent type={} devices={} sent={} failed={} skipped={} removed={}", kind, result.devices, result.sent, result.failed, result.skipped, gone.size)
 		return result
 	}
-
-	/** 그 계정의 기기 모두에 같은 알림을 보낸다. */
-	fun send(accountId: UUID, kind: PushKind, title: String, body: String, data: Map<String, String> = emptyMap()): PushResult {
-		val tokens = repository.tokens(accountId)
-		if (tokens.isEmpty()) return PushResult(0, 0, 0, 0)
-		val outcomes = expo.send(tokens.map { PushMessage(it, title, body, data + ("type" to kind.name)) })
-		val gone = tokens.filterIndexed { i, _ -> outcomes.getOrNull(i) == PushOutcome.DEVICE_NOT_REGISTERED }
-		if (gone.isNotEmpty()) repository.deleteTokens(gone)
-		val result = PushResult(
-			devices = tokens.size,
-			sent = outcomes.count { it == PushOutcome.OK },
-			failed = outcomes.count { it == PushOutcome.FAILED || it == PushOutcome.DEVICE_NOT_REGISTERED },
-			skipped = outcomes.count { it == PushOutcome.SKIPPED },
-		)
-		log.info("event=push_sent type={} devices={} sent={} failed={} skipped={} removed={}", kind, result.devices, result.sent, result.failed, result.skipped, gone.size)
-		return result
-	}
 }
 
 /**
- * 푸시가 읽는 것. 다른 기능의 테이블(`accounts` 의 닉네임 · `inquiries` 의 답)은 문구를 채울 만큼만 읽는다(관리자 현황과 같은 방식 — 결정 014).
+ * 푸시가 읽는 것. 다른 기능의 테이블(`accounts` 의 닉네임 · `inquiries` 의 답 · `notices` 의 제목)은 문구를 채울 만큼만 읽는다(관리자 현황과 같은 방식 — 결정 014).
  */
 @Repository
 class PushRepository(private val jdbc: JdbcTemplate) {
@@ -172,6 +190,19 @@ class PushRepository(private val jdbc: JdbcTemplate) {
 		order by d.account_id, d.created_at, d.expo_token
 		""".trimIndent(),
 	) { rs, _ -> rs.getObject("account_id", UUID::class.java) to rs.getString("expo_token") }
+
+	/** 서비스 알림 대상의 기기: 푸시 동의 + 정지 아님(결정 042 의 4 · 044 의 3). 마케팅 동의는 보지 않는다. 밤 무음이 보는 플랫폼 · 앱 버전과 함께. */
+	fun serviceAudienceDevices(): List<PushTarget> = jdbc.query(
+		"""
+		select d.account_id, d.expo_token, d.platform, d.app_version from push_devices d join accounts a on a.id = d.account_id
+		where a.push_consented_at is not null and a.suspended_at is null
+		order by d.account_id, d.created_at, d.expo_token
+		""".trimIndent(),
+	) { rs, _ -> PushTarget(rs.getObject("account_id", UUID::class.java), rs.getString("expo_token"), rs.getString("platform"), rs.getString("app_version")) }
+
+	/** 공개 중인 그 공지의 제목. 없거나 내려갔으면 null. */
+	fun publishedNoticeTitle(noticeId: UUID): String? =
+		jdbc.queryForList("select title from notices where id = ? and status = 'PUBLISHED'", String::class.java, noticeId).firstOrNull()
 
 	fun deleteTokens(tokens: List<String>) {
 		jdbc.batchUpdate("delete from push_devices where expo_token = ?", tokens.map { arrayOf<Any>(it) })
@@ -252,11 +283,31 @@ class PushEvents(
 		if (!started) failedAll().let { events.publishEvent(PushEventSent(event.eventId, it.recipients, it.succeeded, it.failed)) }
 	}
 
+	/**
+	 * 알림을 켠 공지가 공개됐다(결정 055 의 4). 커밋 뒤 일꾼이 보내고 결과를 `NoticePushSent` 로 알린다 —
+	 * 어떤 길로 끝나도(보내다 오류 · 일꾼이 거절) 알린다. 그때는 대상 기기 모두를 실패로 센다(실패를 성공으로 보고하지 않는다).
+	 */
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+	fun noticePublished(event: NoticePublished) {
+		fun failedAll() = runCatching { push.serviceAudienceDeviceCount() }.getOrDefault(0).let { PushResult(it, 0, it, 0) }
+		fun report(result: PushResult) = events.publishEvent(NoticePushSent(event.noticeId, result.devices, result.sent, result.failed, result.skipped))
+		val started = later(PushKind.NOTICE) {
+			val result = try {
+				push.notice(event.noticeId)
+			} catch (e: RuntimeException) {
+				log.warn("event=push_failed type={} reason={}", PushKind.NOTICE, e.javaClass.simpleName)
+				failedAll()
+			}
+			report(result)
+		}
+		if (!started) report(failedAll())
+	}
+
 	/** 오늘의 하늘 아침 알림(결정 042 의 6). `sky` 의 아침 일정이 그날 한 번만 낸다 — 그 일꾼 스레드에서 바로 보낸다. */
 	@EventListener
 	fun todaySkyDue(event: TodaySkyDue) {
 		try {
-			push.sendMany(PushKind.TODAY_SKY, event.items.map { Notice(it.ownerId, PushMessages.TODAY_SKY_TITLE, it.title, mapOf("date" to it.date.toString())) })
+			push.sendMany(PushKind.TODAY_SKY, event.items.map { PushNotice(it.ownerId, PushMessages.TODAY_SKY_TITLE, it.title, mapOf("date" to it.date.toString())) })
 		} catch (e: RuntimeException) {
 			log.warn("event=push_failed type={} reason={}", PushKind.TODAY_SKY, e.javaClass.simpleName)
 		}

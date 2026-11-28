@@ -75,7 +75,7 @@ class AdminEntitlementAllowlistService(private val repository: AdminEntitlementA
 	}
 }
 
-/** `entitlement_allowlist`(V36). 판정 쪽(`report`)은 자기 SQL 로 읽기만 한다. */
+/** `entitlement_allowlist`(V37). 판정 쪽(`report`)은 자기 SQL 로 읽기만 한다. */
 @Repository
 class AdminEntitlementAllowlistRepository(private val jdbc: JdbcTemplate) {
 

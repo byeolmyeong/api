@@ -116,7 +116,7 @@ class EntitlementService(
 	}
 }
 
-/** `entitlements`(V36, 결정 056 의 2). */
+/** `entitlements`(V37, 결정 056 의 2). */
 @Repository
 class EntitlementRepository(private val jdbc: JdbcTemplate) {
 
