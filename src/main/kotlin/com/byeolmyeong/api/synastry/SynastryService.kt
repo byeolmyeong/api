@@ -25,12 +25,12 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
 import org.springframework.scheduling.annotation.Scheduled
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -63,7 +63,7 @@ class SynastryService(
 	private val profiles: BirthProfileService,
 	private val repository: SynastryRepository,
 	private val generator: TextGenerator,
-	@Qualifier("reportExecutor") private val executor: Executor,
+	@Qualifier("reportExecutor") private val executor: ThreadPoolTaskExecutor,
 	private val events: ApplicationEventPublisher,
 	private val quota: GenerationQuota,
 	@Value("\${byeolmyeong.synastry.daily-limit}") private val dailyLimit: Int,
@@ -267,16 +267,28 @@ class SynastryService(
 		val summary = try {
 			CompletableFuture.supplyAsync({ writeSummary(run, facts, abandoned, attempts) }, executor)
 		} catch (e: RejectedExecutionException) {
+			// 요청을 다 끝낸 뒤에 일꾼을 닫으므로 닫는 중의 거절은 보통 생기지 않는다. 어느 쪽인지 나눠 남긴다.
 			abandoned.set(true)
 			live -= run
 			repository.fail(run)
-			log.warn("event=synastry_report_failed reason=EXECUTOR_FULL")
+			log.warn("event=synastry_report_failed reason={}", rejectReason())
 			return SynastryStatus.FAILED
 		}
 		summary.thenCompose { written ->
 			if (written == null) return@thenCompose CompletableFuture.completedFuture(Written(null, emptyList()))
 			val areas = try {
-				SynastryReportArea.entries.map { area -> CompletableFuture.supplyAsync({ writeArea(run, area, facts, abandoned, attempts) }, executor) }
+				SynastryReportArea.entries.map { area ->
+					val write = { writeArea(run, area, facts, abandoned, attempts) }
+					try {
+						CompletableFuture.supplyAsync(write, executor)
+					} catch (e: RejectedExecutionException) {
+						if (!shuttingDown()) throw e
+						// 서버를 닫는 중이면 일꾼이 새 일을 받지 않는다(결정 046 — ReportExecutorDrain). 이 스레드에서 이어 쓴다.
+						// 드레인은 이 스레드가 끝날 때까지 기다리므로 끊기지 않는다(결정 053 의 3).
+						log.info("event=synastry_report_inline reason=SHUTTING_DOWN area={}", area)
+						CompletableFuture.completedFuture(write())
+					}
+				}
 			} catch (e: RejectedExecutionException) {
 				abandoned.set(true)
 				log.warn("event=synastry_report_failed reason=EXECUTOR_FULL")
@@ -286,6 +298,11 @@ class SynastryService(
 		}.whenComplete { written, _ -> finish(run, written, chartHash, attempts.get(), began) }
 		return SynastryStatus.WRITING
 	}
+
+	/** 일꾼이 닫히는 중인지(서버를 닫는 중 — 결정 046). 아니면 거절은 줄이 꽉 찬 것이다. */
+	private fun shuttingDown(): Boolean = executor.threadPoolExecutor.isShutdown
+
+	private fun rejectReason(): String = if (shuttingDown()) "SHUTTING_DOWN" else "EXECUTOR_FULL"
 
 	/**
 	 * 이 생성을 그만둬야 하는지. 모델을 부르기 전마다 본다(줄에서 나온 직후, 그리고 답을 받고 다시 부르기 전).
