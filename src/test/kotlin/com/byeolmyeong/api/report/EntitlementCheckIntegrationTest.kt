@@ -21,6 +21,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import java.net.http.HttpResponse
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -280,5 +281,68 @@ class EntitlementCheckIntegrationTest {
 
 		assertEquals(202, postFromApp("/me-report", token, "1.0.0").statusCode())
 		assertEquals(202, postFromApp("/timing-report", token, "1.0.0").statusCode())
+	}
+
+	private fun confirm(token: String): HttpResponse<String> = postFromApp("/entitlements/confirm", token, "1.1.0")
+
+	@Test
+	fun `결제 직후 확인은 RevenueCat 을 담아 둔 답 없이 묻고 있으면 STORE 로 적은 뒤 두 풀이를 함께 시작한다`() {
+		val token = token()
+		assertEquals(402, post("/me-report", token).statusCode(), "결제 전: 없음이 1분 담긴다")
+		revenueCat.answer = { true }
+		generator.gate = CountDownLatch(1)
+
+		val confirmed = confirm(token)
+
+		assertEquals(200 to """{"detail":true,"me":"WRITING","timing":"WRITING"}""", confirmed.statusCode() to confirmed.body())
+		assertEquals(2, revenueCat.asked.size, "확인은 담아 둔 답을 쓰지 않는다")
+		assertEquals(listOf("STORE"), entitlementRows())
+		assertEquals(listOf("ME", "TIMING"), reportRows())
+		assertEquals(2, requestedAudits())
+	}
+
+	@Test
+	fun `확인을 다시 불러도 같고 이미 완성됐거나 쓰는 중인 풀이는 그대로다`() {
+		val token = token()
+		val owner = ownerId()
+		jdbc.update(
+			"insert into detail_reports (id, owner_id, kind, chart_hash, status, body) values (?, ?, 'ME', ?, 'DONE', '{}'::jsonb)",
+			UUID.randomUUID(), owner, profiles.chartInput(owner)!!.hash,
+		)
+		revenueCat.answer = { true }
+		generator.gate = CountDownLatch(1)
+
+		val first = confirm(token)
+		val again = confirm(token)
+
+		assertEquals(200 to """{"detail":true,"me":"DONE","timing":"WRITING"}""", first.statusCode() to first.body())
+		assertEquals(200 to """{"detail":true,"me":"DONE","timing":"WRITING"}""", again.statusCode() to again.body())
+		assertEquals(listOf("STORE"), entitlementRows())
+		assertEquals(1, requestedAudits(), "시기 풀이 한 번만 시작했다")
+	}
+
+	@Test
+	fun `스토어 구매가 없으면 detail false 이고 아무것도 시작하지 않는다 - 1점0점0 수령자여도`() {
+		val token = token()
+		jdbc.update("insert into entitlements (account_id, source) values (?, 'LEGACY')", ownerId())
+
+		val response = confirm(token)
+
+		assertEquals(200 to """{"detail":false}""", response.statusCode() to response.body())
+		assertEquals(emptyList(), reportRows())
+		assertEquals(listOf("LEGACY"), entitlementRows())
+		assertEquals(401, http(port, "POST", "/entitlements/confirm").statusCode(), "세션이 있어야 한다")
+	}
+
+	@Test
+	fun `확인에서 RevenueCat 을 묻지 못하면 503 이고 아무것도 적지 않는다`() {
+		val token = token()
+		revenueCat.fails()
+
+		val response = confirm(token)
+
+		assertEquals(503 to PURCHASE_CHECK_FAILED, response.statusCode() to response.body())
+		assertEquals(emptyList(), entitlementRows())
+		assertEquals(emptyList(), reportRows())
 	}
 }

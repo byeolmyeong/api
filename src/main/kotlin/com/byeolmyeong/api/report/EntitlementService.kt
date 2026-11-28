@@ -54,10 +54,23 @@ class EntitlementService(
 		return true
 	}
 
-	private fun storeHas(ownerId: UUID): Boolean {
-		val now = clock.instant()
-		storeAnswers[ownerId]?.takeIf { it.until.isAfter(now) }?.let { return it.owned }
+	/**
+	 * 결제 · 복원 직후의 확인(결정 056 의 7): RevenueCat 을 담아 둔 답 없이 묻고, 있으면 `STORE` 로 적는다. 스토어 구매만 본다 —
+	 * 결제 없이 여는 계정 · `LEGACY` 라도 스토어 구매가 없으면 false. 묻지 못하면 `web.PurchaseCheckFailedException`.
+	 */
+	fun confirm(ownerId: UUID): Boolean {
+		if (!askStore(ownerId)) return false
+		recordStore(ownerId)
+		return true
+	}
+
+	private fun storeHas(ownerId: UUID): Boolean =
+		storeAnswers[ownerId]?.takeIf { it.until.isAfter(clock.instant()) }?.owned ?: askStore(ownerId)
+
+	// RevenueCat 에 묻고 그 답을 1분 담아 둔다(지난 답은 이때 치운다). 묻지 못하면 던지고 아무것도 담지 않는다.
+	private fun askStore(ownerId: UUID): Boolean {
 		val owned = revenueCat.hasDetail(ownerId)
+		val now = clock.instant()
 		storeAnswers.values.removeIf { !it.until.isAfter(now) }
 		storeAnswers[ownerId] = StoreAnswer(owned, now.plus(STORE_ANSWER_TTL))
 		return owned
