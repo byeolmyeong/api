@@ -260,6 +260,7 @@ class AdminUsersApiIntegrationTest {
 		jdbc.update("insert into inquiries (id, owner_id, category, body) values (?, ?, 'ACCOUNT', '탈퇴하고 싶어요 열 글자 넘게')", UUID.randomUUID(), id)
 
 		assertError(400, "CONFIRM_MISMATCH", http(port, "DELETE", "/admin/users/$id", json(mapOf("reason" to "문의로 요청", "confirmNickname" to "지울 사람")), token))
+		assertError(400, "CONFIRM_MISMATCH", http(port, "DELETE", "/admin/users/$id", json(mapOf("reason" to "문의로 요청", "confirmNickname" to " ")), token), "닉네임이 있으면 비워서는 못 지운다")
 		assertError(400, "INVALID_REASON", http(port, "DELETE", "/admin/users/$id", json(mapOf("reason" to "", "confirmNickname" to "지울사람")), token))
 		assertEquals(1, jdbc.queryForObject("select count(*) from accounts where id = ?", Int::class.java, id))
 
@@ -277,5 +278,24 @@ class AdminUsersApiIntegrationTest {
 		)
 		assertError(404, "NOT_FOUND", http(port, "DELETE", "/admin/users/$id", json(mapOf("reason" to "다시", "confirmNickname" to "지울사람")), token))
 		assertFalse("문의로 요청" in output.all, "사유는 로그에 없다")
+	}
+
+	@Test
+	fun `가입 중 그만둔(닉네임이 없는) 계정은 확인 닉네임을 비워서 지운다`() {
+		val (id, _) = user(null)
+		fun delete(body: Map<String, Any?>) = http(port, "DELETE", "/admin/users/$id", json(body), token)
+
+		assertError(400, "CONFIRM_MISMATCH", delete(mapOf("reason" to "메일로 요청", "confirmNickname" to "누군가")), "닉네임이 없는데 무언가 적었다")
+		assertError(400, "CONFIRM_MISMATCH", delete(mapOf("reason" to "메일로 요청")), "확인 칸이 없다")
+		assertEquals(1, jdbc.queryForObject("select count(*) from accounts where id = ?", Int::class.java, id))
+
+		val deleted = delete(mapOf("reason" to "메일로 요청", "confirmNickname" to " "))
+
+		assertEquals(204, deleted.statusCode(), deleted.body())
+		assertEquals(0, jdbc.queryForObject("select count(*) from accounts where id = ?", Int::class.java, id))
+		assertEquals(
+			listOf("USER_DELETED_BY_ADMIN"),
+			jdbc.queryForList("select action from audit_logs where target_id = ?", String::class.java, id.toString()),
+		)
 	}
 }

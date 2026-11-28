@@ -95,7 +95,14 @@ class ReadingService(
 	private fun createSummary(ownerId: UUID, chart: Chart, chartHash: String): Reading {
 		// 감사 기록(결정 015): 새 글을 만든 요청만 남긴다. 저장본을 돌려준 요청·기다린 요청은 남기지 않는다.
 		val body = try {
-			readingBody(generate(chart), chart)
+			readingBody(generate(chart), chart).also {
+				// 모델을 기다리는 수십 초 사이에 출생 정보가 바뀌었으면(결정 041) 옛 차트의 글은 저장하지 않고 별명 알림도 내지 않는다.
+				// 생성 한도는 모델을 부른 것이라 그대로 센 채 둔다(결정 023). 다시 부르면 새 차트로 만든다.
+				if (profiles.chartInput(ownerId)?.hash != chartHash) {
+					log.info("event=reading_discarded reason=PROFILE_CHANGED")
+					throw GenerationException("PROFILE_CHANGED")
+				}
+			}
 		} catch (e: GenerationException) {
 			events.publishEvent(AuditEvent(AuditAction.READING_GENERATED, AuditActor.user(ownerId), success = false))
 			throw e

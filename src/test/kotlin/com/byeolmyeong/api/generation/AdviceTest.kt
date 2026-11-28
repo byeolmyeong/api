@@ -50,6 +50,13 @@ class AdviceTest {
 	}
 
 	@Test
+	fun `거예요 앞에 이모지(두 칸짜리 글자)가 와도 오류 없이 본다`() {
+		assertNull(problem(titles, "오늘은 이런 날인 😊 거예요."), "띄어 쓴 이모지")
+		assertNull(problem(titles, "그래서 그런😊거예요."), "붙여 쓴 이모지")
+		assertEquals("NOT_ADVICE_FORM", problem(titles, "😊 곧 좋은 사람을 만날 거예요."), "이모지가 다른 곳에 있어도 단정은 버린다")
+	}
+
+	@Test
 	fun `공통 글쓰기 규칙이 실천은 기로 끝난다고 알린다`() {
 		assertTrue(WRITING_RULES.contains("\"~기\" 로 끝나는 한 줄"), WRITING_RULES)
 	}
