@@ -1,6 +1,8 @@
 package com.byeolmyeong.api.notification
 
 import com.byeolmyeong.api.admin.InquiryAnswered
+import com.byeolmyeong.api.admin.NoticeInboxAdded
+import com.byeolmyeong.api.admin.NoticePublished
 import com.byeolmyeong.api.auth.CurrentOwner
 import com.byeolmyeong.api.reading.ReadingCreated
 import com.byeolmyeong.api.report.MeReportDone
@@ -9,6 +11,7 @@ import com.byeolmyeong.api.synastry.SynastryReportDone
 import com.byeolmyeong.api.web.NotFoundException
 import com.fasterxml.jackson.annotation.JsonInclude
 import org.slf4j.LoggerFactory
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.http.ResponseEntity
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
@@ -33,10 +36,10 @@ private const val KEEP_DAYS = 30
 /** 한 번에 주는 최대 수. */
 private const val LIST_MAX = 100
 
-/** 알림 종류(결정 035 의 1 · 앱 계획의 INQUIRY_ANSWERED). 문구는 앱이 갖는다 — 서버는 종류와 대상만 준다. */
-enum class NotificationKind { READING_DONE, ME_REPORT_DONE, TIMING_REPORT_DONE, SYNASTRY_REPORT_DONE, INQUIRY_ANSWERED }
+/** 알림 종류(결정 035 의 1 · 앱 계획의 INQUIRY_ANSWERED · 결정 055 의 5 의 NOTICE). 문구는 앱이 갖는다 — 서버는 종류와 대상만 준다. */
+enum class NotificationKind { READING_DONE, ME_REPORT_DONE, TIMING_REPORT_DONE, SYNASTRY_REPORT_DONE, INQUIRY_ANSWERED, NOTICE }
 
-/** 알림 한 줄. [synastryId] · [inquiryId] 는 그 종류일 때만 있고, 없으면 응답에서 뺀다. */
+/** 알림 한 줄. [synastryId] · [inquiryId] · [noticeId] 는 그 종류일 때만 있고, 없으면 응답에서 뺀다. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class NotificationItem(
 	val id: UUID,
@@ -45,6 +48,7 @@ data class NotificationItem(
 	val read: Boolean,
 	val synastryId: UUID? = null,
 	val inquiryId: UUID? = null,
+	val noticeId: UUID? = null,
 )
 
 /** `GET /notifications`. [unread] 는 30일 안의 안 읽은 수(홈의 종 점). */
@@ -71,7 +75,11 @@ class NotificationController(private val notifications: NotificationService, pri
  * 이벤트에는 글 · 출생 정보가 없다.
  */
 @Service
-class NotificationService(private val repository: NotificationRepository, transactionManager: PlatformTransactionManager) {
+class NotificationService(
+	private val repository: NotificationRepository,
+	private val events: ApplicationEventPublisher,
+	transactionManager: PlatformTransactionManager,
+) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	/** 커밋 뒤에 듣는 넣기는 자기 트랜잭션에서 한다(결정 035 의 4 — 앞 트랜잭션은 이미 끝났다). */
@@ -100,6 +108,23 @@ class NotificationService(private val repository: NotificationRepository, transa
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
 	fun on(event: InquiryAnswered) = add(event.ownerId, NotificationKind.INQUIRY_ANSWERED, inquiryId = event.inquiryId)
+
+	/**
+	 * 알림을 켠 공지가 공개됐다(결정 055 의 4) — 모든 계정에 한 줄씩, 한 문장으로 넣는다. 그 사이 공지가 지워졌으면 외래 키에 걸려 넣지 않는다.
+	 * 넣은 수 · 실패를 `NoticeInboxAdded` 로 알린다(실패를 성공으로 보고하지 않는다).
+	 */
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+	fun on(event: NoticePublished) {
+		val result = try {
+			val count = ownTransaction.execute { repository.insertNoticeForAll(event.noticeId) } ?: 0
+			log.info("event=notice_notifications_added count={}", count)
+			NoticeInboxAdded(event.noticeId, count, failed = false)
+		} catch (e: RuntimeException) {
+			log.warn("event=notification_insert_failed kind={} reason={}", NotificationKind.NOTICE, e.javaClass.simpleName)
+			NoticeInboxAdded(event.noticeId, 0, failed = true)
+		}
+		events.publishEvent(result)
+	}
 
 	/**
 	 * 날마다 한국 시간 04:00 에 30일 지난 줄을 지운다(결정 035 의 5). 읽음과 상관없다. 같은 지우기를 서버 두 대가 함께 해도
@@ -131,9 +156,15 @@ class NotificationRepository(private val jdbc: JdbcTemplate) {
 		)
 	}
 
+	/** 모든 계정에 그 공지의 알림 한 줄씩(결정 055 의 4). 넣은 줄 수. */
+	fun insertNoticeForAll(noticeId: UUID): Int = jdbc.update(
+		"insert into notifications (id, owner_id, kind, notice_id) select gen_random_uuid(), id, ?, ? from accounts",
+		NotificationKind.NOTICE.name, noticeId,
+	)
+
 	fun recent(ownerId: UUID, days: Int, limit: Int): List<NotificationItem> = jdbc.query(
 		"""
-		select id, kind, created_at, read_at, synastry_id, inquiry_id from notifications
+		select id, kind, created_at, read_at, synastry_id, inquiry_id, notice_id from notifications
 		where owner_id = ? and created_at > now() - make_interval(days => ?)
 		order by created_at desc, id desc limit ?
 		""".trimIndent(),
@@ -145,6 +176,7 @@ class NotificationRepository(private val jdbc: JdbcTemplate) {
 				read = rs.getObject("read_at") != null,
 				synastryId = rs.getObject("synastry_id", UUID::class.java),
 				inquiryId = rs.getObject("inquiry_id", UUID::class.java),
+				noticeId = rs.getObject("notice_id", UUID::class.java),
 			)
 		},
 		ownerId, days, limit,

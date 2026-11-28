@@ -66,6 +66,22 @@ class ExpoPushClientTest {
 	}
 
 	@Test
+	fun `소리 없는 메시지는 sound 를 빼고 채널이 있으면 channelId 를 싣는다`() {
+		val quiet = PushMessage("ExponentPushToken[quiet]", "제목", "본문", mapOf("type" to "NOTICE"), sound = false, channelId = "quiet")
+		val silentIos = PushMessage("ExponentPushToken[ios]", "제목", "본문", mapOf("type" to "NOTICE"), sound = false)
+
+		client().send(listOf(quiet, silentIos, message(3)))
+
+		val sent = mapper.readTree(bodies.single())
+		assertFalse(sent[0].has("sound"), "소리 없음은 sound 를 뺀다(Expo: 빼면 소리가 없다)")
+		assertEquals("quiet", sent[0]["channelId"].asString())
+		assertFalse(sent[1].has("sound"))
+		assertFalse(sent[1].has("channelId"), "채널이 없으면 키를 싣지 않는다(없는 채널이면 알림이 안 보인다)")
+		assertEquals("default", sent[2]["sound"].asString(), "지금 모양 그대로")
+		assertFalse(sent[2].has("channelId"))
+	}
+
+	@Test
 	fun `100건씩 묶어 보낸다`() {
 		val outcomes = client().send(List(250) { message(it) })
 
