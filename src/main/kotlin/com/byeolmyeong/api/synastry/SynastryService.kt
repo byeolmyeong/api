@@ -166,15 +166,27 @@ class SynastryService(
 	/**
 	 * 내 출생 정보가 바뀌었다(결정 053 의 5): 상대 출생 정보가 저장된 궁합의 점수를 새 차트로 바로 다시 계산한다.
 	 * 글은 그대로 두고, 그 궁합을 열 때(`get`) 다시 쓴다. 옛 궁합(상대 출생 정보 없음)은 그대로다.
+	 * 출생 정보 저장(`PUT /profile`)의 요청 안에서 듣는다: 여기서 난 오류가 저장을 500 으로 만들거나 다른 기능의 리스너를 건너뛰게 하지 않도록
+	 * 궁합마다 · 전체를 감싸 로그만 남긴다(실패한 궁합은 옛 점수 그대로 — 다음 출생 정보 변경 때 다시 계산한다).
 	 */
 	@EventListener
 	fun on(event: BirthProfileChanged) {
-		val mine = profiles.chartInput(event.ownerId)?.chart() ?: return
-		val rows = repository.rescorable(event.ownerId)
-		for (row in rows) {
-			repository.rescore(row.id, scoreOfSum(synastrySum(synastryAspects(mine, profiles.chartInput(row.partner).chart()), row.relation)))
+		try {
+			val mine = profiles.chartInput(event.ownerId)?.chart() ?: return
+			val rows = repository.rescorable(event.ownerId)
+			var failed = 0
+			for (row in rows) {
+				try {
+					repository.rescore(row.id, scoreOfSum(synastrySum(synastryAspects(mine, profiles.chartInput(row.partner).chart()), row.relation)))
+				} catch (e: Exception) {
+					failed++
+					log.warn("event=synastry_rescore_failed error={}", e.javaClass.simpleName)
+				}
+			}
+			log.info("event=synastry_rescored count={} failed={}", rows.size, failed)
+		} catch (e: Exception) {
+			log.warn("event=synastry_rescore_failed error={}", e.javaClass.simpleName)
 		}
-		log.info("event=synastry_rescored count={}", rows.size)
 	}
 
 	fun ranking(ownerId: UUID, relation: Relation): List<RankingEntry> = repository.ranking(ownerId, relation, STALE_SECONDS)

@@ -466,6 +466,35 @@ class SynastryGenerationIntegrationTest {
 	}
 
 	@Test
+	@ExtendWith(OutputCaptureExtension::class)
+	fun `점수를 다시 계산하다 한 궁합이 실패해도 그 궁합만 건너뛰고 출생 정보 저장은 성공한다`(output: CapturedOutput) {
+		val token = tokenWithProfile()
+		val id = start(token)
+		await(token, id, "DONE")
+		// 저장된 곳 id 가 출생지 목록에 없는 궁합(목록이 바뀐 경우): 차트를 계산할 수 없다
+		val me = jdbc.queryForObject("select id from accounts", UUID::class.java)!!
+		val broken = UUID.randomUUID()
+		jdbc.update(
+			"""
+			insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash, partner_birth_date, partner_birth_time, partner_place_id)
+			values (?, ?, '깨진곳', 'LOVE', 70, '한줄', '["a","b","c"]'::jsonb, 'h', '1988-07-21', '06:10', 999)
+			""".trimIndent(),
+			broken, me,
+		)
+		val newDate = "1993-11-02"
+		val newTime = "08:45"
+		val newScore = com.byeolmyeong.api.chart.synastryScore(chartOf(newDate, newTime), chartOf("1988-07-21", "06:10"), com.byeolmyeong.api.chart.Relation.LOVE)
+
+		val saved = http(port, "PUT", "/profile", """{"date":"$newDate","time":"$newTime","placeId":$MAPO}""", token)
+
+		assertEquals(200, saved.statusCode(), saved.body())
+		assertEquals(newScore, jdbc.queryForObject("select score from synastries where id = ?::uuid", Int::class.java, id), "다른 궁합은 다시 계산한다")
+		assertEquals(70, jdbc.queryForObject("select score from synastries where id = ?", Int::class.java, broken), "실패한 궁합은 그대로 둔다")
+		assertTrue(Regex("""event=synastry_rescore_failed error=\w+""").containsMatchIn(output.all))
+		assertTrue(output.all.contains("event=synastry_rescored count=2 failed=1"))
+	}
+
+	@Test
 	fun `궁합이나 계정을 지우면 글도 지워진다`() {
 		val token = tokenWithProfile()
 		val id = start(token)
