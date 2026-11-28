@@ -8,6 +8,7 @@ import com.byeolmyeong.api.chart.computeChart
 import com.byeolmyeong.api.chart.synastryScore
 import com.byeolmyeong.api.generation.GenerationRequest
 import com.byeolmyeong.api.generation.TextGenerator
+import com.byeolmyeong.api.http
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
@@ -74,13 +75,42 @@ fun vocabularyOf(request: GenerationRequest): List<String> = mapper.valueToTree<
 
 fun areaOf(request: GenerationRequest): String = request.purpose.removePrefix("synastry_report_").uppercase()
 
-fun areaJson(request: GenerationRequest, call: Int, count: Int = 3, basis: List<String> = vocabularyOf(request).take(2)): JsonNode =
-	mapper.valueToTree(
-		mapOf(
-			"title" to "가짜영역제목",
-			"paragraphs" to (1..count).map { mapOf("title" to "가짜문단제목$it", "body" to "가짜본문-$call", "basis" to basis) },
-		),
-	)
+/** 오래가기 영역의 작은 실천 셋(결정 053 의 3). */
+val PRACTICES = listOf("가짜실천하나 해 보기", "가짜실천둘 해 보기", "가짜실천셋 해 보기")
+
+fun areaJson(
+	request: GenerationRequest,
+	call: Int,
+	count: Int = 3,
+	basis: List<String> = vocabularyOf(request).take(2),
+	practices: List<String> = PRACTICES,
+): JsonNode = mapper.valueToTree(
+	buildMap {
+		put("title", "가짜영역제목")
+		put("paragraphs", (1..count).map { mapOf("title" to "가짜문단제목$it", "body" to "가짜본문-$call", "basis" to basis) })
+		if (areaOf(request) == "LASTING") put("practices", practices)
+	},
+)
+
+/** `POST /synastry` 로 만들고(202) [expected] 가 될 때까지 `GET /synastry/{id}` 를 다시 불러 그 응답을 준다. */
+fun createSynastry(port: Int, token: String, body: String, expected: String = "DONE"): JsonNode {
+	val response = http(port, "POST", "/synastry", body, token)
+	check(response.statusCode() == 202) { "만들기가 202 가 아니다: ${response.statusCode()} ${response.body()}" }
+	return awaitSynastry(port, token, mapper.readTree(response.body())["id"].asString(), expected)
+}
+
+/** [expected] 상태가 될 때까지 `GET /synastry/{id}` 를 다시 부른다. */
+fun awaitSynastry(port: Int, token: String, id: String, expected: String = "DONE"): JsonNode {
+	val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+	while (true) {
+		val response = http(port, "GET", "/synastry/$id", token = token)
+		check(response.statusCode() == 200) { "읽기가 200 이 아니다: ${response.statusCode()} ${response.body()}" }
+		val json = mapper.readTree(response.body())
+		if (json["status"].asString() == expected) return json
+		check(System.nanoTime() < deadline) { "상태가 $expected 가 되지 않는다: ${json["status"]}" }
+		Thread.sleep(20)
+	}
+}
 
 fun validAnswer(request: GenerationRequest, call: Int): JsonNode? =
 	if (request.purpose == SUMMARY_PURPOSE) summaryJson() else areaJson(request, call)

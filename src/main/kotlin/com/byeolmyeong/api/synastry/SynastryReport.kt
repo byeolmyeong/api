@@ -2,6 +2,7 @@ package com.byeolmyeong.api.synastry
 
 import com.byeolmyeong.api.chart.Chart
 import com.byeolmyeong.api.generation.GenerationRequest
+import com.byeolmyeong.api.generation.adviceProblem
 import com.byeolmyeong.api.generation.SynastryFacts
 import com.byeolmyeong.api.generation.basisSchema
 import com.byeolmyeong.api.generation.promptResource
@@ -12,7 +13,7 @@ import com.byeolmyeong.api.generation.synastryFactsText
 import com.fasterxml.jackson.annotation.JsonInclude
 import tools.jackson.databind.JsonNode
 
-// 궁합 리포트의 모양과, 리포트에만 있는 것: 영역별 지시문, 돌려받을 구조, 응답을 글로 읽기, 검증.
+// 궁합의 자세한 풀이(네 영역)의 모양과, 거기에만 있는 것: 영역별 지시문, 돌려받을 구조, 응답을 글로 읽기, 검증.
 // 심층 리포트(report 패키지)와 같은 방식이지만 기능 패키지는 서로 의존하지 않으므로 따로 둔다.
 
 /** 글로 쓰는 네 영역(끌림·대화·갈등·오래가기). 응답의 `sections` 는 이 순서다 — 끌리는 점이 늘 먼저다. */
@@ -21,16 +22,28 @@ enum class SynastryReportArea { ATTRACTION, TALK, CONFLICT, LASTING }
 /** 문단 하나. [basis] 는 내 쪽 요소의 말뿐이다([synastryBasisVocabulary]). 상대 쪽 요소는 저장되는 글에 넣지 않는다(결정 010). */
 data class SynastryReportParagraph(val title: String, val body: String, val basis: List<String>)
 
-data class SynastryReportSection(val area: SynastryReportArea, val title: String, val paragraphs: List<SynastryReportParagraph>)
+/**
+ * 한 영역. [practices] 는 오래가기 영역에만 있는 "이 사이의 작은 실천" 셋이다(한 줄씩, "기" 로 끝남 — 결정 053 의 3).
+ * 실천이 생기기 전에 저장된 글에는 없다.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class SynastryReportSection(
+	val area: SynastryReportArea,
+	val title: String,
+	val paragraphs: List<SynastryReportParagraph>,
+	val practices: List<String>? = null,
+)
 
 data class SynastryReport(val sections: List<SynastryReportSection>)
 
-/** `POST`·`GET /synastry/{id}/report` 의 응답. [report] 는 `DONE` 일 때 `GET` 에서만 보낸다. */
-@JsonInclude(JsonInclude.Include.NON_NULL)
-data class SynastryReportResponse(val status: SynastryReportStatus, val report: SynastryReport? = null)
-
 /** 영역마다 문단은 3~4개다. */
 val SYNASTRY_PARAGRAPHS_PER_AREA = 3..4
+
+/** 오래가기 영역의 작은 실천 수. */
+const val SYNASTRY_PRACTICE_COUNT = 3
+
+/** 작은 실천이 붙는 영역. */
+val PRACTICE_AREA = SynastryReportArea.LASTING
 
 private val REPORT_RULES: String by lazy { promptResource("synastry-report.md") }
 private val AREA_RULES: Map<SynastryReportArea, String> by lazy {
@@ -47,14 +60,16 @@ fun synastryAreaRequest(area: SynastryReportArea, facts: SynastryFacts): Generat
 		"required" to listOf("title", "body", "basis"),
 		"additionalProperties" to false,
 	)
+	val properties = mapOf("title" to string, "paragraphs" to mapOf("type" to "array", "items" to paragraph))
+	val practices = if (area == PRACTICE_AREA) mapOf("practices" to mapOf("type" to "array", "items" to string)) else emptyMap()
 	return GenerationRequest(
 		purpose = "synastry_report_${area.name.lowercase()}",
 		instructions = listOf(SYNASTRY_INSTRUCTIONS, REPORT_RULES, AREA_RULES.getValue(area)).joinToString("\n\n"),
 		userText = synastryFactsText(facts) + "\n\n[근거로 쓸 수 있는 말]\n" + vocabulary.joinToString(", "),
 		schema = mapOf(
 			"type" to "object",
-			"properties" to mapOf("title" to string, "paragraphs" to mapOf("type" to "array", "items" to paragraph)),
-			"required" to listOf("title", "paragraphs"),
+			"properties" to properties + practices,
+			"required" to listOf("title", "paragraphs") + practices.keys,
 			"additionalProperties" to false,
 		),
 	)
@@ -69,7 +84,8 @@ fun parseSynastrySection(area: SynastryReportArea, root: JsonNode): SynastryRepo
 			basis = paragraph["basis"].stringsOrNull() ?: return null,
 		)
 	}
-	return SynastryReportSection(area, title = root["title"].stringOrNull() ?: return null, paragraphs = paragraphs ?: return null)
+	val practices = if (area == PRACTICE_AREA) root["practices"].stringsOrNull()?.map(String::trim) ?: return null else null
+	return SynastryReportSection(area, title = root["title"].stringOrNull() ?: return null, paragraphs = paragraphs ?: return null, practices = practices)
 }
 
 /**
@@ -77,17 +93,21 @@ fun parseSynastrySection(area: SynastryReportArea, root: JsonNode): SynastryRepo
  * - `MALFORMED`: 빈 글, 문단이 3~4개가 아님, 근거가 없는 문단
  * - `BASIS_NOT_ALLOWED`: 근거에 내 쪽 요소의 말이 아닌 것이 있다
  * - `HAS_SCORE`: 글에 점수나 퍼센트가 적혀 있다(점수는 서버만 말한다). 긴 글이라 "2~3일" 같은 다른 숫자까지 막지는 않는다.
+ * - `NOT_ADVICE_FORM`: 오래가기의 작은 실천이 "기" 로 끝나지 않거나, 실천에 단정 · 운명 · 앞일의 끝맺음이 있다(`generation.adviceProblem`)
+ * 오래가기 영역은 작은 실천이 정확히 셋이어야 한다(아니면 `MALFORMED`).
  */
 fun synastrySectionProblem(section: SynastryReportSection, mine: Chart): String? {
-	val texts = listOf(section.title) + section.paragraphs.flatMap { listOf(it.title, it.body) }
+	val practices = section.practices.orEmpty()
+	val texts = listOf(section.title) + section.paragraphs.flatMap { listOf(it.title, it.body) } + practices
 	val wellFormed = section.paragraphs.size in SYNASTRY_PARAGRAPHS_PER_AREA &&
 		texts.none { it.isBlank() } &&
-		section.paragraphs.none { it.basis.isEmpty() }
+		section.paragraphs.none { it.basis.isEmpty() } &&
+		(section.area != PRACTICE_AREA || practices.size == SYNASTRY_PRACTICE_COUNT)
 	if (!wellFormed) return "MALFORMED"
 	val allowed = synastryBasisVocabulary(mine).toSet()
 	if (section.paragraphs.any { paragraph -> paragraph.basis.any { it !in allowed } }) return "BASIS_NOT_ALLOWED"
 	if (texts.any(SCORE_LIKE::containsMatchIn)) return "HAS_SCORE"
-	return null
+	return adviceProblem(practices, practices)
 }
 
 private val SCORE_LIKE = Regex("""\d\s*(점|%|퍼센트)""")

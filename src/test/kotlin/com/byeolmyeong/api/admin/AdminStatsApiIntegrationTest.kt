@@ -112,8 +112,9 @@ class AdminStatsApiIntegrationTest {
 				)
 			}
 		}
-		for ((index, status) in listOf("DONE", "WRITING", "WRITING", "FAILED").withIndex()) {
-			jdbc.update("insert into synastry_reports (synastry_id, status, body) values (?, ?, ?::jsonb)", synastries[index], status, if (status == "DONE") text else null)
+		// 궁합 글의 상태는 궁합 행에 있다(결정 053 의 9). 새로 온 별은 글이 없어 세지 않는다.
+		for ((index, status) in listOf("DONE", "WRITING", "WRITING", "FAILED", "NEW_STAR").withIndex()) {
+			jdbc.update("update synastries set status = ?, active_at = now() where id = ?", status, synastries[index])
 		}
 		for ((owner, topic) in listOf(today to "LOVE", threeDays to "LOVE", today to "FUTURE")) {
 			jdbc.update("insert into directions (id, owner_id, topic, target, body) values (?, ?, ?, 'h1', ?::jsonb)", UUID.randomUUID(), owner, topic, text)

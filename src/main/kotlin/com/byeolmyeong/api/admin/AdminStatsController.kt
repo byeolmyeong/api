@@ -98,7 +98,8 @@ class AdminStatsService(private val repository: AdminStatsRepository, private va
 		val todayStart = today.startOfDay()
 		val tomorrowStart = today.plusDays(1).startOfDay()
 		val reports = repository.countBy("reports", "status")
-		val synastryReports = repository.countBy("synastry_reports", "status")
+		// 궁합 글의 상태는 궁합 행에 있다(결정 053 의 9 — 새로 온 별은 글이 없어 세지 않는다)
+		val synastryReports = repository.countBy("synastries", "status").filterKeys { it in REPORT_STATUSES }
 		val directions = repository.countBy("directions", "topic")
 		val inquiries = repository.countBy("inquiries", "status")
 		val accountTotal = repository.count("accounts")
