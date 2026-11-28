@@ -422,6 +422,52 @@ class SynastryGenerationIntegrationTest {
 	}
 
 	@Test
+	fun `내 출생 정보를 바꾸면 직접 넣은 궁합의 점수를 바로 다시 계산하고 글은 그 궁합을 열 때 다시 쓴다`() {
+		val token = tokenWithProfile()
+		val id = start(token)
+		val before = await(token, id, "DONE")
+		assertEquals(expectedScore("1988-07-21", com.byeolmyeong.api.chart.Relation.LOVE, partnerTime = "06:10"), before["score"].asInt())
+		// 1.0.0 에 상대 출생 정보 없이 만든 옛 궁합은 다시 계산할 수 없어 그대로 둔다
+		val me = jdbc.queryForObject("select id from accounts", UUID::class.java)!!
+		val legacy = UUID.randomUUID()
+		jdbc.update(
+			"insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash) values (?, ?, '옛사람', 'LOVE', 70, '옛한줄', '[\"a\",\"b\",\"c\"]'::jsonb, 'old-hash')",
+			legacy, me,
+		)
+		val newDate = "1993-11-02"
+		val newTime = "08:45"
+		val newScore = com.byeolmyeong.api.chart.synastryScore(chartOf(newDate, newTime), chartOf("1988-07-21", "06:10"), com.byeolmyeong.api.chart.Relation.LOVE)
+		check(newScore != before["score"].asInt()) { "점수가 달라지는 새 생일을 골라야 한다" }
+		settle()
+		generator.reset()
+
+		assertEquals(200, http(port, "PUT", "/profile", """{"date":"$newDate","time":"$newTime","placeId":$MAPO}""", token).statusCode())
+
+		// 점수는 바로 바뀐다(목록은 다시 쓰기를 시작하지 않는다)
+		val listed = mapper.readTree(http(port, "GET", "/synastry", token = token).body()).values().associateBy { it["id"].asString() }
+		assertEquals(newScore, listed.getValue(id)["score"].asInt())
+		assertEquals("DONE", listed.getValue(id)["status"].asString())
+		assertEquals("가짜한줄요약", listed.getValue(id)["headline"].asString(), "글은 아직 옛 것이다")
+		assertEquals(70, listed.getValue(legacy.toString())["score"].asInt())
+		assertTrue(generator.requests.isEmpty())
+
+		// 그 궁합을 열면 다시 쓰기 시작한다
+		val opened = get(token, id)
+		assertEquals("WRITING", opened["status"].asString())
+		assertEquals(newScore, opened["score"].asInt())
+		val rewritten = await(token, id, "DONE")
+		settle()
+		assertEquals(newScore, rewritten["score"].asInt())
+		assertEquals(5, generator.requests.size)
+		assertTrue(generator.summaries.single().userText.contains("${newScore}점"), "새 차트 · 새 점수로 쓴다")
+		// 다시 연다고 또 쓰지는 않는다. 옛 궁합은 열어도 그대로다
+		assertEquals("DONE", get(token, id)["status"].asString())
+		assertEquals("DONE", get(token, legacy.toString())["status"].asString())
+		settle()
+		assertEquals(5, generator.requests.size)
+	}
+
+	@Test
 	fun `궁합이나 계정을 지우면 글도 지워진다`() {
 		val token = tokenWithProfile()
 		val id = start(token)

@@ -45,10 +45,15 @@ private const val SELECT = """
 	from synastries s
 """
 
-// 생성을 다시 시작할 수 있는 행: 실패했다, 쓰는 중인데 멈췄다.
+// 생성을 다시 시작할 수 있는 행: 실패했다, 쓰는 중인데 멈췄다, 완성됐지만 그 글을 쓴 때의 내 차트가 지금과 다르다(결정 053 의 5).
 private const val CLAIMABLE = """
-	(status = 'FAILED' or (status = 'WRITING' and active_at < now() - make_interval(secs => ?)))
+	(status = 'FAILED'
+		or (status = 'WRITING' and active_at < now() - make_interval(secs => ?))
+		or (status = 'DONE' and owner_chart_hash <> ?))
 """
+
+/** 내 출생 정보가 바뀌면 점수를 다시 계산할 궁합: 상대의 출생 정보가 저장돼 있고 사이가 있는 것. */
+data class Rescorable(val id: UUID, val relation: Relation, val partner: BirthProfile)
 
 @Repository
 class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: JsonMapper) {
@@ -116,14 +121,35 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 	 * 같은 궁합의 생성을 처음부터 다시 시작할 자리를 잡는다([CLAIMABLE] 인 행만). 점수는 [score](지금의 내 차트로 다시 계산한 것)로 바꾸고,
 	 * 완성 · 받아 감 · 알림 표시를 비운다(결정 053 의 8). 한 문장이라 동시에 불러도 한 요청만 잡는다. 못 잡았으면 null.
 	 */
-	fun claim(ownerId: UUID, id: UUID, score: Int, staleSeconds: Int): SynastryRun? = jdbc.query(
+	fun claim(ownerId: UUID, id: UUID, score: Int, chartHash: String, staleSeconds: Int): SynastryRun? = jdbc.query(
 		"""
 		update synastries set status = 'WRITING', score = ?, started_at = now(), active_at = now(), done_at = null, seen_at = null, notified_at = null
 		where owner_id = ? and id = ? and $CLAIMABLE
 		returning id, started_at
 		""".trimIndent(),
-		run, score, ownerId, id, staleSeconds,
+		run, score, ownerId, id, staleSeconds, chartHash,
 	).firstOrNull()
+
+	/** 소유자의 궁합 가운데 점수를 다시 계산할 수 있는 것(상대 출생 정보가 있는 것). */
+	fun rescorable(ownerId: UUID): List<Rescorable> = jdbc.query(
+		"""
+		select id, relation, partner_birth_date, partner_birth_time, partner_place_id from synastries
+		where owner_id = ? and partner_birth_date is not null and relation is not null
+		""".trimIndent(),
+		{ rs, _ ->
+			Rescorable(
+				rs.getObject("id", UUID::class.java),
+				Relation.valueOf(rs.getString("relation")),
+				BirthProfile(rs.getDate("partner_birth_date").toLocalDate(), rs.getTime("partner_birth_time")?.toLocalTime(), rs.getObject("partner_place_id") as Int?),
+			)
+		},
+		ownerId,
+	)
+
+	/** 점수만 바꾼다(내 출생 정보가 바뀌었을 때 — 글을 쓴 차트 `owner_chart_hash` 는 그대로 두어 "다시 써야 함" 이 남는다). */
+	fun rescore(id: UUID, score: Int) {
+		jdbc.update("update synastries set score = ? where id = ?", score, id)
+	}
 
 	/** 그 생성이 살아 있다고 적는다. 아직 그 생성의 자리일 때만. */
 	fun beat(run: SynastryRun) {

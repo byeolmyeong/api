@@ -10,6 +10,7 @@ import com.byeolmyeong.api.chart.synastrySum
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.generation.SynastryFacts
 import com.byeolmyeong.api.generation.TextGenerator
+import com.byeolmyeong.api.profile.BirthProfileChanged
 import com.byeolmyeong.api.share.RankingCardRequested
 import com.byeolmyeong.api.share.ScoreCardRequested
 import com.byeolmyeong.api.web.AuditAction
@@ -105,7 +106,7 @@ class SynastryService(
 		quota.acquire(ownerId)
 		val facts = facts(me, profiles.chartInput(partner), relation)
 		// 그 사이 다른 요청이 자리를 잡았으면 그 상태를 준다.
-		val run = repository.claim(ownerId, id, facts.score, STALE_SECONDS) ?: return SynastryStarted(id, find(ownerId, id).synastry.status)
+		val run = repository.claim(ownerId, id, facts.score, me.hash, STALE_SECONDS) ?: return SynastryStarted(id, find(ownerId, id).synastry.status)
 		log.info("event=synastry_report_started")
 		events.publishEvent(AuditEvent(AuditAction.SYNASTRY_REPORT_REQUESTED, AuditActor.user(ownerId), "SYNASTRY", id.toString()))
 		return SynastryStarted(id, start(run, facts, me.hash))
@@ -113,12 +114,30 @@ class SynastryService(
 
 	fun list(ownerId: UUID): List<Synastry> = repository.list(ownerId, STALE_SECONDS).map { it.synastry }
 
-	/** 궁합 하나. 완성됐으면 이렇게 본 이유(상대 출생 정보가 있을 때 읽을 때 계산)와 네 영역의 글을 싣는다. */
+	/**
+	 * 궁합 하나. 완성됐으면 이렇게 본 이유(상대 출생 정보가 있을 때 읽을 때 계산)와 네 영역의 글을 싣는다.
+	 * 완성된 글이 지금의 내 차트로 쓴 것이 아니면(출생 정보를 바꿨다) 여기서 다시 쓰기 시작하고 그 상태를 준다(결정 053 의 5).
+	 */
 	fun get(ownerId: UUID, id: UUID): Synastry {
 		val stored = find(ownerId, id)
 		val synastry = stored.synastry
 		if (synastry.status != SynastryStatus.DONE) return synastry
+		if (rewriteIfStale(ownerId, stored)) return find(ownerId, id).synastry
 		return synastry.copy(reasons = reasons(ownerId, stored), report = repository.findReport(id))
+	}
+
+	/**
+	 * 내 출생 정보가 바뀌었다(결정 053 의 5): 상대 출생 정보가 저장된 궁합의 점수를 새 차트로 바로 다시 계산한다.
+	 * 글은 그대로 두고, 그 궁합을 열 때(`get`) 다시 쓴다. 옛 궁합(상대 출생 정보 없음)은 그대로다.
+	 */
+	@EventListener
+	fun on(event: BirthProfileChanged) {
+		val mine = profiles.chartInput(event.ownerId)?.chart() ?: return
+		val rows = repository.rescorable(event.ownerId)
+		for (row in rows) {
+			repository.rescore(row.id, scoreOfSum(synastrySum(synastryAspects(mine, profiles.chartInput(row.partner).chart()), row.relation)))
+		}
+		log.info("event=synastry_rescored count={}", rows.size)
 	}
 
 	fun ranking(ownerId: UUID, relation: Relation): List<RankingEntry> = repository.ranking(ownerId, relation, STALE_SECONDS)
@@ -152,6 +171,23 @@ class SynastryService(
 	@EventListener
 	fun on(event: RankingCardRequested) {
 		event.entries = ranking(event.ownerId, event.relation).map { it.name to it.score }
+	}
+
+	/**
+	 * 완성된 글을 쓴 내 차트가 지금과 다르면 같은 행에서 다시 쓰기 시작한다. 시작했으면(또는 다른 요청이 먼저 시작했으면) true.
+	 * 열기만 한 요청이라 하루 한도 · 생성 한도는 세지 않는다(결정 053 의 5).
+	 */
+	private fun rewriteIfStale(ownerId: UUID, stored: StoredSynastry): Boolean {
+		val partner = stored.partner ?: return false
+		val relation = stored.synastry.relation ?: return false
+		val me = profiles.chartInput(ownerId) ?: return false
+		if (me.hash == stored.ownerChartHash) return false
+		val facts = facts(me, profiles.chartInput(partner), relation)
+		val run = repository.claim(ownerId, stored.synastry.id, facts.score, me.hash, STALE_SECONDS) ?: return true
+		log.info("event=synastry_report_started")
+		events.publishEvent(AuditEvent(AuditAction.SYNASTRY_REPORT_REQUESTED, AuditActor.user(ownerId), "SYNASTRY", stored.synastry.id.toString()))
+		start(run, facts, me.hash)
+		return true
 	}
 
 	// 소유자 검사는 여기 한 곳이다: 남의 것과 없는 것은 같은 404.
