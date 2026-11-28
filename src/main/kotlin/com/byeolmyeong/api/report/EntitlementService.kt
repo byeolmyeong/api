@@ -7,7 +7,14 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+
+/** RevenueCat 의 답을 계정마다 담아 두는 시간(결정 056 의 4). */
+private val STORE_ANSWER_TTL: Duration = Duration.ofMinutes(1)
 
 /** 상품을 가진 까닭(결정 056 의 2). 글자는 `entitlements.source` 와 같다. */
 enum class EntitlementSource {
@@ -23,8 +30,42 @@ enum class EntitlementSource {
  * 1.0.0 수령자는 결제 시작 시각 전까지 [backfillLegacy](서버가 뜰 때 · 매시)와 풀이 완성 이벤트로 `LEGACY` 에 적는다.
  */
 @Service
-class EntitlementService(private val repository: EntitlementRepository, private val start: PurchaseStart) {
+class EntitlementService(
+	private val repository: EntitlementRepository,
+	private val start: PurchaseStart,
+	private val revenueCat: RevenueCat,
+	private val clock: Clock,
+) {
 	private val log = LoggerFactory.getLogger(javaClass)
+
+	private class StoreAnswer(val owned: Boolean, val until: Instant)
+
+	// RevenueCat 의 성공한 답만(서버 메모리 — 바꿀 때 비워진다).
+	private val storeAnswers = ConcurrentHashMap<UUID, StoreAnswer>()
+
+	/**
+	 * 그 계정이 상품을 가졌나(결정 056 의 3 의 2 ~ 4): 결제 없이 여는 목록의 이메일 → `entitlements` 의 줄 → RevenueCat(계정마다 1분 담아 둔 답).
+	 * RevenueCat 에 있으면 `STORE` 로 적는다(그 뒤로는 표만 본다). RevenueCat 을 묻지 못하면 `web.PurchaseCheckFailedException`.
+	 */
+	fun owns(ownerId: UUID): Boolean {
+		if (repository.allowlisted(ownerId) || repository.has(ownerId)) return true
+		if (!storeHas(ownerId)) return false
+		recordStore(ownerId)
+		return true
+	}
+
+	private fun storeHas(ownerId: UUID): Boolean {
+		val now = clock.instant()
+		storeAnswers[ownerId]?.takeIf { it.until.isAfter(now) }?.let { return it.owned }
+		val owned = revenueCat.hasDetail(ownerId)
+		storeAnswers.values.removeIf { !it.until.isAfter(now) }
+		storeAnswers[ownerId] = StoreAnswer(owned, now.plus(STORE_ANSWER_TTL))
+		return owned
+	}
+
+	private fun recordStore(ownerId: UUID) {
+		if (repository.add(ownerId, EntitlementSource.STORE)) log.info("event=entitlement_store_recorded")
+	}
 
 	/**
 	 * 완성된 풀이 ∪ 감사 기록의 나 탭 · 시기 받기 계정을 `LEGACY` 로 적는다(있으면 그대로). 결제 시작 시각부터는 하지 않는다.
@@ -65,6 +106,17 @@ class EntitlementRepository(private val jdbc: JdbcTemplate) {
 		"insert into entitlements (account_id, source) select id, ? from accounts where id = ? on conflict do nothing",
 		source.name, accountId,
 	) == 1
+
+	/** 계정 이메일이 결제 없이 여는 목록에 있나(대소문자를 가리지 않는다 — 목록은 소문자). */
+	fun allowlisted(accountId: UUID): Boolean = jdbc.queryForObject(
+		"select exists(select 1 from accounts a join entitlement_allowlist l on l.email = lower(a.email) where a.id = ?)",
+		Boolean::class.java, accountId,
+	) == true
+
+	/** 그 계정에 출처와 상관없이 줄이 있나. */
+	fun has(accountId: UUID): Boolean = jdbc.queryForObject(
+		"select exists(select 1 from entitlements where account_id = ?)", Boolean::class.java, accountId,
+	) == true
 
 	/** 완성된 풀이(`detail_reports` 의 DONE)와 감사 기록의 나 탭 · 시기 받기(`REPORT_REQUESTED`, kind ME · TIMING)의 계정을 `LEGACY` 로. 더한 줄 수. */
 	fun backfillLegacy(): Int = jdbc.update(

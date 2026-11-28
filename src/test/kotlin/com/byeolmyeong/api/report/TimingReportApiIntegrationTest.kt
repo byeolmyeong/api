@@ -131,7 +131,7 @@ class TimingReportApiIntegrationTest {
 
 		@Bean
 		@Primary
-		fun timingEntitlement() = SwitchableEntitlement()
+		fun timingEntitlement(start: PurchaseStart, entitlements: EntitlementService) = SwitchableEntitlement(start, entitlements)
 
 		@Bean
 		@Primary

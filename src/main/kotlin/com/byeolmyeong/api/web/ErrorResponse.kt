@@ -14,8 +14,11 @@ class BadRequestException(val code: String) : RuntimeException(code)
 /** 찾는 것이 없다(404). 남의 것도 없는 것으로 답한다. */
 class NotFoundException(val code: String) : RuntimeException(code)
 
-/** 이 풀이를 받을 수 없다(402 `PURCHASE_REQUIRED`, 결정 029 의 4 — 예약). 1.0.0 에는 나오지 않는다. */
+/** 이 풀이를 받을 수 없다 — 상품이 없다(402 `PURCHASE_REQUIRED`, 결정 029 의 4 · 056). 결제 시작 시각 전에는 나오지 않는다. */
 class PurchaseRequiredException : RuntimeException("PURCHASE_REQUIRED")
+
+/** 상품이 있는지 묻지 못했다(503 `PURCHASE_CHECK_FAILED`, 결정 056 의 4). 열어 주지도 402 로 사라고 하지도 않는다. [reason] 은 로그의 사유 코드다. */
+class PurchaseCheckFailedException(val reason: String) : RuntimeException(reason)
 
 @RestControllerAdvice
 class ErrorResponses {
@@ -31,6 +34,10 @@ class ErrorResponses {
 	@ExceptionHandler(PurchaseRequiredException::class)
 	fun purchaseRequired(): ResponseEntity<ErrorResponse> =
 		ResponseEntity.status(402).body(ErrorResponse("PURCHASE_REQUIRED"))
+
+	@ExceptionHandler(PurchaseCheckFailedException::class)
+	fun purchaseCheckFailed(): ResponseEntity<ErrorResponse> =
+		ResponseEntity.status(503).body(ErrorResponse("PURCHASE_CHECK_FAILED"))
 
 	@ExceptionHandler(GenerationRateLimitedException::class)
 	fun generationRateLimited(): ResponseEntity<ErrorResponse> =
