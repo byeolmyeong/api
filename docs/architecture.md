@@ -495,7 +495,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
       "total": 5, "average": 1.0, "previousTotal": 2 }
     ```
   - `generatedAt`: 센 때. `accounts`: 앱 사용자 계정(관리자는 세지 않는다) — 전체, 지금부터 7일(168시간) 안에 만든 것, 30일 안에 만든 것(`last30Days` 는 `last7Days` 를 포함한다). 개발용 로그인 계정도 센다.
-  - `profiles`: 출생 정보를 저장한 계정 수. `readings`: 요약 해석. `reports`: 심층 리포트. `synastries`: 궁합. `synastryReports`: 궁합 글의 상태(궁합 행의 `WRITING` · `DONE` · `FAILED` — 결정 053 의 9, 새로 온 별은 세지 않는다). `directions`: 방향성 제시. `inquiries`: 문의.
+  - `profiles`: 출생 정보를 저장한 계정 수. `readings`: 요약 해석. `reports`: 심층 리포트. `synastries`: 궁합. `synastryReports`: 궁합 글의 상태(1.1.0 부터 궁합 행 `synastries.status` 의 `WRITING` · `DONE` · `FAILED` 를 센다 — 옛 `synastry_reports` 표가 아니다. 결정 053 의 9. 새로 온 별은 세지 않고, 살아 있다는 표시가 2분 넘게 끊긴 `WRITING` 은 앱이 보는 것과 같이 `FAILED` 로 센다). `directions`: 방향성 제시. `inquiries`: 문의.
   - `byStatus` 는 적힌 키가 언제나 모두 있고(없으면 0) 합이 `total` 이다. `byTopic` 은 DB 에 있는 주제만 온다(지금은 `LOVE` 하나. 글이 하나도 없으면 `{}`, 주제가 늘면 키가 늘어난다 — 화면은 키를 돌면서 그린다).
   - 리포트의 `WRITING` 은 행에 적힌 값 그대로다: 서버가 꺼져 멈춘 생성(앱에는 `FAILED` 로 보인다)도 여기서는 `WRITING` 이다.
   - **세지 못하는 것**: 저장되지 않는 실패 — 요약 해석·방향성 제시·궁합 요약의 생성 실패(502)는 DB 에 남지 않아 수치에 없다. 리포트의 `FAILED` 는 행으로 남은 것만이고, 다시 요청해 성공하면 그 행이 `DONE` 으로 바뀌므로 "지금까지 실패한 횟수" 가 아니라 "지금 실패 상태인 리포트 수" 다.

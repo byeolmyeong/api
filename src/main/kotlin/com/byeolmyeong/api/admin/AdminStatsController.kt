@@ -18,6 +18,9 @@ import java.time.OffsetDateTime
 import java.time.temporal.ChronoUnit
 
 private val REPORT_STATUSES = listOf("DONE", "WRITING", "FAILED")
+
+/** 궁합의 쓰는 중이 멈췄다고 보는 기준(초). `synastry.STALE_SECONDS` 와 같다(결정 053). */
+private const val SYNASTRY_STALE_SECONDS = 120
 private val INQUIRY_STATUSES = listOf("NEW", "IN_PROGRESS", "ANSWERED", "DONE")
 private val RANGES = setOf("today", "week", "month")
 
@@ -86,7 +89,7 @@ class AdminStatsController(private val stats: AdminStatsService) {
 
 /**
  * 수치는 DB 에 남은 행만 센다. 저장되지 않는 실패(요약 해석·방향성 제시·궁합 요약의 생성 실패)는 여기 없다(결정 014).
- * 상태는 행에 적힌 값 그대로다 — 서버가 꺼져 멈춘 `WRITING` 도 `WRITING` 으로 센다.
+ * 상태는 행에 적힌 값 그대로다 — 서버가 꺼져 멈춘 `WRITING` 도 `WRITING` 으로 센다. 궁합(`synastryReports`)만은 멈춘 `WRITING` 을 `FAILED` 로 센다(결정 053 의 9).
  */
 @Service
 class AdminStatsService(private val repository: AdminStatsRepository, private val clock: Clock) {
@@ -98,8 +101,8 @@ class AdminStatsService(private val repository: AdminStatsRepository, private va
 		val todayStart = today.startOfDay()
 		val tomorrowStart = today.plusDays(1).startOfDay()
 		val reports = repository.countBy("reports", "status")
-		// 궁합 글의 상태는 궁합 행에 있다(결정 053 의 9 — 새로 온 별은 글이 없어 세지 않는다)
-		val synastryReports = repository.countBy("synastries", "status").filterKeys { it in REPORT_STATUSES }
+		// 궁합 글의 상태는 궁합 행에 있다(결정 053 의 9 — 새로 온 별은 글이 없어 세지 않고, 멈춘 쓰는 중은 실패로 센다)
+		val synastryReports = repository.countSynastryStatuses().filterKeys { it in REPORT_STATUSES }
 		val directions = repository.countBy("directions", "topic")
 		val inquiries = repository.countBy("inquiries", "status")
 		val accountTotal = repository.count("accounts")
@@ -244,6 +247,23 @@ class AdminStatsRepository(private val jdbc: JdbcTemplate) {
 		jdbc.queryForObject("select count(distinct account_id) from daily_active where kst_date between ? and ?", Int::class.java, from, to)!!
 
 	/** [column] 의 값별 개수. 많은 것부터(같으면 값의 글자 순서). */
+	/**
+	 * 궁합 행의 상태별 수. 살아 있다는 표시(`active_at`)가 [SYNASTRY_STALE_SECONDS] 넘게 끊긴 `WRITING` 은 앱이 보는 것과 같이 `FAILED` 로 센다
+	 * (결정 053 의 9 — `synastry` 의 멈춤 기준과 같은 값. 기능 패키지는 서로의 코드를 쓰지 않으므로 여기 따로 둔다).
+	 */
+	fun countSynastryStatuses(): Map<String, Int> {
+		val counts = LinkedHashMap<String, Int>()
+		jdbc.query(
+			"""
+			select case when status = 'WRITING' and active_at < now() - make_interval(secs => ?) then 'FAILED' else status end as k, count(*) as n
+			from synastries group by k order by n desc, k
+			""".trimIndent(),
+			{ rs -> counts[rs.getString("k")] = rs.getInt("n") },
+			SYNASTRY_STALE_SECONDS,
+		)
+		return counts
+	}
+
 	fun countBy(table: String, column: String): Map<String, Int> {
 		val counts = LinkedHashMap<String, Int>()
 		jdbc.query("select $column as k, count(*) as n from $table group by $column order by n desc, k") { rs ->
