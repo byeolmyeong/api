@@ -39,6 +39,12 @@ private const val APPLE_ISSUER = "https://appleid.apple.com"
 /** client_secret 의 수명. 부를 때마다 새로 만든다(애플은 최대 6개월까지 받는다). */
 private val CLIENT_SECRET_TTL = Duration.ofMinutes(5)
 
+/**
+ * 서버 알림의 `event_time` 은 문서에는 초지만 밀리초(13자리)로 오기도 한다. 이 값 이상이면 밀리초로 읽는다
+ * (초로는 33658년, 밀리초로는 2001-09-09 — 둘이 겹치지 않는다). 초로 잘못 읽으면 먼 앞날이 되어 알림 뒤에 생긴 세션까지 지운다(결정 021).
+ */
+private const val EVENT_TIME_MILLIS_FROM = 1_000_000_000_000L
+
 /** 애플 서버 알림 하나. [type] 은 `consent-revoked` · `account-deleted` · `email-enabled` · `email-disabled` 등이고 [eventTime] 은 일어난 때(없으면 null)다. */
 data class AppleEvent(val type: String, val subject: String, val eventTime: Instant? = null)
 
@@ -158,7 +164,8 @@ class AppleSignInClient(
 		} ?: throw InvalidNotificationException()
 		val type = events.path("type").asString(null)?.takeIf { it.isNotBlank() } ?: throw InvalidNotificationException()
 		val subject = events.path("sub").asString(null)?.takeIf { it.isNotBlank() } ?: throw InvalidNotificationException()
-		val eventTime = events.path("event_time").takeIf { it.isNumber }?.let { Instant.ofEpochSecond(it.asLong()) }
+		val eventTime = events.path("event_time").takeIf { it.isNumber }?.asLong()
+			?.let { if (it >= EVENT_TIME_MILLIS_FROM) Instant.ofEpochMilli(it) else Instant.ofEpochSecond(it) }
 		return AppleEvent(type, subject, eventTime)
 	}
 

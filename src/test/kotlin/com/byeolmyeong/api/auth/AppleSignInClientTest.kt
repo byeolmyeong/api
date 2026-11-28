@@ -160,6 +160,12 @@ class AppleSignInClientTest {
 	}
 
 	@Test
+	fun `일어난 때가 밀리초(13자리)로 와도 같은 때로 읽는다`() {
+		val millis = mapOf("type" to "consent-revoked", "sub" to "apple-user", "event_time" to 1508184845123L)
+		assertEquals(Instant.ofEpochMilli(1508184845123L), client().notification(notification(millis)).eventTime)
+	}
+
+	@Test
 	fun `키 다시 받기 한도에 걸린 알림은 502 가 아니라 400 이다`() {
 		val limited = JWKSource<SecurityContext> { _, _ -> throw RateLimitReachedException() }
 		assertFailsWith<InvalidNotificationException> {
