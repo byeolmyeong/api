@@ -12,8 +12,16 @@ create table notices (
 	published_at timestamptz,
 	-- 알림 보내기 스위치. 업데이트 갈래는 켤 수 없다
 	notify boolean not null default false,
-	-- 알림함 · 푸시를 보낸 때. 한 글에 한 번 — 이 칸을 먼저 적은 요청만 보낸다
-	notified_at timestamptz,
+	-- 알림 보내기(알림함 · 푸시)를 시작한 때. 한 글에 한 번 — 이 칸을 먼저 적은 요청만 보낸다
+	notify_started_at timestamptz,
+	-- 푸시 결과: 대상 기기 · Expo 가 받은 수 · 실패 · 보내지 않은 수. push 가 다 보낸 뒤 채운다(그 전에는 null)
+	push_devices integer,
+	push_sent integer,
+	push_failed integer,
+	push_skipped integer,
+	-- 알림함 결과: 넣은 줄 수 · 넣기가 실패했는지. notification 이 마친 뒤 채운다(그 전에는 null)
+	inbox_added integer,
+	inbox_failed boolean,
 	created_at timestamptz not null default now(),
 	created_by uuid references admin_accounts (id),
 	updated_at timestamptz not null default now(),

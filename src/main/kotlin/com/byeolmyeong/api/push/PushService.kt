@@ -2,6 +2,7 @@ package com.byeolmyeong.api.push
 
 import com.byeolmyeong.api.admin.InquiryAnswered
 import com.byeolmyeong.api.admin.NoticePublished
+import com.byeolmyeong.api.admin.NoticePushSent
 import com.byeolmyeong.api.admin.PushEventRequested
 import com.byeolmyeong.api.admin.PushEventSent
 import com.byeolmyeong.api.reading.ReadingCreated
@@ -109,14 +110,22 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 
 	/**
 	 * 공지 알림(결정 055 의 4): 푸시 동의 + 정지 아님인 계정의 기기 모두에 공지 제목을 보낸다(서비스 알림 — 마케팅 동의 · 하루 한 번과 상관없다).
-	 * 제목은 지금 읽는다 — 그 사이 지워졌거나 내려갔으면 보내지 않는다. 보내는 순간이 밤이면 소리 없이(결정 057).
+	 * 제목은 지금 읽는다 — 그 사이 지워졌거나 내려갔으면 보내지 않고 대상 기기 모두를 "보내지 않음"으로 센다. 보내는 순간이 밤이면 소리 없이(결정 057).
 	 */
 	fun notice(noticeId: UUID): PushResult {
-		val title = repository.publishedNoticeTitle(noticeId) ?: return PushResult(0, 0, 0, 0)
+		val devices = repository.serviceAudienceDevices()
+		val title = repository.publishedNoticeTitle(noticeId)
+		if (title == null) {
+			log.info("event=push_skipped type={} reason=NOT_PUBLISHED count={}", PushKind.NOTICE, devices.size)
+			return PushResult(devices.size, 0, 0, devices.size)
+		}
 		val data = mapOf("type" to PushKind.NOTICE.name, "noticeId" to noticeId.toString())
 		val night = QuietHours.isNight(clock.instant())
-		return deliver(PushKind.NOTICE, repository.serviceAudienceDevices().map { QuietHours.message(it, title, PushMessages.NOTICE_BODY, data, night) })
+		return deliver(PushKind.NOTICE, devices.map { QuietHours.message(it, title, PushMessages.NOTICE_BODY, data, night) })
 	}
+
+	/** 서비스 알림 대상의 기기 수(공지 알림이 실패했을 때 결과를 알리려고). */
+	fun serviceAudienceDeviceCount(): Int = repository.serviceAudienceDevices().size
 
 	/** 광고 대상의 사람 수(발송이 실패했을 때 결과를 알리려고). */
 	fun adAudienceCount(): Int = repository.adAudienceDevices().map { it.first }.distinct().size
@@ -274,10 +283,24 @@ class PushEvents(
 		if (!started) failedAll().let { events.publishEvent(PushEventSent(event.eventId, it.recipients, it.succeeded, it.failed)) }
 	}
 
-	/** 알림을 켠 공지가 공개됐다(결정 055 의 4). 커밋 뒤 일꾼이 보낸다. */
+	/**
+	 * 알림을 켠 공지가 공개됐다(결정 055 의 4). 커밋 뒤 일꾼이 보내고 결과를 `NoticePushSent` 로 알린다 —
+	 * 어떤 길로 끝나도(보내다 오류 · 일꾼이 거절) 알린다. 그때는 대상 기기 모두를 실패로 센다(실패를 성공으로 보고하지 않는다).
+	 */
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
 	fun noticePublished(event: NoticePublished) {
-		later(PushKind.NOTICE) { push.notice(event.noticeId) }
+		fun failedAll() = runCatching { push.serviceAudienceDeviceCount() }.getOrDefault(0).let { PushResult(it, 0, it, 0) }
+		fun report(result: PushResult) = events.publishEvent(NoticePushSent(event.noticeId, result.devices, result.sent, result.failed, result.skipped))
+		val started = later(PushKind.NOTICE) {
+			val result = try {
+				push.notice(event.noticeId)
+			} catch (e: RuntimeException) {
+				log.warn("event=push_failed type={} reason={}", PushKind.NOTICE, e.javaClass.simpleName)
+				failedAll()
+			}
+			report(result)
+		}
+		if (!started) report(failedAll())
 	}
 
 	/** 오늘의 하늘 아침 알림(결정 042 의 6). `sky` 의 아침 일정이 그날 한 번만 낸다 — 그 일꾼 스레드에서 바로 보낸다. */

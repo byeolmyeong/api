@@ -23,7 +23,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-private val NOTICE_KEYS = setOf("id", "category", "title", "body", "status", "publishedAt", "notify", "notifiedAt", "createdAt", "createdBy", "updatedAt", "updatedBy")
+private val NOTICE_KEYS = setOf("id", "category", "title", "body", "status", "publishedAt", "notify", "notifyStartedAt", "push", "inbox", "createdAt", "createdBy", "updatedAt", "updatedBy")
 
 /**
  * 공지사항의 관리자 경로(결정 055 의 3 · 4): 쓰기 · 고치기 · 지우기 · 공개 · 내리기, "알림 보내기"를 켠 글은 공개할 때 한 번만
@@ -112,7 +112,9 @@ class AdminNoticeApiIntegrationTest {
 		assertEquals("DRAFT", notice["status"].asString())
 		assertTrue(notice["publishedAt"].isNull)
 		assertEquals(false, notice["notify"].asBoolean(), "알림 보내기는 처음엔 꺼짐")
-		assertTrue(notice["notifiedAt"].isNull)
+		assertTrue(notice["notifyStartedAt"].isNull)
+		assertTrue(notice["push"].isNull, "알림을 보내지 않았으면 결과도 없다")
+		assertTrue(notice["inbox"].isNull)
 		assertTrue(Instant.parse(notice["createdAt"].asString()).isAfter(before))
 		assertEquals(ROOT_ID, notice["createdBy"]["name"].asString())
 		assertEquals(ROOT_ID, notice["updatedBy"]["name"].asString())
@@ -223,7 +225,7 @@ class AdminNoticeApiIntegrationTest {
 		val notice = published(id, notify = true)
 
 		assertEquals(true, notice["notify"].asBoolean())
-		assertNotNull(notice["notifiedAt"].stringValue(null))
+		assertNotNull(notice["notifyStartedAt"].stringValue(null))
 		val sent = awaitSent(2)
 		assertEquals(setOf("ExponentPushToken[reader-phone]", "ExponentPushToken[reader-tablet]"), sent.map { it.to }.toSet(), "푸시 동의 + 정지 아님 + 기기")
 		assertEquals(setOf("이용약관이 바뀌어요"), sent.map { it.title }.toSet())
@@ -243,7 +245,7 @@ class AdminNoticeApiIntegrationTest {
 		assertEquals(200, publish(id, true).statusCode())
 		assertEquals(200, unpublish(id).statusCode())
 		val again = published(id, notify = true)
-		assertEquals(notice["notifiedAt"], again["notifiedAt"], "보낸 때는 처음 그대로")
+		assertEquals(notice["notifyStartedAt"], again["notifyStartedAt"], "보내기를 시작한 때는 처음 그대로")
 		assertEquals(2, awaitSent(3).size, "다시 공개해도 더 가지 않는다")
 		assertEquals(4, noticeRows(id))
 	}
@@ -262,7 +264,7 @@ class AdminNoticeApiIntegrationTest {
 		assertEquals(1, awaitSent(2).size)
 		assertEquals(1, noticeRows(id))
 		assertEquals(5, jdbc.queryForObject("select count(*) from audit_logs where action = 'NOTICE_PUBLISHED' and target_id = ?", Int::class.java, id))
-		assertEquals(1, jdbc.queryForObject("select count(*) from audit_logs where action = 'NOTICE_PUBLISHED' and target_id = ? and detail ->> 'notified' = 'true'", Int::class.java, id))
+		assertEquals(1, jdbc.queryForObject("select count(*) from audit_logs where action = 'NOTICE_PUBLISHED' and target_id = ? and detail ->> 'notifyStarted' = 'true'", Int::class.java, id))
 	}
 
 	@Test
@@ -331,7 +333,7 @@ class AdminNoticeApiIntegrationTest {
 		}
 		assertEquals(mapOf("category" to "NOTICE", "notify" to false), mapper.readValue(rows[0]["detail"] as String, Map::class.java))
 		assertNull(rows[1]["detail"])
-		assertEquals(mapOf("notify" to true, "notified" to true), mapper.readValue(rows[2]["detail"] as String, Map::class.java))
+		assertEquals(mapOf("notify" to true, "notifyStarted" to true), mapper.readValue(rows[2]["detail"] as String, Map::class.java))
 	}
 
 	@Test
@@ -348,6 +350,87 @@ class AdminNoticeApiIntegrationTest {
 
 		assertEquals(2, audience()["count"].asInt(), "푸시 동의 + 정지 아님 + 기기 — 마케팅 동의는 보지 않는다, 사람 수로 센다")
 		assertEquals(401, http(port, "GET", "/admin/notices/audience").statusCode())
+	}
+
+	/** 알림 결과(푸시 · 알림함)가 공지 행에 적힐 때까지 기다린다(5초까지). */
+	private fun awaitResult(id: String): JsonNode {
+		val until = System.currentTimeMillis() + 5_000
+		while (true) {
+			val notice = http(port, "GET", "/admin/notices/$id", token = token).json()
+			if ((!notice["push"].isNull && !notice["inbox"].isNull) || System.currentTimeMillis() > until) return notice
+			Thread.sleep(50)
+		}
+	}
+
+	@Test
+	fun `보낸 결과(대상 기기 · 보냄 · 실패 · 보내지 않음, 알림함 넣은 수)를 공지에 적는다`() {
+		user("reader", devices = arrayOf("ExponentPushToken[reader-phone]", "ExponentPushToken[reader-tablet]"))
+		user("second", devices = arrayOf("ExponentPushToken[second-phone]"))
+		user("web")
+		expo.gone += "ExponentPushToken[reader-tablet]"
+		val id = created("결과를 적는 공지")
+		try {
+			published(id, notify = true)
+			val notice = awaitResult(id)
+			assertEquals(setOf("devices", "sent", "failed", "skipped"), notice["push"].propertyNames().toSet())
+			assertEquals(3, notice["push"]["devices"].asInt())
+			assertEquals(2, notice["push"]["sent"].asInt())
+			assertEquals(1, notice["push"]["failed"].asInt(), "지운 기기(DeviceNotRegistered)는 실패로 센다")
+			assertEquals(0, notice["push"]["skipped"].asInt())
+			assertEquals(setOf("added", "failed"), notice["inbox"].propertyNames().toSet())
+			assertEquals(3, notice["inbox"]["added"].asInt(), "알림함은 모든 계정")
+			assertEquals(false, notice["inbox"]["failed"].asBoolean())
+			assertEquals(notice, adminList().single { it["id"].asString() == id }, "목록에도 같은 결과")
+		} finally {
+			expo.gone.clear()
+		}
+	}
+
+	@Test
+	fun `발송이 꺼져 보내지 않은 기기는 실패가 아니라 보내지 않음으로 센다`() {
+		user("reader", devices = arrayOf("ExponentPushToken[reader-phone]"))
+		val id = created("꺼진 발송")
+		expo.skipAll = true
+		try {
+			published(id, notify = true)
+			val push = awaitResult(id)["push"]
+			assertEquals(listOf(1, 0, 0, 1), listOf(push["devices"].asInt(), push["sent"].asInt(), push["failed"].asInt(), push["skipped"].asInt()))
+		} finally {
+			expo.skipAll = false
+		}
+	}
+
+	@Test
+	fun `보내다 오류가 나면 대상 기기 모두를 실패로 적는다`() {
+		user("reader", devices = arrayOf("ExponentPushToken[reader-phone]", "ExponentPushToken[reader-tablet]"))
+		val id = created("터지는 발송")
+		expo.explode = true
+		try {
+			published(id, notify = true)
+			val push = awaitResult(id)["push"]
+			assertEquals(listOf(2, 0, 2, 0), listOf(push["devices"].asInt(), push["sent"].asInt(), push["failed"].asInt(), push["skipped"].asInt()))
+		} finally {
+			expo.explode = false
+		}
+	}
+
+	@Test
+	fun `알림함 넣기가 실패하면 결과에 실패로 남고 푸시는 그대로 간다`() {
+		user("reader", devices = arrayOf("ExponentPushToken[reader-phone]"))
+		val id = created("알림함이 막힌 공지")
+		jdbc.execute("create or replace function test_fail_notice_inbox() returns trigger language plpgsql as \$\$ begin raise exception 'test: inbox fails'; end \$\$")
+		jdbc.execute("create trigger test_fail_notice_inbox before insert on notifications for each row when (new.kind = 'NOTICE') execute function test_fail_notice_inbox()")
+		try {
+			published(id, notify = true)
+			val notice = awaitResult(id)
+			assertEquals(0, notice["inbox"]["added"].asInt())
+			assertEquals(true, notice["inbox"]["failed"].asBoolean(), "실패를 성공으로 보고하지 않는다")
+			assertEquals(1, notice["push"]["sent"].asInt())
+			assertEquals(0, noticeRows(id))
+		} finally {
+			jdbc.execute("drop trigger if exists test_fail_notice_inbox on notifications")
+			jdbc.execute("drop function if exists test_fail_notice_inbox()")
+		}
 	}
 
 	@Test
