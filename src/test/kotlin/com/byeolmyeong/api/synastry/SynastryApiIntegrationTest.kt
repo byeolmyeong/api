@@ -25,6 +25,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import tools.jackson.databind.JsonNode
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -493,7 +495,7 @@ class SynastryRateLimitIntegrationTest {
 
 /**
  * 하루 안전 한도(결정 053 의 6): 그날(한국 날짜) 만든 궁합이 50개 이상이면 더 만들지 않는다(429). 다른 테스트는 한도를 크게 둔다(테스트 설정).
- * 그날의 경계는 DB 의 한국 시각 자정이다.
+ * 그날의 경계(한국 시각 자정)는 구현(DB 의 `date_trunc`)과 다른 길 — `ZonedDateTime`(Asia/Seoul) — 으로 구해 그 앞뒤 1초에 넣는다.
  */
 @Import(TestcontainersConfiguration::class, FakeSynastryConfig::class)
 @SpringBootTest(
@@ -526,27 +528,30 @@ class SynastryDailyLimitIntegrationTest {
 		generator.reset()
 	}
 
-	/** 소유자의 궁합 행을 [count] 개 넣는다. [createdAt] 은 SQL 식이다. */
-	private fun seed(owner: UUID, count: Int, createdAt: String) {
+	/** 소유자의 궁합 행을 [count] 개, 만든 때를 [createdAt] 으로 넣는다. */
+	private fun seed(owner: UUID, count: Int, createdAt: OffsetDateTime) {
 		repeat(count) {
 			jdbc.update(
-				"insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash, created_at) values (?, ?, '이전', 'LOVE', 70, '한줄', '[\"a\",\"b\",\"c\"]'::jsonb, 'h', $createdAt)",
-				UUID.randomUUID(), owner,
+				"insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash, created_at) values (?, ?, '이전', 'LOVE', 70, '한줄', '[\"a\",\"b\",\"c\"]'::jsonb, 'h', ?)",
+				UUID.randomUUID(), owner, createdAt,
 			)
 		}
 	}
 
 	@Test
-	fun `그날 만든 궁합이 50개가 되면 51번째는 429 이고 어제 만든 것과 남의 것은 세지 않는다`() {
+	fun `그날 만든 궁합이 50개가 되면 51번째는 429 이고 어제 23시 59분 59초에 만든 것과 남의 것은 세지 않는다`() {
 		val token = devToken(port)
 		assertEquals(200, http(port, "PUT", "/profile", ME, token).statusCode())
 		val me = jdbc.queryForObject("select id from accounts", UUID::class.java)!!
 		val other = UUID.randomUUID()
 		jdbc.update("insert into accounts (id, provider, provider_user_id) values (?, 'DEV', ?)", other, "someone-$other")
-		val todayStart = "(date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul')"
-		seed(me, 49, "now()")
-		seed(me, 5, "$todayStart - interval '1 minute'")
-		seed(other, 60, "now()")
+		val seoul = ZoneId.of("Asia/Seoul")
+		val todayStart = LocalDate.now(seoul).atStartOfDay(seoul)
+		val now = OffsetDateTime.now(seoul)
+		seed(me, 48, now)
+		seed(me, 1, todayStart.plusSeconds(1).toOffsetDateTime()) // 오늘 00:00:01 — 센다(오늘 49개)
+		seed(me, 5, todayStart.minusSeconds(1).toOffsetDateTime()) // 어제 23:59:59 — 세지 않는다
+		seed(other, 60, now)
 
 		val fiftieth = http(port, "POST", "/synastry", directBody(), token)
 		assertEquals(202, fiftieth.statusCode(), fiftieth.body())
