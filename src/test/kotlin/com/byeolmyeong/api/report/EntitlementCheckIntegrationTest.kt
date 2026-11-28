@@ -128,6 +128,22 @@ class EntitlementCheckIntegrationTest {
 
 		assertEquals(listOf("ME", "TIMING"), reportRows())
 		assertTrue(revenueCat.asked.isEmpty())
+		assertEquals(listOf("LEGACY"), entitlementRows(), "시작 전에 누른 받기는 1.0.0 수령자로 적는다")
+	}
+
+	@Test
+	fun `결제 시작 전에 누른 받기는 완성이 시작 뒤여도 1점0점0 수령자라 다른 풀이도 받는다`() {
+		clock.now = PURCHASE_STARTS.minusSeconds(1)
+		val token = token()
+		generator.gate = CountDownLatch(1)
+		assertEquals(202 to """{"status":"WRITING"}""", post("/me-report", token).let { it.statusCode() to it.body() })
+
+		clock.now = PURCHASE_STARTS.plusSeconds(1)
+		settle() // 시작 뒤에 끝난다(이 생성기는 글을 주지 않아 실패로 끝난다 — 실패만 한 받기도 수령자다)
+
+		assertEquals(202, post("/timing-report", token).statusCode())
+		assertEquals(listOf("LEGACY"), entitlementRows())
+		assertTrue(revenueCat.asked.isEmpty())
 	}
 
 	@Test

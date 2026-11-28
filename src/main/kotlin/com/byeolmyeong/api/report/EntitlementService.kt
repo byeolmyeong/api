@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Repository
 import org.springframework.stereotype.Service
+import java.sql.Timestamp
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -27,7 +28,7 @@ enum class EntitlementSource {
 
 /**
  * 자세한 풀이 상품(결정 056, 앱 결정 101). 상품은 하나라 나 탭 · 시기를 가리지 않는다.
- * 1.0.0 수령자는 결제 시작 시각 전까지 [backfillLegacy](서버가 뜰 때 · 매시)와 풀이 완성 이벤트로 `LEGACY` 에 적는다.
+ * 1.0.0 수령자(`LEGACY`)는 결제 시작 시각 전에 받기를 누를 때([addLegacy] — `EntitlementPolicy` 가 부른다)와 [backfillLegacy](서버가 뜰 때 · 매시)로 적는다.
  */
 @Service
 class EntitlementService(
@@ -81,32 +82,20 @@ class EntitlementService(
 	}
 
 	/**
-	 * 완성된 풀이 ∪ 감사 기록의 나 탭 · 시기 받기 계정을 `LEGACY` 로 적는다(있으면 그대로). 결제 시작 시각부터는 하지 않는다.
-	 * 마이그레이션이 아니라 여기서 하는 까닭: 첫 배포 때 새 jar 가 뜬 뒤에도 옛 jar 가 몇 분 받은 요청을 다음 번이 따라 적는다(결정 046 · 056 의 6).
-	 * 두 서버가 함께 돌아도 결과가 같아 일정 잠금을 두지 않는다.
+	 * 완성된 풀이 ∪ 감사 기록의 나 탭 · 시기 받기 가운데 결제 시작 시각 전의 것(완성한 때 · 누른 때)의 계정을 `LEGACY` 로 적는다(있으면 그대로).
+	 * 시작 뒤에도 같은 조건으로 돈다. 마이그레이션이 아니라 여기서 하는 까닭: 첫 배포 때 새 jar 가 뜬 뒤에도 옛 jar 가 몇 분 받은 요청(감사 기록은 남는다)을
+	 * 다음 번이 따라 적는다(결정 046 · 056 의 6). 두 서버가 함께 돌아도 결과가 같아 일정 잠금을 두지 않는다. 테스트는 일정을 "-" 로 끈다.
 	 */
 	@EventListener(ApplicationReadyEvent::class)
-	@Scheduled(cron = "0 10 * * * *", zone = "Asia/Seoul")
+	@Scheduled(cron = "\${byeolmyeong.purchase.legacy-backfill-cron}", zone = "Asia/Seoul")
 	fun backfillLegacy() {
-		if (start.started()) return
-		val added = repository.backfillLegacy()
+		val added = repository.backfillLegacy(start.at)
 		log.info("event=entitlement_legacy_backfilled added={}", added)
 	}
 
-	@EventListener
-	fun on(event: MeReportDone) = addLegacy(event.ownerId)
-
-	@EventListener
-	fun on(event: TimingReportDone) = addLegacy(event.ownerId)
-
-	// 완성 이벤트를 내는 일꾼 스레드에서 돈다. 여기서 던지면 뒤의 리스너(알림함 · 푸시)가 불리지 않으므로 삼키고 로그만 남긴다.
-	private fun addLegacy(ownerId: UUID) {
-		if (start.started()) return
-		try {
-			repository.add(ownerId, EntitlementSource.LEGACY)
-		} catch (e: Exception) {
-			log.warn("event=entitlement_legacy_failed error={}", e.javaClass.simpleName)
-		}
+	/** 결제 시작 전에 누른 받기의 계정을 `LEGACY` 로 적는다(있으면 그대로). 시작 전인지는 부르는 쪽(`EntitlementPolicy`)이 허용과 같은 판단으로 정한다. */
+	fun addLegacy(ownerId: UUID) {
+		repository.add(ownerId, EntitlementSource.LEGACY)
 	}
 }
 
@@ -131,17 +120,24 @@ class EntitlementRepository(private val jdbc: JdbcTemplate) {
 		"select exists(select 1 from entitlements where account_id = ?)", Boolean::class.java, accountId,
 	) == true
 
-	/** 완성된 풀이(`detail_reports` 의 DONE)와 감사 기록의 나 탭 · 시기 받기(`REPORT_REQUESTED`, kind ME · TIMING)의 계정을 `LEGACY` 로. 더한 줄 수. */
-	fun backfillLegacy(): Int = jdbc.update(
-		"""
-		insert into entitlements (account_id, source)
-		select id, 'LEGACY' from (
-			select owner_id as id from detail_reports where status = 'DONE'
-			union
-			select a.id from audit_logs l join accounts a on a.id::text = l.actor_id
-			where l.action = 'REPORT_REQUESTED' and l.actor_type = 'USER' and l.detail ->> 'kind' in ('ME', 'TIMING')
-		) receivers
-		on conflict do nothing
-		""".trimIndent(),
-	)
+	/**
+	 * 완성된 풀이(`detail_reports` 의 DONE — 완성한 때 `updated_at`)와 감사 기록의 나 탭 · 시기 받기(`REPORT_REQUESTED`, kind ME · TIMING — 누른 때 `occurred_at`)
+	 * 가운데 [before] 전의 것(null 이면 모두)의 계정을 `LEGACY` 로. 더한 줄 수.
+	 */
+	fun backfillLegacy(before: Instant?): Int {
+		val until = Timestamp.from(before ?: Instant.parse("9999-12-31T00:00:00Z"))
+		return jdbc.update(
+			"""
+			insert into entitlements (account_id, source)
+			select id, 'LEGACY' from (
+				select owner_id as id from detail_reports where status = 'DONE' and updated_at < ?
+				union
+				select a.id from audit_logs l join accounts a on a.id::text = l.actor_id
+				where l.action = 'REPORT_REQUESTED' and l.actor_type = 'USER' and l.detail ->> 'kind' in ('ME', 'TIMING') and l.occurred_at < ?
+			) receivers
+			on conflict do nothing
+			""".trimIndent(),
+			until, until,
+		)
+	}
 }

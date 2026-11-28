@@ -15,7 +15,8 @@ import java.time.format.DateTimeParseException
 @Component
 class PurchaseStart(@Value("\${byeolmyeong.purchase.starts-at:}") raw: String, private val clock: Clock) {
 
-	private val at: Instant? = raw.trim().takeIf { it.isNotEmpty() }?.let {
+	/** 결제 시작 시각. 비어 있으면 null. */
+	val at: Instant? = raw.trim().takeIf { it.isNotEmpty() }?.let {
 		try {
 			OffsetDateTime.parse(it).toInstant()
 		} catch (_: DateTimeParseException) {
