@@ -24,7 +24,7 @@ superseded_by:
 1. **사이 입력은 둘이다.** `POST /synastry` 의 `relation` 은 `LOVE` · `FRIEND` 만 받고, 그 밖(`WORK` · `FAMILY` · 없음 · 다른 값)은 400 `INVALID_RELATION` 이다.
    - `chart.Relation` 의 넷 · 가중치 · DB 제약(`relation in (LOVE, FRIEND, WORK, FAMILY)`)과 읽기(`GET /synastry/ranking?relation=` 의 넷)는 옛 기록을 읽으려고 그대로 둔다.
    - "친구" 는 친구 · 가족 · 동료를 아우르는 가까운 사이다. 궁합 글의 지시문(`prompts/synastry.md`)이 친구 · 가족 · 동료 누구와 읽어도 어색하지 않게 쓰게 한다.
-2. **직접 넣은 상대의 출생 정보를 저장한다**(V37 — `synastries.partner_birth_date` · `partner_birth_time`(모르면 null) · `partner_place_id`(시각을 모르면 null)).
+2. **직접 넣은 상대의 출생 정보를 저장한다**(V38 — `synastries.partner_birth_date` · `partner_birth_time`(모르면 null) · `partner_place_id`(시각을 모르면 null)).
    - 그 궁합에만 쓴다: 점수 · 이렇게 본 이유 · 글을 다시 쓸 때. 다른 기능 · 로그 · 감사 detail · 분석 · 공유 응답에 넣지 않는다.
    - 궁합을 지우거나 계정을 지우면 같은 행이라 함께 지워진다.
    - 응답으로 돌려주지 않는다. 내려보내는 것은 점수와 이유(내 쪽 대상 · 상대 천체 · 각도 종류 · 결)뿐이다 — 황경 · 별자리 · 출생 정보 원문은 없다. 겹친 휠(`overlay`)은 없앤다(1.1.0 결과 화면에 휠이 없다).
@@ -56,7 +56,7 @@ superseded_by:
    - 서비스 알림이라 푸시 동의만 본다. 밤 무음은 계획 S4-4(결정 055)가 메시지 모양과 함께 정한다.
 9. **감사 · 현황**: `SYNASTRY_CREATED` 는 `POST /synastry` 가 쓰기 시작했을 때 남는다(detail `{ relation }`, 이름 · 출생 정보 없음). 글이 실패한 것은 감사가 아니라 행의 `FAILED` · 로그 `synastry_report_failed` · 관리자 현황이 보여 준다. 다시 하기 · 다시 쓰기의 시작은 `SYNASTRY_REPORT_REQUESTED` 다. 관리자 현황의 `synastryReports` 는 `synastries` 의 상태(`WRITING` · `DONE` · `FAILED`)를 센다(새 궁합의 쓰는 중 · 실패는 그 표에만 있다). 살아 있다는 표시가 2분 넘게 끊긴 `WRITING` 은 앱이 보는 것과 같이 `FAILED` 로 센다(PR 리뷰 반영).
 10. **상대의 이름은 AI 에 보내지 않는다.** 글 생성 요청에는 `generation.synastryFactsText` 의 재료(사이 · 점수 · 연결)만 들어간다(010 의 5 그대로). 처리방침 초안(앱 `docs/drafts/2026-11-27-legal-1.1.0.md`)이 이것을 전제로 한다. 통합 테스트가 가짜 생성기가 받은 지시문 · 재료에 이름 · 출생 정보가 없음을 본다.
-11. **마이그레이션(V37)은 더하기와 NOT NULL 풀기만** 한다(결정 046). `status` 의 기본값은 `DONE`, `source` 는 `DIRECT` 라 겹치는 동안 옛 jar 가 넣는 행도 맞다. 검사: `NEW_STAR` 가 아니면 `relation` · `score` 가 있고, `DONE` 이면 `headline` · `keywords` 가 있다. 옛 행은 모두 `DONE`(요약이 있다)이다. 겹치는 동안 새 jar 가 만든 `WRITING` 행을 옛 jar 의 `GET /synastry` 가 읽으면 그 요청이 실패한다 — 1.0.0 앱은 궁합을 부르지 않아 닿는 사람이 없다고 보고 두 번 배포로 나누지 않는다.
+11. **마이그레이션(V38)은 더하기와 NOT NULL 풀기만** 한다(결정 046). `status` 의 기본값은 `DONE`, `source` 는 `DIRECT` 라 겹치는 동안 옛 jar 가 넣는 행도 맞다. 검사: `NEW_STAR` 가 아니면 `relation` · `score` 가 있고, `DONE` 이면 `headline` · `keywords` 가 있다. 옛 행은 모두 `DONE`(요약이 있다)이다. 겹치는 동안 새 jar 가 만든 `WRITING` 행을 옛 jar 의 `GET /synastry` 가 읽으면 그 요청이 실패한다 — 1.0.0 앱은 궁합을 부르지 않아 닿는 사람이 없다고 보고 두 번 배포로 나누지 않는다.
 
 ## 근거
 - 같은 행에 상태를 두면 목록 · 지도 · 순위 · 보는 중 줄 · 실패 줄을 `GET /synastry` 하나로 그린다. 새로 온 별(S③)도 같은 행의 한 상태다.
