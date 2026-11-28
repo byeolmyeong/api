@@ -3,6 +3,7 @@ package com.byeolmyeong.api.synastry
 import com.byeolmyeong.api.DEV_AUTH_ON
 import com.byeolmyeong.api.TestcontainersConfiguration
 import com.byeolmyeong.api.devToken
+import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.http
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -16,6 +17,8 @@ import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -97,5 +100,22 @@ class SynastryQuotaIntegrationTest {
 		assertEquals(calls, generator.requests.size, "모델을 부르지 않는다")
 		assertEquals(writtenFor, hash(), "글은 여전히 옛 차트의 것이라 다음에 열 때 다시 시도한다")
 		assertTrue(output.all.contains("event=synastry_rewrite_deferred reason=RATE_LIMITED"))
+	}
+
+	@Test
+	fun `다시 하기는 자리를 잡은 뒤 생성 한도를 세어 동시에 여섯 번 불러도 한 번만 센다`() {
+		generator.respond = { _, _ -> throw GenerationException("HTTP_500") }
+		val id = createSynastry(port, token, directBody(), expected = "FAILED")["id"].asString() // 한도 1
+		settle()
+		generator.reset()
+		val gate = CountDownLatch(1).also { generator.gate = it }
+
+		val responses = (1..6).map { CompletableFuture.supplyAsync { http(port, "POST", "/synastry/$id/retry", token = token) } }.map { it.join() }
+
+		assertEquals(List(6) { 202 }, responses.map { it.statusCode() }, responses.map { it.body() }.toString())
+		gate.countDown()
+		awaitSynastry(port, token, id)
+		// 다시 하기는 한 번만 셌다(한도 2 를 다 썼다): 다음 만들기는 429
+		assertEquals(429, http(port, "POST", "/synastry", directBody(), token).statusCode())
 	}
 }

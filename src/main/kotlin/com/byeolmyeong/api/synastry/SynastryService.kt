@@ -132,10 +132,16 @@ class SynastryService(
 		val relation = stored.synastry.relation
 		if (status != SynastryStatus.FAILED || partner == null || relation == null) return SynastryStarted(id, status)
 		val me = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
-		quota.acquire(ownerId)
 		val facts = facts(me, profiles.chartInput(partner), relation)
 		// 그 사이 다른 요청이 자리를 잡았으면 그 상태를 준다.
 		val run = repository.claim(ownerId, id, facts.score, me.hash, STALE_SECONDS) ?: return SynastryStarted(id, find(ownerId, id).synastry.status)
+		// 자리를 잡은 뒤 센다(결정 023 · 053 의 3): 동시에 여러 번 불러도 한 번만 센다. 넘으면 그 자리를 실패로 돌린다.
+		try {
+			quota.acquire(ownerId)
+		} catch (e: GenerationRateLimitedException) {
+			repository.fail(run)
+			throw e
+		}
 		log.info("event=synastry_report_started")
 		events.publishEvent(AuditEvent(AuditAction.SYNASTRY_REPORT_REQUESTED, AuditActor.user(ownerId), "SYNASTRY", id.toString()))
 		return SynastryStarted(id, start(run, facts, me.hash))
