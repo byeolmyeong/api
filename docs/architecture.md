@@ -196,7 +196,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `FUTURE`(미래, 심층 리포트 "시기" 영역 끝): 지금 프로필의 차트로 서버가 계산한 "지금의 시기"(오늘 걸쳐 있는 구간·마디와 다음 구간·마디 — `Report.timing.current` 와 같은 날짜 기준)에 대한 글이다. 심층 리포트를 만들지 않았어도 받을 수 있다. **지금의 시기가 같은 동안 한 편**이다: 어느 구간·마디가 시작하거나 끝나 "지금" 이 달라진 날부터는 같은 요청이 새 글을 만들어 준다(두세 달에 한 번꼴, 그날 첫 요청이 수십 초). 앱은 화면을 열 때마다 그대로 `POST` 하면 된다. 글에는 연도·날짜·나이를 비롯한 숫자가 없다 — 언제인지는 앱이 `timing.current` 로 보여 준다. 시각을 몰라도 받는다(`timing` 과 같이 일부 구간이 빠진 채로).
   - `SYNASTRY`(궁합, 궁합 결과 아래): 직접 입력 궁합 한 건(`synastryId` = `Synastry.id`)에 대한, 나 쪽에서만 쓴 글이다. **궁합(`id`)마다 한 편**이다. 서버에 상대의 출생 정보가 없으므로(결정 010) 그 궁합의 글을 처음 만들 때 본문으로 다시 받는다: `date`·`time`·`placeId` 의 형식과 `placeId` 규칙은 `POST /synastry` 와 같다(`time` 이 `null` 이면 `placeId` 는 없어도 된다). 서버는 그 자리에서 다시 계산해 글을 쓰고 출생 정보를 버린다. 저장하는 것은 글뿐이다. (1.1.0 은 궁합에 상대 출생 정보를 저장하지만 — 결정 053 — 방향성 제시는 결정 011 그대로 두고 1.1.0 앱은 부르지 않는다.)
     - 이미 만든 글이 있으면 `{ topic: SYNASTRY, synastryId }` 만으로 그 글을 준다(출생 정보는 와도 읽지 않는다). 글에는 점수를 비롯한 숫자와 부를 이름이 없다.
-    - 앱: 계산 직후의 결과 화면은 입력 화면의 값을 그대로 실어 보낸다. 목록에서 다시 연 결과 화면은 `synastryId` 만 보내고, 400 `BIRTH_REQUIRED` 가 오면 상대의 출생 정보를 다시 입력받아 보낸다(궁합 리포트를 나중에 처음 요청할 때와 같은 입력이다).
+    - 앱: 계산 직후의 결과 화면은 입력 화면의 값을 그대로 실어 보낸다. 목록에서 다시 연 결과 화면은 `synastryId` 만 보내고, 400 `BIRTH_REQUIRED` 가 오면 상대의 출생 정보를 다시 입력받아 보낸다(1.0.0 의 화면 — 1.1.0 앱은 방향성 제시를 부르지 않는다).
     - `SYNASTRY` 의 오류(위 표의 것에 더해): 400 `INVALID_REQUEST`(`synastryId` 가 없다) · 404 `NOT_FOUND`(남의 궁합·없는 궁합·id 모양이 아닌 값) · 아래는 만든 글이 없을 때만 — 404 `NO_PROFILE` · 409 `PROFILE_CHANGED`(내 출생 정보가 그 궁합을 계산한 때와 다르다. 궁합을 새로 계산해야 한다) · 400 `BIRTH_REQUIRED`(`date` 가 없다) · 400 `INVALID_DATE`·`INVALID_TIME`·`UNKNOWN_PLACE` · 400 `BIRTH_MISMATCH`(보낸 출생 정보로 계산한 점수가 그 궁합의 점수와 다르다) · 502 `GENERATION_FAILED`. 확인하는 순서도 이 순서다.
 - 궁합의 네 영역 (결정 010 · 053)
   - `SynastryReport` = `{ sections[{ area: ATTRACTION | TALK | CONFLICT | LASTING, title, paragraphs[{ title, body, basis[] }], practices? }] }`. `sections` 는 정확히 이 네 영역(끌림·대화·갈등·오래가기)이 이 순서로 오고, 영역마다 문단 3~4개다. `basis` 는 내 쪽 요소의 말뿐이다: `태양`·`달`·`수성`·`금성`·`화성`, 내 시각을 알면 `상승점`(문단마다 1개 이상).
@@ -579,8 +579,8 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `READING_GENERATED` | 요약 해석을 **새로** 만들었을 때. **실패도 남는다**(502) | 없음 | `null` |
   | `REPORT_REQUESTED` | 심층 리포트(`POST /reports`) · 나 탭 풀이(`POST /me-report`) · 시기 풀이(`POST /timing-report`)를 만들기 시작했을 때(뒤에서 끝난 결과는 남지 않는다 — 옛 리포트는 수치의 `reports.byStatus` 로 본다) | 없음 | 옛 리포트 `null` · 나 탭 풀이 `{ kind: "ME" }` · 시기 풀이 `{ kind: "TIMING" }` |
   | `SYNASTRY_CREATED` | 궁합을 만들기 시작했을 때(`POST /synastry` 의 202). 글이 실패한 것은 남지 않는다 — 궁합의 상태 `FAILED` 와 수치가 보여 준다(결정 053 의 9) | `SYNASTRY` id | `{ relation: "LOVE" \| "FRIEND" }` |
-  | `SYNASTRY_REPORT_REQUESTED` | 궁합 글을 다시 쓰기 시작했을 때(`POST /synastry/{id}/retry`) | `SYNASTRY` id | `null` |
-  | `SYNASTRY_DELETED` | 궁합을 지웠을 때(`DELETE /synastry/{id}`) | `SYNASTRY` id(이제 없는 id) | `null` |
+  | `SYNASTRY_REPORT_REQUESTED` | 궁합 글을 다시 쓰기 시작했을 때 — 다시 하기(`POST /synastry/{id}/retry`)와, 출생 정보를 바꾼 뒤 그 궁합을 열 때 `GET /synastry/{id}` 가 시작하는 다시 쓰기(결정 053 의 5). 한도를 넘어 다시 쓰지 않은 열기는 남지 않는다 | `SYNASTRY` id | `null` |
+  | `SYNASTRY_DELETED` | 궁합을 지웠을 때(`DELETE /synastry/{id}`, 여러 명 `POST /synastry/delete` 는 한 명마다 한 줄 — 결정 053 의 7) | `SYNASTRY` id(이제 없는 id) | `null` |
   | `DIRECTION_GENERATED` | 방향성 제시를 **새로** 만들었을 때. **실패도 남는다**(502, 그때는 대상이 없다) | 궁합 주제만 `SYNASTRY` id | `{ topic: "LOVE" \| "FUTURE" \| "SYNASTRY" }` |
   | `SHARE_CREATED` | 공유 카드를 **새로** 만들었을 때(같은 내용을 다시 공유한 것은 남지 않는다) | 없음(공유 식별자는 남기지 않는다) | `{ kind: "READING" \| "SCORE" \| "RANKING" \| "NEXT_TURN" \| "NICKNAME" \| "ME_AREA" \| "DAY_SKY" \| "NEXT_BIG" }` |
   | `SHARE_DELETED` | 공유를 지웠을 때 | 없음 | `null` |
@@ -691,7 +691,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - 직접 입력한 궁합 상대의 출생 정보(생년월일 · 시각 · 곳)는 그 궁합 행에만 저장한다(V37, 결정 053 의 2). 그 궁합의 점수 · 이유 · 글 다시 쓰기에만 쓰고 응답 · 로그 · 감사 기록에 넣지 않는다. 궁합 · 계정을 지우면 함께 지워진다.
 - 랭킹은 `synastries` 의 점수로 만든다. 따로 저장하지 않는다.
 - `shares`(V10, 결정 012 · V31 이 카드 종류에 공유 v2 넷을 더했다 — 결정 036): 공유 식별자(기본 키, 무작위 128비트), 소유자(계정을 지우면 함께 지워진다), 카드 종류, 카드(공개 조회가 그대로 주는 JSON — 공개 필드뿐이다), 카드의 해시(같은 소유자의 같은 내용은 한 행), 만든 때. 랭킹 카드에는 앞의 3명만, 이름을 가렸으면 이니셜만 들어 있다. 다음 변곡점 카드에는 날짜가 아니라 해와 계절이 들어 있다.
-- 지금의 궁합 테이블(직접 입력, V7. 위 줄의 `synastries` 설명보다 이쪽이 맞다): `synastries`(소유자, 부를 이름, 관계 유형, 나 기준 점수, 한 줄 요약, 키워드, 계산할 때의 내 차트 해시 · V37(결정 053): 출처 `DIRECT` · `LINK`, 상태 `WRITING` · `DONE` · `FAILED` · `NEW_STAR` — 옛 행은 `DONE`, 상대의 출생 정보(날짜 · 시각 · 곳 — 옛 행 · 링크 행에는 없다), 생성 표식 `started_at` · `active_at`, 완성 · 받아 감 · 알림 보냄 `done_at` · `seen_at` · `notified_at`. 사이 · 점수는 `NEW_STAR` 가 아니면, 한 줄 요약 · 키워드는 `DONE` 이면 있다(검사)) · `synastry_reports`(궁합마다 한 행, 상태 `WRITING`·`DONE`·`FAILED`, 본문은 `DONE` 일 때만, 생성을 시작한 때, 살아 있다는 표시를 마지막으로 적은 때 `active_at` — V9). 초대로 연결된 두 참여자는 초대 때 더한다. 공유 식별자는 `synastries` 에 두지 않는다(`shares`).
+- 지금의 궁합 테이블(직접 입력, V7. 위 줄의 `synastries` 설명보다 이쪽이 맞다): `synastries`(소유자, 부를 이름, 관계 유형, 나 기준 점수, 한 줄 요약, 키워드, 계산할 때의 내 차트 해시 · V37(결정 053): 출처 `DIRECT` · `LINK`, 상태 `WRITING` · `DONE` · `FAILED` · `NEW_STAR` — 옛 행은 `DONE`, 상대의 출생 정보(날짜 · 시각 · 곳 — 옛 행 · 링크 행에는 없다), 생성 표식 `started_at` · `active_at`, 완성 · 받아 감 · 알림 보냄 `done_at` · `seen_at` · `notified_at`. 사이 · 점수는 `NEW_STAR` 가 아니면, 한 줄 요약 · 키워드는 `DONE` 이면 있다(검사)) · `synastry_reports`(궁합마다 한 행, 네 영역의 글. 1.1.0 부터는 궁합이 완성될 때 `DONE` 한 행으로만 넣는다 — 생성 상태는 `synastries` 에 있다(결정 053). 상태 `WRITING`·`FAILED` 와 생성 표식 · `active_at`(V9) 칸은 1.0.0 의 옛 행에만 쓰였다). 초대로 연결된 두 참여자는 초대 때 더한다. 공유 식별자는 `synastries` 에 두지 않는다(`shares`).
 - 직접 입력한 상대의 행성 황경·별자리와 두 차트 사이의 각도 목록은 저장하지 않는다(출생 정보에서 그때 계산한다).
 
 ## 글 생성 규칙
