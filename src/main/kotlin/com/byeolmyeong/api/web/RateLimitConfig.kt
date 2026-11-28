@@ -12,7 +12,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 private const val WINDOW_MILLIS = 60_000L
 
 /**
- * `POST /charts`·`GET /places`·`POST /synastry`·`GET /faqs`·`GET /app-config`·`GET /shared/{shareId}`·`/auth/login`·`/auth/signup`·`/auth/nickname-check`
+ * `POST /charts`·`GET /places`·`POST /synastry`·`GET /faqs`·`GET /notices`(+ 한 건, 한도를 함께 센다)·`GET /app-config`·`GET /shared/{shareId}`·`/auth/login`·`/auth/signup`·`/auth/nickname-check`
  * 의 주소별 요청 수 제한. 한도를 넘으면 429. 로그인 · 가입 · 닉네임 확인은 한 한도를 같이 쓴다(결정 021 — 카카오 코드는 확인 전에 카카오를 부른다).
  */
 @Configuration
@@ -21,6 +21,7 @@ class RateLimitConfig(
 	@Value("\${byeolmyeong.rate-limit.places-per-minute}") private val placesPerMinute: Int,
 	@Value("\${byeolmyeong.rate-limit.synastry-per-minute}") private val synastryPerMinute: Int,
 	@Value("\${byeolmyeong.rate-limit.faqs-per-minute}") private val faqsPerMinute: Int,
+	@Value("\${byeolmyeong.rate-limit.notices-per-minute}") private val noticesPerMinute: Int,
 	@Value("\${byeolmyeong.rate-limit.app-config-per-minute}") private val appConfigPerMinute: Int,
 	@Value("\${byeolmyeong.rate-limit.shared-per-minute}") private val sharedPerMinute: Int,
 	@Value("\${byeolmyeong.rate-limit.auth-per-minute}") private val authPerMinute: Int,
@@ -32,6 +33,7 @@ class RateLimitConfig(
 		// 궁합 만들기만 센다(같은 경로의 목록 `GET /synastry` 는 세지 않는다 — 결정 053 의 4)
 		registry.addInterceptor(RateLimitInterceptor(synastryPerMinute, method = "POST")).addPathPatterns("/synastry")
 		registry.addInterceptor(RateLimitInterceptor(faqsPerMinute)).addPathPatterns("/faqs")
+		registry.addInterceptor(RateLimitInterceptor(noticesPerMinute)).addPathPatterns("/notices", "/notices/*")
 		registry.addInterceptor(RateLimitInterceptor(appConfigPerMinute)).addPathPatterns("/app-config")
 		registry.addInterceptor(RateLimitInterceptor(sharedPerMinute)).addPathPatterns("/shared/*")
 		registry.addInterceptor(RateLimitInterceptor(authPerMinute)).addPathPatterns("/auth/login", "/auth/signup", "/auth/nickname-check")

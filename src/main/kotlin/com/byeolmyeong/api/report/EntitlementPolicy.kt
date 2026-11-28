@@ -1,15 +1,38 @@
 package com.byeolmyeong.api.report
 
+import com.byeolmyeong.api.web.AppVersion
+import com.byeolmyeong.api.web.parseAppVersion
 import org.springframework.stereotype.Component
 import java.util.UUID
 
+/** 결제 시작 뒤 풀이를 새로 받을 수 있는 가장 낮은 앱 버전(결정 056 의 5 — 결제를 아는 첫 버전). */
+private val FIRST_PAYING_APP = AppVersion(1, 1, 0)
+
 /**
- * "받을 수 있나" 확인 자리(결정 029 의 4). 서비스가 풀이 생성을 시작하기 직전(생성 한도를 세기 전)에 부르고,
+ * "받을 수 있나"(결정 029 의 4 · 056 의 3). 서비스가 풀이 생성을 새로 시작하기 직전(생성 한도를 세기 전)에 부르고,
  * false 면 402 `PURCHASE_REQUIRED`(`web.PurchaseRequiredException`)로 답한다. 이미 완성됐거나 쓰는 중인 풀이는 묻지 않는다.
- * 1.0.0 은 두 풀이 모두 무료라 언제나 허용한다. 1.1.0 결제 계획에서 이 함수 안에 결제 확인만 끼운다 — 인터페이스 · 설정 스위치를 두지 않는다.
+ * 결제 시작 시각 전이면 모두 허용(1.0.0 과 같다)하고 그 계정을 1.0.0 수령자(`LEGACY`)로 적는다 — 누른 때로 정하므로 완성이 시작 뒤여도 빠지지 않는다(결정 056 의 6).
+ * 그 뒤면 상품을 가졌는지(`EntitlementService.owns`). 상품은 하나라 [kind] 를 가리지 않는다.
+ * RevenueCat 을 묻지 못하면 `web.PurchaseCheckFailedException`(503) 이 그대로 나간다.
  */
 @Component
-class EntitlementPolicy {
+class EntitlementPolicy(private val start: PurchaseStart, private val entitlements: EntitlementService) {
 
-	fun allows(ownerId: UUID, kind: DetailReportKind): Boolean = true
+	fun allows(ownerId: UUID, kind: DetailReportKind): Boolean {
+		if (start.started()) return entitlements.owns(ownerId)
+		entitlements.addLegacy(ownerId)
+		return true
+	}
+
+	/** 그 계정이 자세한 풀이를 받을 수 있나 — `GET /entitlements` 의 `detail` 도 이 값이다(결정 056 의 8). 아무것도 적지 않는다(`STORE` 말고는). */
+	fun hasDetail(ownerId: UUID): Boolean = !start.started() || entitlements.owns(ownerId)
+
+	/**
+	 * 결제 시작 뒤, 앱이 보낸 `X-App-Version` 이 1.1.0 보다 낮으면 true(426 `UPDATE_REQUIRED` — 상품이 있어도, 앱 결정 109 의 3).
+	 * 머리가 없는 요청(웹 · 관리자의 다시 만들기)과 읽을 수 없는 버전은 막지 않는다 — 앱 전체 막기(`appconfig`)와 같은 읽기.
+	 */
+	fun requiresUpdate(appVersion: String?): Boolean {
+		val version = appVersion?.let(::parseAppVersion) ?: return false
+		return start.started() && version < FIRST_PAYING_APP
+	}
 }

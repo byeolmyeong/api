@@ -27,7 +27,7 @@ class ArchitectureTest {
     companion object {
         const val ROOT = "com.byeolmyeong.api"
 
-        private val FEATURES = listOf("profile", "reading", "report", "synastry", "direction", "inquiry", "admin", "faq", "audit", "appconfig", "share", "push", "sky", "notification")
+        private val FEATURES = listOf("profile", "reading", "report", "synastry", "direction", "inquiry", "admin", "faq", "audit", "appconfig", "share", "push", "sky", "notification", "notice")
         private val SHARED = listOf("chart", "birth", "auth", "web", "generation")
 
         /** 기능 사이에 허용되는 유일한 연결: Spring 이벤트 클래스. 이벤트를 늘리면 docs/architecture.md 와 여기를 같이 고친다. */
@@ -54,6 +54,11 @@ class ArchitectureTest {
             "$ROOT.admin.AppConfigChanged",
             // 관리자가 문의에 처음 답했다(결정 039 의 5) — 알림함(계획 S⑤) · 푸시(S⑩)가 듣는다
             "$ROOT.admin.InquiryAnswered",
+            // 관리자가 "알림 보내기"를 켠 공지를 처음 공개했다(결정 055 의 4) — 알림함 · 푸시가 듣는다
+            "$ROOT.admin.NoticePublished",
+            // 공지 알림의 결과 — push · notification 이 알리고 admin 이 공지 행에 적는다(결정 055 의 4)
+            "$ROOT.admin.NoticePushSent",
+            "$ROOT.admin.NoticeInboxAdded",
             // 출생 정보가 바뀌면 reading · report · sky 가 옛 차트의 저장분을 지운다(결정 041) · synastry 가 궁합 점수를 다시 계산한다(결정 053)
             "$ROOT.profile.BirthProfileChanged",
             // 관리자가 실패한 자세한 풀이를 다시 만들게 했다(결정 043 의 1) — report 가 다시 시작한다

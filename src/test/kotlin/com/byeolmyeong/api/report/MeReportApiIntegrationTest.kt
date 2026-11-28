@@ -126,7 +126,7 @@ class MeDoneEvents {
 }
 
 /** "받을 수 있나" 의 테스트 대역(결정 029 의 4). [allow] 로 거절을 흉내 낸다. */
-class SwitchableEntitlement : EntitlementPolicy() {
+class SwitchableEntitlement(start: PurchaseStart, entitlements: EntitlementService) : EntitlementPolicy(start, entitlements) {
 	@Volatile
 	var allow = true
 	val asked = CopyOnWriteArrayList<DetailReportKind>()
@@ -163,7 +163,7 @@ class MeReportApiIntegrationTest {
 
 		@Bean
 		@Primary
-		fun switchableEntitlement() = SwitchableEntitlement()
+		fun switchableEntitlement(start: PurchaseStart, entitlements: EntitlementService) = SwitchableEntitlement(start, entitlements)
 
 		@Bean
 		@Primary

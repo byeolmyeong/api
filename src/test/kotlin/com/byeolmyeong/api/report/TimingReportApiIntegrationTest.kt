@@ -131,7 +131,7 @@ class TimingReportApiIntegrationTest {
 
 		@Bean
 		@Primary
-		fun timingEntitlement() = SwitchableEntitlement()
+		fun timingEntitlement(start: PurchaseStart, entitlements: EntitlementService) = SwitchableEntitlement(start, entitlements)
 
 		@Bean
 		@Primary
@@ -448,7 +448,7 @@ class TimingReportApiIntegrationTest {
 			done = ::MeReportDone,
 		)
 
-		assertEquals(ReportStatus.WRITING, details.request(owner, DetailReportKind.ME, "finish-fails") { job })
+		assertEquals(ReportStatus.WRITING, details.request(owner, DetailReportKind.ME, "finish-fails", appVersion = null) { job })
 		// 맡긴 직후에는 일꾼이 아직 일을 잡기 전이라 "바쁜 일꾼 0 · 줄 0" 으로 보여 settle() 이 바로 지나갈 수 있다.
 		// 행이 쓰는 중을 벗어날 때까지 본다 — 10초는 멈춘 것으로 보는 2분보다 한참 짧다("바로").
 		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
