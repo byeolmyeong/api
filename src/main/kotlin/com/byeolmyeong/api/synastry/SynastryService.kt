@@ -220,13 +220,20 @@ class SynastryService(
 
 	/**
 	 * 완성된 글을 쓴 내 차트가 지금과 다르면 같은 행에서 다시 쓰기 시작한다. 시작했으면(또는 다른 요청이 먼저 시작했으면) true.
-	 * 열기만 한 요청이라 하루 한도 · 생성 한도는 세지 않는다(결정 053 의 5).
+	 * 하루 한도는 세지 않지만(새 궁합이 아니다) 생성 한도는 센다 — 출생 정보를 오가며 열기만 해도 모델 호출이 끝없이 나가지 않게.
+	 * 넘으면 다시 쓰지 않고 false(옛 글을 그대로 준다 — 사용자는 실패를 보지 않는다). "다시 써야 함" 이 남아 다음에 열 때 다시 시도한다(결정 053 의 5).
 	 */
 	private fun rewriteIfStale(ownerId: UUID, stored: StoredSynastry): Boolean {
 		val partner = stored.partner ?: return false
 		val relation = stored.synastry.relation ?: return false
 		val me = profiles.chartInput(ownerId) ?: return false
 		if (me.hash == stored.ownerChartHash) return false
+		try {
+			quota.acquire(ownerId)
+		} catch (e: GenerationRateLimitedException) {
+			log.info("event=synastry_rewrite_deferred reason=RATE_LIMITED")
+			return false
+		}
 		val facts = facts(me, profiles.chartInput(partner), relation)
 		val run = repository.claim(ownerId, stored.synastry.id, facts.score, me.hash, STALE_SECONDS) ?: return true
 		log.info("event=synastry_report_started")
