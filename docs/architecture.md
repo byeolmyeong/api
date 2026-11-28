@@ -52,7 +52,7 @@ src/main/kotlin/com/byeolmyeong/api/
   synastry/    SynastryController · SynastryService · SynastryRepository · Synastry(모양·지시문·구조·검증) · SynastryReport(리포트의 모양·지시문·구조·검증) · SynastryDeleted(이벤트) · (초대 때) InviteService · InviteAccepted(이벤트)
   direction/   DirectionController · DirectionService · DirectionRepository · Direction(모양·지시문·구조·검증) · DirectionFuture(미래: 지금의 시기·대상) · DirectionSynastry(궁합: 재료·지시문)
   inquiry/     InquiryController(문의하기 · 내 문의) · InquiryService(계정별 제한) · InquiryRepository · Inquiry(모양·검증 · 옛 앱 갈래 · 보낸 앱)
-  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸 · 답 칸만 쓴다) · InquiryAnswered(이벤트) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다 · 접속 차트) · AdminFaqController · AdminFaqService(+ AdminFaqRepository) · AdminAppConfigController(+ AdminAppConfigService · AdminAppConfigRepository) · AppConfigChanged(이벤트) · AdminAudit(감사 기록에 알린다)
+  admin/       Admin(로그인한 관리자·거절·본문 읽기) · AdminSession(CurrentAdmin · AdminSessionInterceptor) · AdminPasswords(bcrypt) · AdminAuthController · AdminAuthService(+ AdminSessionRepository) · AdminAccountController(+ 첫 관리자 AdminBootstrap) · AdminAccountService(+ AdminAccountRepository) · AdminInquiryController · AdminInquiryService(+ AdminInquiryRepository — `inquiries` 를 자기 SQL 로 읽고 처리 칸 · 답 칸만 쓴다) · InquiryAnswered(이벤트) · AdminStats(Controller · Service · Repository — 다른 기능의 테이블을 개수만 읽는다 · 접속 차트) · AdminFaqController · AdminFaqService(+ AdminFaqRepository) · AdminAppConfigController(+ AdminAppConfigService · AdminAppConfigRepository) · AppConfigChanged(이벤트) · AdminEntitlementAllowlist(Controller · Service · Repository — 결제 없이 여는 계정, 결정 056) · AdminAudit(감사 기록에 알린다)
   audit/       AuditRecorder(이벤트를 듣는다) · AuditService(+ AuditRepository — 넣고 읽고, 1년 지난 행을 날마다 지운다) · AuditLogController(`GET /admin/audit-logs`)
   appconfig/   AppConfigController(+ AppConfigService: 캐시·막을지 판정 · AppConfigRepository) · AppUpdateInterceptor(+ AppUpdateConfig: 순서·빼는 경로)
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
@@ -314,7 +314,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `GET /shared/{shareId}`: 세션 없이 열린다. 저장된 `ShareCard` 를 그대로 준다. 없는(지워진) 식별자는 404 `NOT_FOUND`. 주소별 분당 한도를 넘으면 429 `RATE_LIMITED`. CORS 는 다른 경로와 같다(`ALLOWED_ORIGINS` 에 적힌 앱의 웹 주소만).
   - 이니셜(서버가 만든다): 한글 음절은 첫소리 글자로(지영 → `ㅈㅇ`, 쌍자음은 그대로), 이미 낱자인 한글은 그대로, 그 밖의 글자·숫자는 이어진 덩어리의 첫 글자만 대문자로(`Mike` → `M`, `김 Min` → `ㄱM`), 공백·기호·그림 문자는 뺀다. 남는 것이 없으면 `○`.
 
-## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016·017·018·039·040·043)
+## 관리자 API (관리 화면 저장소 `byeolmyeong-admin` 과 맞춘다. 바꾸면 이 절을 같은 커밋에서 고친다. 결정 014·015·016·017·018·039·040·043·056)
 관리 화면(웹)이 부르는 API 다. 앱은 부르지 않는다. 경로는 모두 `/admin/` 아래다.
 
 ### 공통
@@ -363,6 +363,9 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /admin/push/status` | 없음 | 200 `PushStatus` |
 | `GET /admin/push/events?page=&size=` | 쿼리(모두 선택) | 200 `{ items: [PushEvent], page, size, total }` 새것부터 |
 | `POST /admin/push/events` | `{ title, body, target }` | 202 `{ id, recipients }` |
+| `GET /admin/entitlement-allowlist` | 없음 | 200 `[AllowlistEntry]` 새것부터 |
+| `POST /admin/entitlement-allowlist` | `{ email }` | 201 `AllowlistEntry` |
+| `DELETE /admin/entitlement-allowlist/{id}` | 없음 | 204 |
 
 ### 로그인·세션
 - `Admin` = `{ id, loginId, name, mustChangePassword }`. `AdminAccount` = `{ id, loginId, name, active, createdAt, lastLoginAt }` — `lastLoginAt` 은 마지막으로 로그인에 성공한 때 또는 `null`(한 번도 없음). 비밀번호와 그 해시는 어떤 응답에도 없다. 임시 비밀번호는 그것을 만든 응답(추가 · 재발급)에서만 한 번 나간다.
@@ -533,6 +536,13 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - `GET /admin/push/events?page=&size=`: 보낸 때가 늦은 것부터. `page` 는 0 부터(기본 0), `size` 1~100(기본 20). 틀리면 400 `INVALID_PAGE`. `PushEvent` = `{ id, sentAt, title, recipients, succeeded, failed, sentBy }` — `title` 은 관리자가 쓴 그대로(앞의 "(광고) " 없이), `succeeded` · `failed` 는 다 보내기 전에는 `null`, `sentBy` 는 보낸 관리자의 이름.
 - `GET /admin/push/status` → `PushStatus` = `{ canSend, reason, sentTodayAt, sentTodayBy, nextAvailableAt }`. 그날 이미 보냈으면 `reason: "DAILY_LIMIT"` · 그때 · 보낸 관리자 이름 · 다음 날 08:00, 야간이면 `reason: "QUIET_HOURS"` · 그다음 08:00(새벽이면 그날 08:00), 보낼 수 있으면 `canSend: true` 와 나머지 `null`. 시각은 UTC 글자.
 
+### 결제 없이 여는 계정 (결정 056 의 9 · 앱 결정 101 의 5-2)
+- 계정 이메일(가입 때 공급자가 준 `accounts.email`)이 이 목록에 있으면 결제 시작 뒤에도 자세한 풀이를 받는다(RevenueCat 확인보다 먼저 — 위 "API 계약" 의 "자세한 풀이 상품"). 운영자 · 팀원 · 테스트용. 애플 "이메일 가리기" 계정은 가려진 주소(`…@privaterelay.appleid.com`)를 넣는다. 받기 때마다 목록을 보므로 빼면 바로 닫힌다(이미 받은 풀이는 그대로 보인다).
+- `AllowlistEntry` = `{ id, email, createdAt, createdBy }` — `email` 은 소문자, `createdBy` 는 넣은 관리자 `{ id, name }`.
+- `POST /admin/entitlement-allowlist { email }`: 앞뒤 공백을 떼고 소문자로 둔다. `@` 가 하나이고 그 앞뒤에 공백 · `@` 가 없는 254자 이하 글자가 아니면(없거나 `null` 포함) 400 `INVALID_EMAIL`, 글자가 아니면 400 `INVALID_REQUEST`. 이미 있으면(대소문자 무관) 409 `ALREADY_LISTED`. 201 `AllowlistEntry`. 감사 기록 `ENTITLEMENT_ALLOWLIST_ADDED`.
+- `DELETE /admin/entitlement-allowlist/{id}`: 204. 없으면 404 `NOT_FOUND`. 감사 기록 `ENTITLEMENT_ALLOWLIST_REMOVED`.
+- `GET /admin/entitlement-allowlist`: 넣은 때가 늦은 것부터 전부(쪽 나누기 없음 — 몇 줄뿐이다).
+
 ### 감사 기록
 - 관리자와 앱 사용자의 주요 행동을 "누가 무엇을 언제" 만 남긴 목록이다(결정 015). 읽기만 있다 — 고치거나 지우는 경로가 없다(1년이 지난 행은 서버가 날마다 지운다 — 아래 "보관"). 이 조회 자체와 다른 목록·수치 조회는 기록되지 않는다.
 - `AuditLog` = `{ id, occurredAt, actorType, actor, action, targetType, targetId, outcome, detail }`.
@@ -543,7 +553,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
     - `USER`: 둘 다 `ownerRef`(12자 16진수) — 문의(`Inquiry.ownerRef`)와 같은 값이라 같은 사람의 문의와 행동을 묶어 볼 수 있다. 계정 id·이름·이메일은 어떤 응답에도 없다.
     - 지금은 `ref` 와 `label` 이 같은 글자지만 화면은 둘을 구분해 쓴다(보여 줄 때는 `label`, 거를 때는 `ref`).
   - `action`: 아래 표의 코드. 서버가 모르는 코드가 늘 수 있으므로 화면은 모르는 코드를 글자 그대로 보여 준다.
-  - `targetType`·`targetId`: 무엇에 한 일인지(`"ADMIN"`·`"INQUIRY"`·`"FAQ"`·`"SYNASTRY"`·`"APP_CONFIG"`·`"USER"`·`"PUSH_EVENT"` 와 그 id) 또는 둘 다 `null`. `INQUIRY` 의 id 는 `GET /admin/inquiries/{id}` 의 id, `ADMIN` 의 id 는 `AdminAccount.id`, `FAQ` 의 id 는 `Faq.id`, `USER` 의 id 는 사용자 관리(`GET /admin/users/{id}`, 결정 043 의 1)의 계정 id, `PUSH_EVENT` 의 id 는 광고 푸시(`GET /admin/push/events` 의 `id`, 결정 043 의 6)다. 대상이 그 뒤 지워졌을 수 있다(그때 그 경로는 404).
+  - `targetType`·`targetId`: 무엇에 한 일인지(`"ADMIN"`·`"INQUIRY"`·`"FAQ"`·`"SYNASTRY"`·`"APP_CONFIG"`·`"USER"`·`"PUSH_EVENT"`·`"ENTITLEMENT_ALLOWLIST"` 와 그 id) 또는 둘 다 `null`. `INQUIRY` 의 id 는 `GET /admin/inquiries/{id}` 의 id, `ADMIN` 의 id 는 `AdminAccount.id`, `FAQ` 의 id 는 `Faq.id`, `USER` 의 id 는 사용자 관리(`GET /admin/users/{id}`, 결정 043 의 1)의 계정 id, `PUSH_EVENT` 의 id 는 광고 푸시(`GET /admin/push/events` 의 `id`, 결정 043 의 6)다. 대상이 그 뒤 지워졌을 수 있다(그때 그 경로는 404).
   - `outcome`: `SUCCESS` · `FAILURE`. `FAILURE` 는 표에 "실패도 남는다" 고 적힌 행동에만 있다. 거절된 요청(400·404·409·429)은 기록되지 않는다.
   - `detail`: 코드 값만 담은 작은 객체 또는 `null`. 키는 행동마다 아래 표와 같다. 글(메모·문의·FAQ)·이름·이메일·출생 정보·비밀번호·토큰은 어디에도 없다.
 - 행동(`action`) — 관리자:
@@ -572,6 +582,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   | `USER_DELETED_BY_ADMIN` | 사용자가 요청해 관리자가 탈퇴를 대행했을 때(`DELETE /admin/users/{id}`) | `ADMIN` | `USER` 그 계정의 id(이제 없는 id) | 경로를 만드는 묶음이 정한다(사유 · 닉네임은 넣지 않는다) |
   | `GENERATION_RETRIED` | 실패한 생성을 다시 하게 했을 때(`POST /admin/users/{id}/regenerate`) | `ADMIN` | `USER` 그 계정의 id | `{ "kind": "REPORT_ME" \| "REPORT_TIMING" }` |
   | `PUSH_EVENT_SENT` | 광고 푸시를 보냈을 때(`POST /admin/push/events`, 결정 043 의 6) | `ADMIN` | `PUSH_EVENT` 그 발송의 id | `{ "target": 이동 화면 키, "recipients": 그때의 대상 수 }`(제목 · 본문 글은 넣지 않는다) |
+  | `ENTITLEMENT_ALLOWLIST_ADDED` · `ENTITLEMENT_ALLOWLIST_REMOVED` | 결제 없이 여는 계정을 넣거나 뺐을 때(`POST` · `DELETE /admin/entitlement-allowlist`, 결정 056 의 9) | `ADMIN` | `ENTITLEMENT_ALLOWLIST` 그 줄의 id | `null`(이메일은 넣지 않는다) |
 
   - 아래 다섯 행동(`USER_SUSPENDED` ~ `PUSH_EVENT_SENT`)은 코드(`action` 조건으로 거를 수 있다)만 먼저 더했다. 그 경로가 아직 없어 지금은 남지 않는다 — 경로를 만드는 묶음(계획 S⑪ · S⑩)이 남기고 `detail` 을 이 표에 적는다.
 
