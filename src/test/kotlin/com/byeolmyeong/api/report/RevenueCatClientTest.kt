@@ -28,6 +28,8 @@ class RevenueCatClientTest {
 	private lateinit var server: HttpServer
 	private var status = 200
 	private var body = ""
+	@Volatile
+	private var delayMillis = 0L
 	private val paths = CopyOnWriteArrayList<String>()
 	private val authorizations = CopyOnWriteArrayList<String?>()
 	private val account = UUID.fromString("0b6a3c2e-5d1f-4f7a-9c3e-2a1b4c5d6e7f")
@@ -39,6 +41,7 @@ class RevenueCatClientTest {
 		server.createContext("/") { exchange ->
 			paths += exchange.requestURI.path
 			authorizations += exchange.requestHeaders.getFirst("Authorization")
+			if (delayMillis > 0) Thread.sleep(delayMillis)
 			val bytes = body.toByteArray()
 			exchange.responseHeaders.add("Content-Type", "application/json")
 			exchange.sendResponseHeaders(status, if (bytes.isEmpty()) -1 else bytes.size.toLong())
@@ -120,5 +123,18 @@ class RevenueCatClientTest {
 		val closed = HttpServer.create(InetSocketAddress("localhost", 0), 0).let { val port = it.address.port; it.stop(0); port }
 
 		assertThrows<PurchaseCheckFailedException> { client(baseUrl = "http://localhost:$closed").hasDetail(account) }
+	}
+
+	@Test
+	fun `읽기 시간(5초)을 넘기면 묻지 못한 것이다`(output: CapturedOutput) {
+		body = subscriber("""{"detail":{"expires_date":null}}""")
+		delayMillis = 7_000
+
+		val started = System.nanoTime()
+		val e = assertThrows<PurchaseCheckFailedException> { client().hasDetail(account) }
+
+		assertTrue(e.reason.startsWith("REQUEST_"), e.reason)
+		assertTrue(System.nanoTime() - started < 6_500_000_000L, "읽기 시간에서 끊는다")
+		assertTrue(output.out.contains("event=purchase_check_failed reason=REQUEST_"))
 	}
 }
