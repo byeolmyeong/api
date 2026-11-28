@@ -38,6 +38,7 @@ const val APP_ORIGIN = "http://localhost:8081"
 		"byeolmyeong.rate-limit.admin-login-per-ip=100000",
 		"byeolmyeong.rate-limit.inquiries-per-hour=100000",
 		"byeolmyeong.rate-limit.faqs-per-minute=100000",
+		"byeolmyeong.rate-limit.notices-per-minute=100000",
 		"byeolmyeong.cors.allowed-origins=$APP_ORIGIN",
 		"byeolmyeong.cors.admin-allowed-origins=$ADMIN_ORIGIN",
 	],
@@ -79,6 +80,7 @@ fun createAdmin(port: Int, token: String, loginId: String, password: String, jdb
 /** 첫 관리자만 남기고 관리자 쪽 데이터와 앱 사용자 데이터를 비운다. */
 fun resetAdminData(jdbc: JdbcTemplate) {
 	jdbc.update("delete from faqs")
+	jdbc.update("delete from notices")
 	jdbc.update("update app_configs set min_version = null, latest_version = null, store_url = null, message = null, block_now = false, updated_by = null")
 	jdbc.update("update app_maintenance set active = false, message = null, updated_by = null, started_at = null, started_by = null")
 	jdbc.update("delete from accounts")

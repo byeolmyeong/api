@@ -61,6 +61,7 @@ class SessionPublicEndpointsIntegrationTest {
 		assertEquals(200, http(port, "HEAD", "/health").statusCode())
 		assertNotEquals(401, http(port, "GET", "/places").statusCode())
 		assertEquals(200, http(port, "GET", "/faqs").statusCode())
+		assertEquals(200, http(port, "GET", "/notices").statusCode())
 		assertEquals(200, http(port, "GET", "/app-config").statusCode())
 		assertEquals(404, http(port, "GET", "/shared/no-such-share").statusCode())
 		assertEquals(200, http(port, "POST", "/auth/dev").statusCode())
