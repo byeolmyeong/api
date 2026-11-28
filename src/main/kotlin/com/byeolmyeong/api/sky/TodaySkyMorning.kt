@@ -63,7 +63,7 @@ private fun slots(from: LocalDateTime, to: LocalDateTime): List<Slot> {
  * 오늘의 하늘 아침 알림(결정 042 의 6). 5분마다(한국 시각)
  * ① 받는 시간이 지난 60분 안이고 그날 아직 보내지 않은 사람에게, 그날 것이 있으면 보내라고 [TodaySkyDue] 를 낸다(`push` 가 묶어 보낸다).
  * ② 받는 시간이 앞으로 30분 안이거나 지난 60분 안이고 그날 아직 맡지 않은 사람의 그날 것을 미리 만든다 — 생성 일꾼(`reportExecutor`)에서
- *   미리 만들기 줄기를 일꾼 수 - 1 까지 띄우고, 줄기는 한 사람씩 맡아 바로 만들며 맡을 사람이 없을 때까지 이어 간다(결정 052).
+ *   미리 만들기 줄기를 일꾼 수 - 1 까지(그리고 빈 스레드 - 1 까지) 띄우고, 줄기는 한 사람씩 맡아 바로 만들며 맡을 사람이 없을 때까지 이어 간다(결정 052).
  *   사용자 요청이 먼저다: 한 스레드는 늘 비워 두고, 대기 줄은 쓰지 않으며, 사용자 요청이 줄에서 기다리면 줄기는 하던 한 사람을 마치고 끝난다.
  *   맡기는 만들기 직전에 하므로, 일꾼이 받지 않거나(줄이 참 · 닫는 중) 서버를 닫아 줄기가 끝나도 맡은 채 남는 사람이 없다 — 다음 번 · 새 서버가 맡는다.
  * 칸을 놓쳐도(늦게 돈 · 재시작) 다음 번이 따라잡는다. 같은 날 한 번: (계정, 한국 날짜) 줄을 먼저 넣은 서버만 맡고, 보낸 때를 먼저 적은 서버만 보낸다 —
@@ -129,13 +129,15 @@ class TodaySkyMorningService(
 	}
 
 	/**
-	 * 미리 만들 사람이 있으면 생성 일꾼에 미리 만들기 줄기를 띄운다 — 이 서버에서 일꾼 수 - 1 까지(한 스레드는 늘 사용자 요청 몫).
+	 * 미리 만들 사람이 있으면 생성 일꾼에 미리 만들기 줄기를 띄운다 — 이 서버에서 일꾼 수 - 1 까지, 그리고 지금 빈 스레드 - 1 까지
+	 * (한 스레드는 늘 사용자 요청 몫이고, 빈 스레드가 없으면 줄기가 대기 줄에 들어가 사용자 요청 앞에 서므로 띄우지 않는다).
 	 * 사용자 요청이 줄에서 기다리거나 서버를 닫는 중이면 띄우지 않는다(다음 번이 따라잡는다). 띄우지 못해도 아무도 맡지 않았다.
 	 */
 	private fun prebuild(now: LocalDateTime) {
 		val pool = generation.threadPoolExecutor
 		if (pool.isShutdown || pool.queue.isNotEmpty()) return
-		val wanted = minOf(candidates(now).size, (pool.maximumPoolSize - 1).coerceAtLeast(1) - builders.get())
+		val free = pool.maximumPoolSize - pool.activeCount // 대략의 값이어도 된다 — 다음 번이 다시 본다
+		val wanted = minOf(candidates(now).size, pool.maximumPoolSize - 1 - builders.get(), free - 1)
 		var started = 0
 		while (started < wanted) {
 			builders.incrementAndGet()

@@ -373,6 +373,28 @@ class TodaySkyPushIntegrationTest {
 	}
 
 	@Test
+	fun `사용자 요청이 스레드를 다 쓰고 있으면 줄이 비어 있어도 미리 만들기를 줄에 넣지 않는다`() {
+		val id = person("빈스레드없음")
+		val release = CountDownLatch(1)
+		// 사용자 요청이 스레드를 모두 쓴다(줄은 비어 있다).
+		repeat(generation.maxPoolSize) { generation.execute { release.await(10, TimeUnit.SECONDS) } }
+		try {
+			awaitUntil { generation.activeCount == generation.maxPoolSize }
+			at("07:30")
+			job.run()
+			assertEquals(0, generation.queueSize, "빈 스레드가 없으면 줄기를 띄우지 않는다 — 줄은 사용자 요청 몫")
+			assertEquals(0, claims(id))
+		} finally {
+			release.countDown()
+		}
+
+		awaitIdle()
+		job.run() // 스레드가 빈 다음 번
+		awaitSky(id)
+		assertEquals(1, skies(id))
+	}
+
+	@Test
 	fun `미리 만들기는 대기 줄을 쓰지 않고 한 스레드를 비워 두며 · 사람이 많아도 다음 번을 기다리지 않고 다 만든다`() {
 		val ids = (1..30).map { person("많은이$it") }
 		val gate = CountDownLatch(1)
