@@ -123,11 +123,11 @@ class SynastryApiIntegrationTest {
 	fun `점수는 서버가 계산해 모델에게 알려 주고 모델에게 이름과 생일과 도수를 주지 않는다`() {
 		val token = tokenWithProfile()
 
-		val synastry = created(token, directBody(name = "별난이름", relation = "FAMILY", date = "1988-07-21", time = "06:10", placeId = MAPO))
+		val synastry = created(token, directBody(name = "별난이름", relation = "FRIEND", date = "1988-07-21", time = "06:10", placeId = MAPO))
 
 		val request = generator.summaries.single()
 		assertTrue(request.userText.contains("${synastry["score"].asInt()}점"), request.userText)
-		assertTrue(request.userText.contains("가족"), request.userText)
+		assertTrue(request.userText.contains("친구"), request.userText)
 		assertTrue(request.userText.contains("나의 "), request.userText)
 		assertTrue(request.userText.contains("상대의 "), request.userText)
 		for (secret in listOf("별난이름", "1988", "07-21", "06:10", "1990", "14:30", "마포", MAPO.toString())) {
@@ -140,6 +140,16 @@ class SynastryApiIntegrationTest {
 		assertEquals(setOf("keywords", "headline"), (request.schema["properties"] as Map<*, *>).keys)
 		// 공통 글쓰기 규칙을 쓴다
 		assertTrue(request.instructions.contains("점성술 용어를 하나도 쓰지 않습니다"))
+	}
+
+	@Test
+	fun `친구는 가족 · 동료까지 아우르는 가까운 사이로 읽어도 어색하지 않게 쓰게 한다`() {
+		val token = tokenWithProfile()
+
+		created(token, directBody(relation = "FRIEND"))
+
+		val instructions = generator.summaries.single().instructions
+		for (word in listOf("가까운 사이", "가족", "동료")) assertTrue(instructions.contains(word), "지시문에 '$word' 이 없다")
 	}
 
 	@Test
@@ -212,18 +222,19 @@ class SynastryApiIntegrationTest {
 	}
 
 	@Test
-	fun `관계 유형마다 서버가 계산한 점수를 저장한다`() {
+	fun `사이(연애 · 친구)마다 서버가 계산한 점수를 저장한다`() {
 		val token = tokenWithProfile()
-		// 유형에 따라 점수가 갈리는 상대를 찾는다
+		val relations = listOf(Relation.LOVE, Relation.FRIEND)
+		// 사이에 따라 점수가 갈리는 상대를 찾는다
 		val date = generateSequence(java.time.LocalDate.of(1985, 1, 1)) { it.plusDays(1) }.map { it.toString() }
-			.first { day -> Relation.entries.map { expectedScore(day, it) }.toSet().size >= 3 }
+			.first { day -> relations.map { expectedScore(day, it) }.toSet().size == 2 }
 
-		for (relation in Relation.entries) {
+		for (relation in relations) {
 			val synastry = created(token, directBody(relation = relation.name, date = date))
 			assertEquals(expectedScore(date, relation), synastry["score"].asInt(), "$relation")
 			assertEquals(relation.name, synastry["relation"].asString())
 		}
-		assertEquals(Relation.entries.map { expectedScore(date, it) }.toSet(), jdbc.queryForList("select score from synastries", Int::class.java).toSet())
+		assertEquals(relations.map { expectedScore(date, it) }.toSet(), jdbc.queryForList("select score from synastries", Int::class.java).toSet())
 	}
 
 	@Test
@@ -258,6 +269,9 @@ class SynastryApiIntegrationTest {
 			"""{"name":"${"가".repeat(21)}","relation":"LOVE","date":"1988-07-21","time":null}""" to "INVALID_NAME",
 			"""{"name":"지우","relation":"ENEMY","date":"1988-07-21","time":null}""" to "INVALID_RELATION",
 			"""{"name":"지우","relation":"love","date":"1988-07-21","time":null}""" to "INVALID_RELATION",
+			// 사이 입력은 연애 · 친구 둘이다(결정 053 의 1). 일 · 가족은 옛 기록을 읽을 때만 있다.
+			"""{"name":"지우","relation":"WORK","date":"1988-07-21","time":null}""" to "INVALID_RELATION",
+			"""{"name":"지우","relation":"FAMILY","date":"1988-07-21","time":null}""" to "INVALID_RELATION",
 			"""{"name":"지우","date":"1988-07-21","time":null}""" to "INVALID_RELATION",
 			"""{"name":"지우","relation":"LOVE","date":"1988-13-41","time":null}""" to "INVALID_DATE",
 			"""{"name":"지우","relation":"LOVE","time":null}""" to "INVALID_DATE",
@@ -340,7 +354,7 @@ class SynastryApiIntegrationTest {
 	fun `목록은 새것부터 주고 다시 읽을 때는 겹친 휠이 없다`() {
 		val token = tokenWithProfile()
 		val first = created(token, directBody(name = "첫째", relation = "FRIEND"))
-		val second = created(token, directBody(name = "둘째", relation = "WORK", date = "1992-02-02"))
+		val second = created(token, directBody(name = "둘째", relation = "LOVE", date = "1992-02-02"))
 
 		val list = json(token, "/synastry").values().toList()
 

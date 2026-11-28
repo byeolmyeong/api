@@ -232,9 +232,9 @@ class UserAuditIntegrationTest {
 	fun `궁합 글의 생성 실패는 FAILURE 로 남는다`() {
 		saveProfile()
 		generator.fail = true
-		assertEquals(502, post("/synastry/direct", """{"name":"$PARTNER_NAME","relation":"WORK","date":"$PARTNER_DATE","time":null}""").statusCode())
+		assertEquals(502, post("/synastry/direct", """{"name":"$PARTNER_NAME","relation":"FRIEND","date":"$PARTNER_DATE","time":null}""").statusCode())
 		val row = single("SYNASTRY_CREATED", "FAILURE")
-		assertEquals(listOf(null, null, """{"relation": "WORK"}"""), listOf(row["target_type"], row["target_id"], row["detail"]))
+		assertEquals(listOf(null, null, """{"relation": "FRIEND"}"""), listOf(row["target_type"], row["target_id"], row["detail"]))
 	}
 
 	@Test

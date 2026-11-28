@@ -157,7 +157,7 @@ class SynastryReportApiIntegrationTest {
 	@Test
 	fun `리포트의 재료는 서버가 계산한 연결과 점수이고 근거는 내 쪽 요소뿐이다`() {
 		val token = tokenWithProfile()
-		val id = synastry(token, relation = "WORK")
+		val id = synastry(token, relation = "FRIEND")
 
 		post(token, id)
 		await(token, id, "DONE")
@@ -167,7 +167,7 @@ class SynastryReportApiIntegrationTest {
 			assertEquals(MY_SIDE_WORDS, vocabularyOf(request))
 			assertTrue(request.userText.contains("${score}점"))
 			assertTrue(request.userText.contains("[근거로 쓸 수 있는 말]"))
-			assertTrue(request.userText.contains("일"), request.userText)
+			assertTrue(request.userText.contains("친구"), request.userText)
 			assertTrue(request.instructions.contains("점성술 용어를 하나도 쓰지 않습니다"))
 			assertEquals(generator.summaries.single().userText, request.userText.substringBefore("\n\n[근거로 쓸 수 있는 말]"), "요약과 같은 재료다")
 			for (secret in listOf("지우", "1988", "07-21", "06:10", "1990", "14:30", MAPO.toString())) {

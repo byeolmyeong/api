@@ -140,15 +140,15 @@ class DirectionSynastryApiIntegrationTest {
 	@Test
 	fun `재료는 서버가 다시 계산한 연결과 점수이고 근거는 내 쪽 요소뿐이며 이름과 출생 정보를 주지 않는다`() {
 		val token = tokenWithProfile()
-		val created = synastry(token, relation = "WORK", name = "지우")
+		val created = synastry(token, relation = "FRIEND", name = "지우")
 
 		assertEquals(200, direction(token, created["id"].asString()).statusCode())
 
 		val prompt = generator.prompts.single()
 		assertEquals("direction_synastry", prompt.purpose)
-		val score = synastryScore(chartOf(MY_DATE, MY_TIME), chartOf(PARTNER_DATE, PARTNER_TIME, HAEUNDAE), Relation.WORK)
+		val score = synastryScore(chartOf(MY_DATE, MY_TIME), chartOf(PARTNER_DATE, PARTNER_TIME, HAEUNDAE), Relation.FRIEND)
 		assertEquals(score, created["score"].asInt())
-		assertTrue(prompt.facts.contains("[관계 유형]\n일"), prompt.facts)
+		assertTrue(prompt.facts.contains("[관계 유형]\n친구"), prompt.facts)
 		assertTrue(prompt.facts.contains("[점수]") && prompt.facts.contains("${score}점"), prompt.facts)
 		assertTrue(prompt.facts.contains("[잘 맞는 연결]") && prompt.facts.contains("[부딪히는 연결]"))
 		assertTrue(Regex("나의 \\S+\\(\\S+\\) – 상대의 \\S+\\(\\S+\\): ").containsMatchIn(prompt.facts), prompt.facts)

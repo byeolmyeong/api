@@ -128,7 +128,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /timing-report` | 세션 | 없음(프로필의 출생 정보를 쓴다) | 202 `{ status: WRITING \| DONE \| FAILED }` · 상태 규칙 · 오류는 `POST /me-report` 와 같다(404 `NO_PROFILE` · 429 `RATE_LIMITED` · 402 `PURCHASE_REQUIRED` 예약) · 아래 "시기 풀이" |
 | `GET /timing-report` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report?: TimingReport }` · 지금 프로필의 차트 기준(출생 정보를 고치면 `NONE`) · `report` 는 `DONE` 일 때만 · 저장한 출생 정보가 없으면 `NONE` · `POST` 가 429 였으면 `FAILED` · 아래 "시기 풀이" |
 | `GET /me-report` | 세션 | 없음 | 200 `{ status: NONE \| WRITING \| FAILED \| DONE, report?: MeReport }` · 지금 프로필의 차트 기준(출생 정보를 고치면 `NONE`) · `report` 는 `DONE` 일 때만 · 저장한 출생 정보가 없으면 `NONE` · `POST` 가 429 `RATE_LIMITED` 였으면 행이 `FAILED` 로 남아 `FAILED`(다시 `POST` 하면 새로 시작) · 아래 "나 탭 풀이" |
-| `POST /synastry/direct` | 세션 | `{ name, relation: LOVE \| FRIEND \| WORK \| FAMILY, date, time \| null, placeId? }` (상대의 출생 정보) | 200 `Synastry` + `overlay` · 아래 "궁합(직접 입력)" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
+| `POST /synastry/direct` | 세션 | `{ name, relation: LOVE \| FRIEND, date, time \| null, placeId? }` (상대의 출생 정보 · 사이는 둘만 받는다 — `WORK` · `FAMILY` 는 400 `INVALID_RELATION`, 결정 053 의 1) | 200 `Synastry` + `overlay` · 아래 "궁합(직접 입력)" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `POST /synastry/invites` | 세션 | `{ name }` | `{ inviteId, expiresAt }` |
 | `GET /invites/{inviteId}` | 없음 | 없음 | `{ inviterName, status }` |
 | `POST /invites/{inviteId}/accept` | 세션 | `{ name }` | `Synastry` |

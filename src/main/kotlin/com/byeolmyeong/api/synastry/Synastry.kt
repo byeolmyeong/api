@@ -23,6 +23,9 @@ import java.util.UUID
 
 const val KEYWORD_COUNT = 3
 const val MAX_NAME_LENGTH = 20
+
+/** 새 궁합에 넣을 수 있는 사이(결정 053 의 1). `Relation` 의 나머지(일 · 가족)는 옛 기록을 읽으려고 남긴다. */
+val INPUT_RELATIONS = setOf(Relation.LOVE, Relation.FRIEND)
 private const val MAX_KEYWORD_LENGTH = 20
 private const val MAX_HEADLINE_LENGTH = 100
 

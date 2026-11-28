@@ -33,7 +33,7 @@ class SynastryController(
 	@PostMapping("/synastry/direct")
 	fun direct(@RequestBody request: DirectSynastryRequest): Synastry {
 		val name = request.name?.trim()?.takeIf { it.isNotEmpty() && it.length <= MAX_NAME_LENGTH } ?: throw BadRequestException("INVALID_NAME")
-		val relation = relation(request.relation)
+		val relation = inputRelation(request.relation)
 		return synastries.direct(owner.id(), name, relation, parser.chartInput(BirthRequest(request.date, request.time, request.placeId)))
 	}
 
@@ -74,6 +74,10 @@ class SynastryController(
 
 	private fun relation(value: String?): Relation =
 		Relation.entries.firstOrNull { it.name == value } ?: throw BadRequestException("INVALID_RELATION")
+
+	// 새로 넣는 사이는 연애 · 친구 둘이다(결정 053 의 1). 일 · 가족은 옛 기록을 읽을 때(랭킹)만 받는다.
+	private fun inputRelation(value: String?): Relation =
+		relation(value).takeIf { it in INPUT_RELATIONS } ?: throw BadRequestException("INVALID_RELATION")
 
 	// id 모양이 아닌 값도 "없는 것" 이다.
 	private fun id(value: String): UUID = try {
