@@ -1,6 +1,7 @@
 package com.byeolmyeong.api.synastry
 
 import com.byeolmyeong.api.auth.CurrentOwner
+import com.byeolmyeong.api.birth.BirthProfile
 import com.byeolmyeong.api.chart.Relation
 import com.byeolmyeong.api.generation.GenerationException
 import com.byeolmyeong.api.web.BadRequestException
@@ -22,7 +23,7 @@ import java.util.UUID
 /** `POST /synastry/direct` 의 본문. 값 검증은 컨트롤러가 하므로 모두 느슨한 타입으로 받는다. */
 data class DirectSynastryRequest(val name: String?, val relation: String?, val date: String?, val time: String?, val placeId: Int?)
 
-/** 궁합(직접 입력). 누구의 것인지는 세션에서, 내 출생 정보는 저장된 프로필에서 얻는다. 상대의 출생 정보는 본문으로 받아 계산에만 쓴다. */
+/** 궁합(직접 입력). 누구의 것인지는 세션에서, 내 출생 정보는 저장된 프로필에서 얻는다. 상대의 출생 정보는 본문으로 받아 그 궁합에 저장한다(결정 053 의 2). */
 @RestController
 class SynastryController(
 	private val owner: CurrentOwner,
@@ -34,7 +35,8 @@ class SynastryController(
 	fun direct(@RequestBody request: DirectSynastryRequest): Synastry {
 		val name = request.name?.trim()?.takeIf { it.isNotEmpty() && it.length <= MAX_NAME_LENGTH } ?: throw BadRequestException("INVALID_NAME")
 		val relation = inputRelation(request.relation)
-		return synastries.direct(owner.id(), name, relation, parser.chartInput(BirthRequest(request.date, request.time, request.placeId)))
+		val partner = parser.parse(BirthRequest(request.date, request.time, request.placeId))
+		return synastries.direct(owner.id(), name, relation, BirthProfile(partner.date, partner.time, partner.place?.id))
 	}
 
 	@GetMapping("/synastry")

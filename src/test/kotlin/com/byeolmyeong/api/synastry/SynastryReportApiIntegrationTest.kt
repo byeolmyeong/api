@@ -204,7 +204,8 @@ class SynastryReportApiIntegrationTest {
 		val noise = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{4}-\d{2}-\d{2}[T ][\d:.]+|[0-9a-f]{64}""")
 		val stored = noise.replace(
 			jdbc.queryForList("select row_to_json(t)::text from synastry_reports t", String::class.java).joinToString("\n") +
-				jdbc.queryForList("select row_to_json(t)::text from synastries t", String::class.java).joinToString("\n"),
+				// 상대의 출생 정보는 궁합 행의 그 칸에만 둔다(결정 053 의 2 — SynastryApiIntegrationTest 가 본다)
+				jdbc.queryForList("select (to_jsonb(t) - 'partner_birth_date' - 'partner_birth_time' - 'partner_place_id')::text from synastries t", String::class.java).joinToString("\n"),
 			"",
 		)
 		val logged = noise.replace(output.all, "")

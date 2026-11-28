@@ -1,11 +1,14 @@
 package com.byeolmyeong.api.synastry
 
+import com.byeolmyeong.api.birth.BirthProfile
 import com.byeolmyeong.api.chart.Relation
 import com.byeolmyeong.api.generation.scoreLabel
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.stereotype.Repository
 import tools.jackson.databind.json.JsonMapper
+import java.sql.Date
+import java.sql.Time
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -15,7 +18,7 @@ import java.util.UUID
 /** 저장된 궁합 한 행과 그 리포트의 상태. [ownerChartHash] 는 계산할 때의 내 차트다. */
 data class StoredSynastry(val synastry: Synastry, val ownerChartHash: String)
 
-/** 저장하는 것 전부. 상대의 출생 정보·행성 위치·각도는 여기에 없다(결정 010). */
+/** 저장하는 것 전부. 상대의 출생 정보([partner])는 이 궁합에만 쓴다(결정 053 의 2). 행성 위치 · 각도는 저장하지 않는다. */
 data class NewSynastry(
 	val ownerId: UUID,
 	val name: String,
@@ -23,6 +26,7 @@ data class NewSynastry(
 	val score: Int,
 	val summary: SynastrySummary,
 	val ownerChartHash: String,
+	val partner: BirthProfile,
 )
 
 /** 저장된 궁합 리포트. [status] 는 멈춘 것을 이미 `FAILED` 로 바꾼 값이다. */
@@ -71,11 +75,12 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 		val id = UUID.randomUUID()
 		jdbc.update(
 			"""
-			insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash)
-			values (?, ?, ?, ?, ?, ?, ?::jsonb, ?)
+			insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash, partner_birth_date, partner_birth_time, partner_place_id)
+			values (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
 			""".trimIndent(),
 			id, new.ownerId, new.name, new.relation.name, new.score, new.summary.headline,
 			mapper.writeValueAsString(new.summary.keywords), new.ownerChartHash,
+			Date.valueOf(new.partner.date), new.partner.time?.let(Time::valueOf), new.partner.placeId,
 		)
 		return id
 	}

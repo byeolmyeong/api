@@ -1,5 +1,6 @@
 package com.byeolmyeong.api.synastry
 
+import com.byeolmyeong.api.birth.BirthProfile
 import com.byeolmyeong.api.birth.BirthProfileService
 import com.byeolmyeong.api.birth.ChartInput
 import com.byeolmyeong.api.chart.Relation
@@ -49,7 +50,7 @@ class ProfileChangedException : RuntimeException("PROFILE_CHANGED")
 
 /**
  * 궁합(직접 입력). 점수는 `chart` 가 계산하고 모델은 글만 쓴다. 검증을 통과한 글만 저장한다.
- * 상대의 출생 정보와 행성 위치는 이 요청(리포트는 그 생성) 안에서만 쓰고 저장하지 않는다(결정 010). 로그에도 남기지 않는다.
+ * 상대의 출생 정보는 그 궁합 행에만 저장하고(결정 053 의 2) 로그 · 감사 기록에 남기지 않는다. 행성 위치는 저장하지 않는다.
  * 리포트의 글은 심층 리포트와 같은 뒤쪽 일꾼(`reportExecutor`)이 쓴다: 동시에 나가는 모델 호출 수의 상한을 하나로 둔다.
  */
 @Service
@@ -78,10 +79,10 @@ class SynastryService(
 		}
 	}
 
-	/** 나(저장된 프로필)와 [partner](요청에 적힌 상대)의 궁합을 계산하고, 글을 받아 저장한다. 겹친 휠은 이 응답에만 싣는다. */
-	fun direct(ownerId: UUID, name: String, relation: Relation, partner: ChartInput): Synastry {
+	/** 나(저장된 프로필)와 [partner](요청에 적힌 상대)의 궁합을 계산하고, 글을 받아 상대의 출생 정보와 함께 저장한다. 겹친 휠은 이 응답에만 싣는다. */
+	fun direct(ownerId: UUID, name: String, relation: Relation, partner: BirthProfile): Synastry {
 		val me = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
-		val facts = facts(me, partner, relation)
+		val facts = facts(me, profiles.chartInput(partner), relation)
 		// 직접 입력 궁합은 저장본이 없어 부를 때마다 모델을 부른다. 그 직전에 센다(결정 023).
 		quota.acquire(ownerId)
 		val summary = try {
@@ -91,7 +92,7 @@ class SynastryService(
 			events.publishEvent(AuditEvent(AuditAction.SYNASTRY_CREATED, AuditActor.user(ownerId), success = false, detail = mapOf("relation" to relation.name)))
 			throw e
 		}
-		val id = repository.insert(NewSynastry(ownerId, name, relation, facts.score, summary, me.hash))
+		val id = repository.insert(NewSynastry(ownerId, name, relation, facts.score, summary, me.hash, partner))
 		log.info("event=synastry_created relation={}", relation)
 		events.publishEvent(AuditEvent(AuditAction.SYNASTRY_CREATED, AuditActor.user(ownerId), "SYNASTRY", id.toString(), detail = mapOf("relation" to relation.name)))
 		return find(ownerId, id).synastry.copy(overlay = overlayOf(facts.mine, facts.theirs, facts.aspects))

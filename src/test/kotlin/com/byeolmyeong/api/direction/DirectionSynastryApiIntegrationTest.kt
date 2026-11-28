@@ -374,7 +374,8 @@ class DirectionSynastryApiIntegrationTest {
 			String::class.java,
 		)
 		val storedRaw = tables.joinToString("\n") { table ->
-			jdbc.queryForList("select row_to_json(t)::text from $table t", String::class.java).joinToString("\n")
+			// 상대의 출생 정보는 궁합 행의 그 칸에만 둔다(결정 053 의 2 — SynastryApiIntegrationTest 가 본다)
+			jdbc.queryForList("select (to_jsonb(t) - 'partner_birth_date' - 'partner_birth_time' - 'partner_place_id')::text from $table t", String::class.java).joinToString("\n")
 		}
 		// 무작위 id 와 시각 표기에 우연히 같은 숫자가 나올 수 있어 그것들은 지우고 본다
 		val noise = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{4}-\d{2}-\d{2}[T ][\d:.]+|[0-9a-f]{64}""")

@@ -154,15 +154,22 @@ class SynastryApiIntegrationTest {
 
 	@Test
 	@ExtendWith(OutputCaptureExtension::class)
-	fun `직접 입력 뒤 DB 와 로그에 상대의 출생 정보와 행성 위치가 없다`(output: CapturedOutput) {
+	fun `상대의 출생 정보는 그 궁합 행에만 저장하고 다른 표 · 로그 · 감사 기록에는 없다`(output: CapturedOutput) {
 		val token = tokenWithProfile()
 
 		val synastry = created(token, directBody(name = "지우", date = "1988-07-21", time = "06:10", placeId = HAEUNDAE))
 
 		assertEquals(
-			setOf("id", "owner_id", "name", "relation", "score", "headline", "keywords", "owner_chart_hash", "created_at"),
+			setOf(
+				"id", "owner_id", "name", "relation", "score", "headline", "keywords", "owner_chart_hash", "created_at",
+				"source", "status", "partner_birth_date", "partner_birth_time", "partner_place_id",
+				"started_at", "active_at", "done_at", "seen_at", "notified_at",
+			),
 			jdbc.queryForList("select column_name from information_schema.columns where table_name = 'synastries'", String::class.java).toSet(),
 		)
+		// 그 궁합의 행에 상대의 출생 정보를 둔다(결정 053 의 2)
+		val partner = jdbc.queryForMap("select partner_birth_date::text as d, partner_birth_time::text as t, partner_place_id as p, source, status from synastries")
+		assertEquals(mapOf("d" to "1988-07-21", "t" to "06:10:00", "p" to HAEUNDAE, "source" to "DIRECT", "status" to "DONE"), partner)
 		assertEquals(
 			setOf("synastry_id", "status", "body", "started_at", "active_at", "updated_at"),
 			jdbc.queryForList("select column_name from information_schema.columns where table_name = 'synastry_reports'", String::class.java).toSet(),
@@ -172,8 +179,9 @@ class SynastryApiIntegrationTest {
 			"select table_name from information_schema.tables where table_schema = 'public' and table_name not in ('profiles', 'flyway_schema_history', 'daily_active')",
 			String::class.java,
 		)
+		// 궁합 행의 상대 출생 정보 칸은 위에서 봤으니 빼고 본다
 		val storedRaw = tables.joinToString("\n") { table ->
-			jdbc.queryForList("select row_to_json(t)::text from $table t", String::class.java).joinToString("\n")
+			jdbc.queryForList("select (to_jsonb(t) - 'partner_birth_date' - 'partner_birth_time' - 'partner_place_id')::text from $table t", String::class.java).joinToString("\n")
 		}
 		// 무작위 id 와 시각 표기에 우연히 같은 숫자가 나올 수 있어 그것들은 지우고 본다
 		val noise = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{4}-\d{2}-\d{2}[T ][\d:.]+|[0-9a-f]{64}""")
@@ -437,6 +445,21 @@ class SynastryApiIntegrationTest {
 
 		assertEquals(0, rows())
 		assertNull(jdbc.queryForList("select id from synastries").firstOrNull())
+	}
+
+	@Test
+	fun `상대의 시각을 모르면 날짜만 저장하고 궁합을 지우면 저장한 출생 정보도 함께 지워진다`() {
+		val token = tokenWithProfile()
+		val id = created(token, directBody(date = "1988-07-21", time = null, placeId = 999))["id"].asString()
+
+		assertEquals(
+			mapOf("d" to "1988-07-21", "t" to null, "p" to null),
+			jdbc.queryForMap("select partner_birth_date::text as d, partner_birth_time::text as t, partner_place_id as p from synastries"),
+		)
+
+		assertEquals(204, http(port, "DELETE", "/synastry/$id", token = token).statusCode())
+
+		assertEquals(0, jdbc.queryForObject("select count(*) from synastries where partner_birth_date is not null", Int::class.java))
 	}
 }
 
