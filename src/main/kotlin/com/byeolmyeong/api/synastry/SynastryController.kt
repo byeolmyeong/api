@@ -20,6 +20,9 @@ import java.util.UUID
 /** `POST /synastry` 의 본문. 값 검증은 컨트롤러가 하므로 모두 느슨한 타입으로 받는다. */
 data class SynastryRequest(val name: String?, val relation: String?, val date: String?, val time: String?, val placeId: Int?)
 
+/** `POST /synastry/delete` 의 본문. 값 검증은 컨트롤러가 한다. */
+data class SynastryDeleteRequest(val ids: List<String?>?)
+
 /** 궁합(직접 입력). 누구의 것인지는 세션에서, 내 출생 정보는 저장된 프로필에서 얻는다. 상대의 출생 정보는 본문으로 받아 그 궁합에 저장한다(결정 053 의 2). */
 @RestController
 class SynastryController(
@@ -56,6 +59,17 @@ class SynastryController(
 	@DeleteMapping("/synastry/{id}")
 	fun delete(@PathVariable id: String): ResponseEntity<Void> {
 		synastries.delete(owner.id(), id(id))
+		return ResponseEntity.noContent().build()
+	}
+
+	/**
+	 * 여러 명을 한 번에 지운다(결정 053 의 7). 남의 것 · 없는 것 · id 모양이 아닌 값이 하나라도 섞이면 404 이고 아무것도 지우지 않는다.
+	 * 목록이 없거나 비었으면 400 `INVALID_REQUEST`. 같은 id 가 여러 번 와도 한 번이다.
+	 */
+	@PostMapping("/synastry/delete")
+	fun deleteMany(@RequestBody(required = false) request: SynastryDeleteRequest?): ResponseEntity<Void> {
+		val ids = request?.ids?.takeIf { it.isNotEmpty() } ?: throw BadRequestException("INVALID_REQUEST")
+		synastries.deleteMany(owner.id(), ids.map { id(it ?: throw BadRequestException("INVALID_REQUEST")) }.toSet())
 		return ResponseEntity.noContent().build()
 	}
 

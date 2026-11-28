@@ -165,6 +165,20 @@ class SynastryService(
 		events.publishEvent(AuditEvent(AuditAction.SYNASTRY_DELETED, AuditActor.user(ownerId), "SYNASTRY", id.toString()))
 	}
 
+	/**
+	 * 여러 궁합을 한 번에 지운다(결정 053 의 7). 하나라도 소유자의 것이 아니면(남의 것 · 없는 것) 404 이고 트랜잭션을 되돌려 아무것도 지우지 않는다.
+	 * 한 명 지우기와 같이 방향성 제시도 지우고, 감사 기록은 한 명마다 한 줄이다.
+	 */
+	@Transactional
+	fun deleteMany(ownerId: UUID, ids: Set<UUID>) {
+		if (repository.deleteAll(ownerId, ids) != ids.size) throw NotFoundException("NOT_FOUND")
+		for (id in ids) {
+			events.publishEvent(SynastryDeleted(ownerId, id))
+			events.publishEvent(AuditEvent(AuditAction.SYNASTRY_DELETED, AuditActor.user(ownerId), "SYNASTRY", id.toString()))
+		}
+		log.info("event=synastry_deleted count={}", ids.size)
+	}
+
 	/** 공유 카드에 실을 글을 묻는 이벤트(결정 012). 그 소유자의 완성된 궁합일 때만 답한다(남의 것·없는 것·쓰는 중에는 답하지 않는다). */
 	@EventListener
 	fun on(event: ScoreCardRequested) {

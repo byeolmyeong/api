@@ -180,6 +180,57 @@ class SynastryDeleteApiIntegrationTest {
 		assertEquals(404, http(port, "GET", "/synastry/$id", token = token).statusCode())
 	}
 
+	private fun deleteMany(body: String?, token: String? = this.token) = http(port, "POST", "/synastry/delete", body, token)
+
+	@Test
+	fun `여러 명을 한 번에 지우면 그 궁합들과 저장한 출생 정보 · 글 · 방향성 제시가 사라지고 한 명마다 감사 기록이 남는다`() {
+		val (first, kept, third) = listOf("하나", "둘", "셋").map { synastry(it) }
+		for (id in listOf(first, kept, third)) direction(me, "SYNASTRY", id)
+		jdbc.update("delete from audit_logs")
+
+		// 같은 id 가 두 번 와도 한 번이다
+		val response = deleteMany("""{"ids":["$first","$third","$first"]}""")
+
+		assertEquals(204, response.statusCode(), response.body())
+		assertEquals("", response.body())
+		assertEquals(listOf(kept), listedIds("/synastry"))
+		assertEquals(listOf(kept), jdbc.queryForList("select synastry_id::text from synastry_reports", String::class.java))
+		assertEquals(listOf(kept), jdbc.queryForList("select target from directions", String::class.java))
+		assertEquals(0, jdbc.queryForObject("select count(*) from synastries where partner_birth_date is not null and id <> ?::uuid", Int::class.java, kept))
+		assertEquals(
+			setOf(first, third),
+			jdbc.queryForList("select target_id from audit_logs where action = 'SYNASTRY_DELETED'", String::class.java).toSet(),
+		)
+		assertEquals(2, count("audit_logs"))
+	}
+
+	@Test
+	fun `여러 명 지우기에 남의 것 · 없는 것 · id 가 아닌 값이 하나라도 섞이면 404 이고 아무것도 지우지 않는다`() {
+		val mine = synastry()
+		val other = UUID.randomUUID()
+		val theirs = UUID.randomUUID()
+		jdbc.update("insert into accounts (id, provider, provider_user_id) values (?, 'TEST', 'someone-else')", other)
+		jdbc.update(
+			"insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash) values (?, ?, '남의것', 'LOVE', 70, '한줄', '[\"a\",\"b\",\"c\"]'::jsonb, 'hash')",
+			theirs, other,
+		)
+		jdbc.update("delete from audit_logs")
+
+		for (mixed in listOf(theirs.toString(), UUID.randomUUID().toString(), "not-a-uuid")) {
+			val response = deleteMany("""{"ids":["$mine","$mixed"]}""")
+			assertEquals(404, response.statusCode(), mixed)
+			assertEquals(NOT_FOUND, response.body(), mixed)
+		}
+		for (body in listOf(null, "not json", "{}", """{"ids":[]}""", """{"ids":null}""", """{"ids":"$mine"}""", """{"ids":[null]}""")) {
+			val response = deleteMany(body)
+			assertEquals(400, response.statusCode(), "$body")
+			assertEquals("""{"error":"INVALID_REQUEST"}""", response.body(), "$body")
+		}
+		assertEquals(401, deleteMany("""{"ids":["$mine"]}""", token = null).statusCode())
+		assertEquals(2, count("synastries"))
+		assertEquals(0, count("audit_logs"), "거절된 요청은 감사 기록에 없다")
+	}
+
 	@Test
 	fun `지운 것이 감사 기록에 남는다`() {
 		val id = synastry()

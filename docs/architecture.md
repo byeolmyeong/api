@@ -136,6 +136,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `POST /synastry/{id}/retry` | 세션 | 없음 | 202 `{ id, status }` · `FAILED`(멈춘 `WRITING` 포함)면 같은 행에서 처음부터 다시 쓰고 `WRITING`(뒤에서 일할 자리가 없으면 `FAILED`), 아니면 지금 상태 그대로 · 남의 것·없는 것 404 `NOT_FOUND` · 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(결정 053 의 3) |
 | `GET /synastry/ranking?relation=` | 세션 | 관계 유형(필수) | `[{ id, name, score, scoreLabel?, keywords[3] }]` 완성된(`DONE`) 궁합만, 점수가 높은 순(같으면 먼저 만든 것), 인원 제한 없음 · 일 · 가족은 옛 기록을 읽을 때만 · 유형이 없거나 틀리면 400 `INVALID_RELATION` |
 | `DELETE /synastry/{id}` | 세션 | 없음 | 204 · 남의 것·없는 것·UUID 가 아닌 값 404 `NOT_FOUND` · 아래 "궁합 지우기" |
+| `POST /synastry/delete` | 세션 | `{ ids: [id] }` (여러 명 지우기, 결정 053 의 7) | 204 · 하나라도 남의 것·없는 것·UUID 가 아닌 값이면 404 `NOT_FOUND` 이고 아무것도 지우지 않는다 · `ids` 가 없거나 비었거나 형식이 틀리면 400 `INVALID_REQUEST` · 같은 id 는 한 번 · 지우는 것은 한 명 지우기와 같다(아래 "궁합 지우기") |
 | `POST /directions` | 세션 | `{ topic: LOVE }` · `{ topic: FUTURE }` (둘 다 프로필의 출생 정보를 쓴다) · `{ topic: SYNASTRY, synastryId, date?, time? \| null, placeId? }` (`date`·`time`·`placeId` 는 **상대의** 출생 정보이고 그 궁합의 글을 처음 만들 때만 필요하다) | 200 `Direction` · `topic` 이 없거나 받는 값이 아니면 400 `INVALID_TOPIC` · 본문이 JSON 이 아니면 400 `INVALID_REQUEST` · 저장한 출생 정보가 없으면 404 `NO_PROFILE` · 글을 만들지 못하면 502 `GENERATION_FAILED`(저장하지 않는다) · 처음 만들 때는 수십 초가 걸릴 수 있고, 만든 글이 있으면 바로 준다 · `SYNASTRY` 에만 있는 오류와 주제별 규칙은 아래 "방향성 제시" · 새로 생성해야 할 때 계정별 생성 한도를 넘으면 429 `RATE_LIMITED`(저장본은 세지 않는다, 결정 022·023) |
 | `POST /inquiries` | 세션 | `{ category: BUG \| IDEA \| ACCOUNT \| ETC, body }` · 글 10~1000자 · 옛 앱(`replyEmail` 키를 보냄)은 옛 종류 · 2000자까지 받고 이메일은 무시(결정 039) | 201 `{ id }` · 아래 "문의하기" |
 | `GET /inquiries` | 세션 | 없음 | 200 `[InquiryItem]` 내 문의 전부, 새것부터 · 없으면 `[]` · 아래 "문의하기" |
@@ -176,7 +177,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `{ kind: RULER, body: Body | "ASC", ruler: Body }` — `body` 가 놓인 별자리를 다스리는 별(전통 지배성). `body` 는 해 · 달 · 상승점
   - `{ kind: TRANSIT, mover, target?: Body | Angle | "VERTEX", type?, house? }` — 지나가는 별(시기 풀이 · 그날, 계획 S③ · S④)
   - 시각을 모르면 `house` 키 · `CLUSTER` · `ASC` · `MC` · `VERTEX` 가 나오지 않는다. 지점(북쪽 교점 · 릴리스 · 행운점 · 버텍스)은 출생 근거가 아니다.
-- 궁합 지우기 `DELETE /synastry/{id}` (2026-11-12 구현, 결정 019): 소유자만 지운다. 204(본문 없음). 남의 것·없는 것·이미 지운 것·UUID 가 아닌 값은 모두 404 `NOT_FOUND` 다. 되돌릴 수 없다.
+- 궁합 지우기 `DELETE /synastry/{id}` (2026-11-12 구현, 결정 019) · 여러 명 `POST /synastry/delete`(결정 053 의 7 — 감사 기록은 한 명마다 한 줄, 링크로 생긴 궁합도 내 행만 지운다): 소유자만 지운다. 204(본문 없음). 남의 것·없는 것·이미 지운 것·UUID 가 아닌 값은 모두 404 `NOT_FOUND` 다. 되돌릴 수 없다.
   - 함께 지워지는 것: 그 궁합(저장한 상대의 출생 정보 포함 — 결정 053), 그 궁합의 글(쓰는 중이어도 — 뒤에서 끝난 글은 저장되지 않는다), 그 궁합에 붙은 방향성 제시(`topic: SYNASTRY`). 지운 뒤 `GET /synastry`·`GET /synastry/ranking` 에서 바로 빠지고 `GET /synastry/{id}`·`POST /synastry/{id}/retry`·그 `synastryId` 의 `POST /directions`·`POST /shares` 는 404 다.
   - **그대로 남는 것**: 이미 만든 공유 카드(궁합 점수·랭킹)는 공유한 순간의 스냅샷이라(결정 012) 궁합을 지워도 `GET /shared/{shareId}` 로 계속 열린다. 없애려면 `DELETE /shares/{shareId}` 로 따로 지운다 — 앱은 궁합을 지울 때 이것을 알린다.
 - 궁합 (결정 053 — 1.1.0. 링크 궁합 · 새로 온 별은 계획 S③)
