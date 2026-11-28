@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service
 import org.springframework.context.event.EventListener
 import org.springframework.transaction.event.TransactionPhase
 import org.springframework.transaction.event.TransactionalEventListener
+import java.time.Clock
 import java.util.UUID
 
 /** 답변 첫 줄을 푸시 본문에 넣을 때 자르는 길이(코드 포인트, 결정 042 의 4). */
@@ -69,7 +70,7 @@ object PushMessages {
  * `DeviceNotRegistered` 인 토큰은 지운다. 다시 보내지 않는다(두 번 가는 것보다 한 번 빠지는 쪽).
  */
 @Service
-class PushService(private val repository: PushRepository, private val expo: ExpoPush) {
+class PushService(private val repository: PushRepository, private val expo: ExpoPush, private val clock: Clock) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	/** 풀이 완성 · 문의 답변(결정 042 의 4 — "늘"). 문구에 필요한 값은 여기서 읽는다. 보낼 것이 없으면(답이 지워짐 등) 아무것도 하지 않는다. */
@@ -108,12 +109,13 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 
 	/**
 	 * 공지 알림(결정 055 의 4): 푸시 동의 + 정지 아님인 계정의 기기 모두에 공지 제목을 보낸다(서비스 알림 — 마케팅 동의 · 하루 한 번과 상관없다).
-	 * 제목은 지금 읽는다 — 그 사이 지워졌거나 내려갔으면 보내지 않는다.
+	 * 제목은 지금 읽는다 — 그 사이 지워졌거나 내려갔으면 보내지 않는다. 보내는 순간이 밤이면 소리 없이(결정 055 의 6).
 	 */
 	fun notice(noticeId: UUID): PushResult {
 		val title = repository.publishedNoticeTitle(noticeId) ?: return PushResult(0, 0, 0, 0)
 		val data = mapOf("type" to PushKind.NOTICE.name, "noticeId" to noticeId.toString())
-		return deliver(PushKind.NOTICE, repository.serviceAudienceDevices().map { PushMessage(it.second, title, PushMessages.NOTICE_BODY, data) })
+		val night = QuietHours.isNight(clock.instant())
+		return deliver(PushKind.NOTICE, repository.serviceAudienceDevices().map { QuietHours.message(it, title, PushMessages.NOTICE_BODY, data, night) })
 	}
 
 	/** 광고 대상의 사람 수(발송이 실패했을 때 결과를 알리려고). */
@@ -180,14 +182,14 @@ class PushRepository(private val jdbc: JdbcTemplate) {
 		""".trimIndent(),
 	) { rs, _ -> rs.getObject("account_id", UUID::class.java) to rs.getString("expo_token") }
 
-	/** 서비스 알림 대상의 (계정, 기기 토큰): 푸시 동의 + 정지 아님(결정 042 의 4 · 044 의 3). 마케팅 동의는 보지 않는다. */
-	fun serviceAudienceDevices(): List<Pair<UUID, String>> = jdbc.query(
+	/** 서비스 알림 대상의 기기: 푸시 동의 + 정지 아님(결정 042 의 4 · 044 의 3). 마케팅 동의는 보지 않는다. 밤 무음이 보는 플랫폼 · 앱 버전과 함께. */
+	fun serviceAudienceDevices(): List<PushTarget> = jdbc.query(
 		"""
-		select d.account_id, d.expo_token from push_devices d join accounts a on a.id = d.account_id
+		select d.account_id, d.expo_token, d.platform, d.app_version from push_devices d join accounts a on a.id = d.account_id
 		where a.push_consented_at is not null and a.suspended_at is null
 		order by d.account_id, d.created_at, d.expo_token
 		""".trimIndent(),
-	) { rs, _ -> rs.getObject("account_id", UUID::class.java) to rs.getString("expo_token") }
+	) { rs, _ -> PushTarget(rs.getObject("account_id", UUID::class.java), rs.getString("expo_token"), rs.getString("platform"), rs.getString("app_version")) }
 
 	/** 공개 중인 그 공지의 제목. 없거나 내려갔으면 null. */
 	fun publishedNoticeTitle(noticeId: UUID): String? =

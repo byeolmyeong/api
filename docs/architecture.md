@@ -35,7 +35,7 @@ last_reviewed: 2026-11-12
 - `faq` — 자주 묻는 질문의 공개 조회(`GET /faqs`, 세션 없음). `faqs` 테이블을 읽기만 한다. 글을 쓰는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(결정 014).
 - `notice` — 공지사항의 공개 조회(`GET /notices`, 세션 없음, 결정 055). `notices` 테이블을 읽기만 한다. 글을 쓰고 공개하는 것은 `admin` 이고 두 패키지는 코드로 서로를 모른다(FAQ 와 같은 틀).
 - `share` — 공유 카드 8종(요약 해석·궁합 점수·랭킹·다음 변곡점, 공유 v2 의 내 별명·나 탭 영역·그날의 하늘·다음 큰 변화 — 결정 036): 만들기·공개 조회·지우기. 공유하는 순간의 공개 글만 `shares` 에 따로 저장하고(스냅샷) 공개 조회는 그 표만 읽는다. 카드의 글은 그 글을 가진 기능에게 이벤트(`ReadingCardRequested` 등)로 묻는다. 이름을 이니셜로, 날짜를 해 + 계절로 줄이는 것도 여기서 한다. 결정: docs/decisions/012-share-cards-snapshot.md
-- `push` — 기기 토큰과 알림 발송. 공지 알림(`admin.NoticePublished`)은 푸시 동의 + 정지 아님인 계정의 기기 모두에 보낸다(결정 055).
+- `push` — 기기 토큰과 알림 발송. 공지 알림(`admin.NoticePublished`)은 푸시 동의 + 정지 아님인 계정의 기기 모두에 보낸다(결정 055). 서비스 알림의 밤 무음(`QuietHours` — 한국 시각 21:00 ~ 08:00 이면 `sound` 를 빼고 1.1.0 이상 안드로이드에만 `channelId: "quiet"`, 결정 055 의 6)은 지금 공지가 쓰고 궁합 알림(S③)이 쓴다. 풀이 완성 · 문의 답변 · 오늘의 하늘 · 광고는 지금 모양 그대로다.
 - `notification` — 알림함(`GET /notifications` · `POST /notifications/{id}/read`, 결정 035). 완성 이벤트(별명 지음 · 나 탭 풀이 · 시기 풀이 · 궁합 리포트 · 문의 답변)를 커밋 뒤에 듣고 한 줄씩 넣는다. 알림을 켠 공지가 공개되면(`admin.NoticePublished`) 모든 계정에 한 줄씩 넣는다(결정 055). 문구는 앱이 갖는다. 30일 지난 줄은 날마다 지운다.
 - `sky` — 시기 탭의 이번 달(`GET /timing/month`, 결정 032). 요청 때마다 `chart` 로 계산하고(그달의 지나가는 별 · 평생 시기 구간) `generation` 의 문구표 · 시기 표에서 글을 골라 준다. 저장하지 않고 모델을 부르지 않으며 생성 한도에 세지 않는다 — 계정별 분당 요청 수만 센다. 그날의 하늘(`POST /day-sky`, 결정 034)도 여기에 둔다 — 서버가 근거 · (눈여겨볼 날이면) 제목 · 칩을 정하고 모델이 흐름 · 실천(+ 제목)을 쓴 글을 소유자 · 차트 · 날짜마다 한 번 저장한다(`day_skies`).
 
@@ -59,7 +59,7 @@ src/main/kotlin/com/byeolmyeong/api/
   faq/         FaqController(+ FaqService · FaqRepository — 공개한 것만 읽는다)
   notice/      NoticeController(+ NoticeService · NoticeRepository — 공개한 공지만 새것부터 읽는다, 결정 055)
   share/       ShareController · ShareService · ShareRepository · ShareCard(카드의 모양·이니셜·계절) · ShareCardRequested(이벤트 넷)
-  push/        PushDevice(PushDeviceController · PushDeviceService · PushDeviceRepository — 기기 토큰, 결정 042) · ExpoPush(인터페이스 · ExpoPushClient — Expo 푸시 호출, 끄기 스위치) · PushService(PushService · PushRepository · PushMessages 문구표 · PushEvents 이벤트 리스너 · push- 일꾼)
+  push/        PushDevice(PushDeviceController · PushDeviceService · PushDeviceRepository — 기기 토큰, 결정 042) · ExpoPush(인터페이스 · ExpoPushClient — Expo 푸시 호출, 끄기 스위치) · PushService(PushService · PushRepository · PushMessages 문구표 · PushEvents 이벤트 리스너 · push- 일꾼) · QuietHours(밤 무음 · 조용한 채널을 실을 기기 · PushTarget, 결정 055 의 6)
   notification/ Notification(NotificationController · NotificationService — 이벤트 리스너 · 30일 지우기 · NotificationRepository)
   sky/         TodaySkyMorning(TodaySkyMorningService — 5분마다 받는 시간 30분 전 ~ 60분 뒤 미리 만들기(빈 생성 일꾼 스레드에서 이어 만든다 — 결정 052) · 받는 시간에 TodaySkyDue · TodaySkyMorningRepository) · MonthSkyController · MonthSkyService(계정별 분당 한도) · MonthSky(모양 · 고를 달 · 이번 달 내내 고르기) · IntervalCache(차트 해시마다 평생 구간을 몇 분 기억) · DaySkyController · DaySkyService(저장본 · 진행 중 생성 기다리기 · 생성 한도) · DaySky(모양 · 날짜 읽기 · 서버가 정하는 것 · 지시문 · 검증) · DaySkyRepository
 src/main/resources/  application.properties · db/migration(Flyway) · prompts/(글 생성 프롬프트)
@@ -537,7 +537,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 - `PUT /admin/notices/{id}`: `category` · `title` · `body` 는 셋 다 보낸다. `notify` 를 빼면 그대로 둔다. 공개 중인 글은 공개한 채로 바뀐다. 200 `Notice`.
 - `POST /admin/notices/{id}/publish { notify }`: 공개한다. `notify` 는 꼭 있어야 하는 불리언이고 스위치에 적힌다. 임시 저장이었으면 지금이 공개 시각, 이미 공개 중이면 공개 시각은 그대로다. 200 `Notice`.
   - `notify: true` 이고 아직 보내지 않은 글이면 이 요청이 한 번 보낸다: 모든 계정의 알림함에 `NOTICE { noticeId }` 한 줄씩, 푸시 수신 동의 + 정지 아님인 계정의 기기 모두에 푸시(제목 = 공지 제목, 본문 = "공지사항에서 자세히 볼 수 있어요.", data `{ type: "NOTICE", noticeId }`). 두 관리자가 동시에 눌러도, 공개를 두 번 눌러도, 내렸다 다시 공개해도 다시 가지 않는다(응답의 `notifiedAt` 이 처음 그대로). 이미 공개 중이고 아직 보내지 않은 글에 `notify: true` 로 다시 공개하면 그때 보낸다.
-  - 마케팅 동의 · 하루 한 번(광고 푸시)과 상관없다. 한국 시각 21:00 ~ 08:00 에는 소리 없이 간다(아래 "밤 무음"이 생긴 뒤 — 결정 055 의 6). 공지 알림은 광고 푸시 발송 내역에 남지 않는다.
+  - 마케팅 동의 · 하루 한 번(광고 푸시)과 상관없다. 보내는 순간이 한국 시각 21:00 ~ 08:00 이면 소리 없이 간다(iOS 는 `sound` 를 빼고, 1.1.0 이상 안드로이드에만 조용한 채널 `quiet` — 그 아래 안드로이드 · 버전을 모르는 기기에는 채널을 싣지 않는다, 결정 055 의 6). 공지 알림은 광고 푸시 발송 내역에 남지 않는다.
   - 화면은 알림을 켜고 공개할 때 "공개하고 알림을 보낼까요? 푸시는 되돌릴 수 없습니다." 를 먼저 묻는다(앱 결정 107 의 6).
 - `POST /admin/notices/{id}/unpublish`: 임시 저장으로 내린다(`publishedAt` 은 `null`). 이미 보낸 알림함 줄은 남는다(앱은 목록에 없는 글이면 "지워진 공지예요"). 200 `Notice`.
 - `DELETE /admin/notices/{id}`: 204. 되돌릴 수 없다. 그 공지의 알림함 줄도 함께 지워진다.
@@ -762,7 +762,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | PostgreSQL | 저장 | 로컬은 컨테이너. 스테이징 · 운영은 오라클 VM 한 대의 Compose(결정 020) — 서버는 `api-blue` · `api-green` 중 하나가 받고 배포는 끊김 없이 색을 바꾼다(결정 046, docs/deploy.md) |
 | Claude API | 글 생성 | 키는 환경 변수 `ANTHROPIC_API_KEY`. 모델은 설정 `byeolmyeong.claude.model`(결정 006) |
 | 구글·애플·카카오 로그인 | ID 토큰 확인(공급자 JWKS, RS256 — `auth.ProviderTokenVerifier`) · 카카오 웹 코드 교환(`auth.KakaoOAuth`) · 애플 토큰 교환 · 철회 · 서버 알림(`auth.AppleSignIn`, `APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`) | 대상(aud)은 환경 변수 `GOOGLE_CLIENT_IDS`·`GOOGLE_WEB_CLIENT_ID`(결정 047)·`GOOGLE_IOS_CLIENT_IDS`·`GOOGLE_ANDROID_CLIENT_IDS`(로그 이름표만)·`APPLE_CLIENT_IDS`·`KAKAO_REST_API_KEY`·`KAKAO_NATIVE_APP_KEY`. 발급자·키 주소는 결정 021 "공급자 값". 만 14세는 출생일로 서버가 판정(결정 021). [확인 필요] 클라이언트 등록(소유자) |
-| Expo 푸시 서비스 | 별명 지음 · 풀이 완성 · 문의 답변 · 오늘의 하늘 · 광고 푸시(결정 042 — 모두 푸시 수신 동의가 있을 때만, 광고는 마케팅 동의도) | `POST https://exp.host/--/api/v2/push/send`(100건씩), 환경 변수 `EXPO_ACCESS_TOKEN`(비면 보내지 않고 로그만). 끄기 `byeolmyeong.push.enabled` · 오늘의 하늘 아침 일 `byeolmyeong.push.today-sky-enabled`. `DeviceNotRegistered` 면 토큰을 지운다 · 정지 계정에는 보내지 않는다 |
+| Expo 푸시 서비스 | 별명 지음 · 풀이 완성 · 문의 답변 · 오늘의 하늘 · 광고 푸시(결정 042 — 모두 푸시 수신 동의가 있을 때만, 광고는 마케팅 동의도) · 공지 알림(결정 055) | `POST https://exp.host/--/api/v2/push/send`(100건씩, 메시지마다 `sound: "default"` — 밤의 공지 · 궁합 알림은 `sound` 를 빼고 1.1.0 이상 안드로이드에만 `channelId: "quiet"`, 결정 055 의 6), 환경 변수 `EXPO_ACCESS_TOKEN`(비면 보내지 않고 로그만). 끄기 `byeolmyeong.push.enabled` · 오늘의 하늘 아침 일 `byeolmyeong.push.today-sky-enabled`. `DeviceNotRegistered` 면 토큰을 지운다 · 정지 계정에는 보내지 않는다 |
 
 ## 관련
 - 결정: docs/decisions/

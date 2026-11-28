@@ -15,8 +15,18 @@ import java.time.Duration
 /** Expo 가 한 요청에 받는 알림 수(Expo 문서: 100). */
 private const val BATCH = 100
 
-/** 휴대폰 알림 한 건(결정 042 의 4). [data] 는 앱이 누른 뒤 갈 곳을 고르는 값이다. */
-data class PushMessage(val to: String, val title: String, val body: String, val data: Map<String, String>)
+/**
+ * 휴대폰 알림 한 건(결정 042 의 4). [data] 는 앱이 누른 뒤 갈 곳을 고르는 값이다.
+ * [sound] 가 거짓이면 소리 없이(iOS — `sound` 를 뺀다), [channelId] 는 안드로이드 알림 채널(null 이면 싣지 않는다 — 기본 채널). 밤 무음은 결정 055 의 6.
+ */
+data class PushMessage(
+	val to: String,
+	val title: String,
+	val body: String,
+	val data: Map<String, String>,
+	val sound: Boolean = true,
+	val channelId: String? = null,
+)
 
 /** 한 건의 결과. */
 enum class PushOutcome {
@@ -75,7 +85,17 @@ class ExpoPushClient(
 	}
 
 	private fun sendBatch(batch: List<PushMessage>): List<PushOutcome> {
-		val payload = batch.map { mapOf("to" to it.to, "title" to it.title, "body" to it.body, "data" to it.data, "sound" to "default") }
+		val payload = batch.map { message ->
+			buildMap {
+				put("to", message.to)
+				put("title", message.title)
+				put("body", message.body)
+				put("data", message.data)
+				// 빼면 소리가 없다(iOS). 채널은 있을 때만 — 기기에 없는 채널이면 알림이 아예 보이지 않는다(Expo 문서, 결정 055 의 6)
+				if (message.sound) put("sound", "default")
+				message.channelId?.let { put("channelId", it) }
+			}
+		}
 		val body = try {
 			client.post().uri("/--/api/v2/push/send")
 				.contentType(MediaType.APPLICATION_JSON)
