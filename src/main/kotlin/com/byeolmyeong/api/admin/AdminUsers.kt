@@ -223,10 +223,13 @@ class AdminUsersService(
 		return get(id)
 	}
 
-	/** 닉네임이 다르면 400 `CONFIRM_MISMATCH`. 지우는 일은 `auth` 가 앱의 계정 삭제와 같이 한다(이벤트). */
+	/**
+	 * 닉네임이 다르면 400 `CONFIRM_MISMATCH`. 닉네임이 없는 계정(가입 중 그만둔 계정)은 확인 닉네임이 비어 있어야 한다(앞뒤 공백을 뗀 뒤).
+	 * 지우는 일은 `auth` 가 앱의 계정 삭제와 같이 한다(이벤트).
+	 */
 	fun delete(id: UUID, confirmNickname: String) {
 		val nickname = repository.nicknameOf(id) ?: throw NotFoundException("NOT_FOUND")
-		if (nickname.value == null || nickname.value != confirmNickname.trim()) throw BadRequestException("CONFIRM_MISMATCH")
+		if ((nickname.value ?: "") != confirmNickname.trim()) throw BadRequestException("CONFIRM_MISMATCH")
 		events.publishEvent(AccountDeletionRequested(id))
 		log.info("event=admin_user_deleted")
 		audit.record(AuditAction.USER_DELETED_BY_ADMIN, "USER", id)
