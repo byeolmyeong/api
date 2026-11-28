@@ -16,7 +16,11 @@ private const val HANGUL_LAST = 0xD7A3
 private const val FINAL_COUNT = 28
 private const val FINAL_RIEUL = 8
 
-private fun endsWithRieul(c: Char): Boolean = c.code in HANGUL_FIRST..HANGUL_LAST && (c.code - HANGUL_FIRST) % FINAL_COUNT == FINAL_RIEUL
+/** [text] 의 마지막 글자(코드 포인트 — 이모지처럼 두 칸짜리 글자도 하나로 본다)가 ㄹ 받침인지. */
+private fun endsWithRieul(text: String): Boolean {
+	val c = text.codePointBefore(text.length)
+	return c in HANGUL_FIRST..HANGUL_LAST && (c - HANGUL_FIRST) % FINAL_COUNT == FINAL_RIEUL
+}
 
 /**
  * 조언형인지 글자로 본다. 문제가 없으면 null, 있으면 `NOT_ADVICE_FORM`.
@@ -28,7 +32,7 @@ fun adviceProblem(practiceTitles: List<String>, texts: List<String>): String? {
 	val asserts = texts.any { text ->
 		ASSERTION_WORDS.any { it in text } ||
 			BECOMES.containsMatchIn(text) ||
-			WILL_ENDING.findAll(text).any { endsWithRieul(it.groupValues[1].single()) }
+			WILL_ENDING.findAll(text).any { endsWithRieul(it.groupValues[1]) }
 	}
 	val practices = practiceTitles.all { it.trim().endsWith(PRACTICE_ENDING) }
 	return if (asserts || !practices) "NOT_ADVICE_FORM" else null

@@ -4,21 +4,29 @@ import com.byeolmyeong.api.TestcontainersConfiguration
 import com.byeolmyeong.api.admin.MutableClock
 import com.byeolmyeong.api.birth.BirthProfile
 import com.byeolmyeong.api.birth.BirthProfileService
+import com.byeolmyeong.api.sky.DaySkyService
 import com.byeolmyeong.api.sky.FakeDaySkyGenerator
+import com.byeolmyeong.api.sky.TodaySkyMorningRepository
 import com.byeolmyeong.api.sky.TodaySkyMorningService
+import com.byeolmyeong.api.sky.validDaySky
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 
 /**
@@ -62,10 +70,28 @@ class TodaySkyPushIntegrationTest {
 	@Autowired
 	private lateinit var job: TodaySkyMorningService
 
+	@Autowired
+	private lateinit var repository: TodaySkyMorningRepository
+
+	@Autowired
+	private lateinit var daySkies: DaySkyService
+
+	@Autowired
+	private lateinit var events: ApplicationEventPublisher
+
+	@Autowired
+	@Qualifier("todaySkyExecutor")
+	private lateinit var morning: ThreadPoolTaskExecutor
+
+	@Autowired
+	@Qualifier("reportExecutor")
+	private lateinit var generation: ThreadPoolTaskExecutor
+
 	private val today = LocalDate.parse("2026-11-21")
 
 	@BeforeEach
 	fun clean() {
+		awaitIdle() // 앞 테스트의 미리 만들기가 끝난 뒤에 지운다
 		jdbc.update("delete from accounts")
 		generator.reset()
 		expo.sent.clear()
@@ -91,6 +117,9 @@ class TodaySkyPushIntegrationTest {
 	}
 
 	private fun skies(id: UUID): Int = jdbc.queryForObject("select count(*) from day_skies where owner_id = ? and date = ?", Int::class.java, id, today)!!
+
+	/** 그날 미리 만들기를 맡았거나 보낸 줄 수. */
+	private fun claims(id: UUID): Int = jdbc.queryForObject("select count(*) from today_sky_pushes where account_id = ? and kst_date = ?", Int::class.java, id, today)!!
 
 	@Test
 	fun `받는 시간 30분 전에 그날 것을 미리 만들고 받는 시간에 그 제목으로 보낸다`() {
@@ -204,9 +233,14 @@ class TodaySkyPushIntegrationTest {
 	}
 
 	/** 미리 만들기는 생성 일꾼에서 돈다 — 그 사람의 그날 것이 생길 때까지 기다린다(5초까지). */
-	private fun awaitSky(id: UUID) {
-		val until = System.currentTimeMillis() + 5_000
-		while (skies(id) == 0 && System.currentTimeMillis() < until) Thread.sleep(20)
+	private fun awaitSky(id: UUID) = awaitUntil { skies(id) > 0 }
+
+	/** 생성 일꾼이 하던 일을 다 끝낼 때까지(10초까지). */
+	private fun awaitIdle() = awaitUntil(10_000) { generation.activeCount == 0 && generation.queueSize == 0 }
+
+	private fun awaitUntil(millis: Long = 5_000, done: () -> Boolean) {
+		val until = System.currentTimeMillis() + millis
+		while (!done() && System.currentTimeMillis() < until) Thread.sleep(20)
 	}
 
 	@Test
@@ -273,5 +307,145 @@ class TodaySkyPushIntegrationTest {
 		awaitSky(id)
 
 		assertEquals(1, skies(id), "2026-11-21 의 것")
+	}
+
+	@Test
+	fun `받는 시간 전에 미리 만들지 못했으면 받는 시간이 지나도 60분 안에는 만들어 보낸다`() {
+		val id = person("못만든이")
+
+		at("08:00") // 07:30 ~ 07:55 에 맡기지 못했다(일꾼이 붐빔 · 재시작)
+		job.run()
+		awaitSky(id)
+		assertEquals(1, skies(id), "받는 시간이 지났어도 따라잡는 한계(60분) 안이면 만든다")
+
+		at("08:05")
+		job.run()
+		assertEquals(listOf("ExponentPushToken[못만든이]"), expo.sent.map { it.to }, "만든 다음 번에 보낸다")
+	}
+
+	@Test
+	fun `받는 시간이 60분 넘게 지난 사람은 미리 만들지 않는다`() {
+		person("한낮이")
+
+		at("09:05")
+		job.run()
+		awaitIdle()
+
+		assertEquals(0, generator.prompts.size)
+	}
+
+	@Test
+	fun `생성 일꾼이 받지 않으면(배포로 닫는 중) 맡은 줄을 남기지 않아 다음 번이 만든다`() {
+		val id = person("닫는중")
+		val closed = ThreadPoolTaskExecutor().apply {
+			initialize()
+			shutdown()
+		}
+		val closing = TodaySkyMorningService(repository, daySkies, events, clock, morning, closed, true)
+
+		at("07:30")
+		closing.run()
+		assertEquals(0, claims(id), "맡기지 못했으면 맡은 줄도 없다")
+
+		job.run() // 다음 번(새 서버)
+		awaitSky(id)
+		assertEquals(1, skies(id))
+	}
+
+	@Test
+	fun `사용자 요청이 생성 일꾼 줄에서 기다리면 미리 만들기는 맡지 않는다`() {
+		val id = person("양보")
+		val release = CountDownLatch(1)
+		// 사용자 요청이 스레드를 다 쓰고 하나는 줄에서 기다린다.
+		repeat(generation.maxPoolSize + 1) { generation.execute { release.await(10, TimeUnit.SECONDS) } }
+		try {
+			at("07:30")
+			job.run()
+			assertEquals(0, claims(id), "사용자 요청이 먼저다")
+		} finally {
+			release.countDown()
+		}
+
+		awaitIdle()
+		job.run() // 사용자 요청이 다 빠진 다음 번
+		awaitSky(id)
+		assertEquals(1, skies(id))
+	}
+
+	@Test
+	fun `사용자 요청이 스레드를 다 쓰고 있으면 줄이 비어 있어도 미리 만들기를 줄에 넣지 않는다`() {
+		val id = person("빈스레드없음")
+		val release = CountDownLatch(1)
+		// 사용자 요청이 스레드를 모두 쓴다(줄은 비어 있다).
+		repeat(generation.maxPoolSize) { generation.execute { release.await(10, TimeUnit.SECONDS) } }
+		try {
+			awaitUntil { generation.activeCount == generation.maxPoolSize }
+			at("07:30")
+			job.run()
+			assertEquals(0, generation.queueSize, "빈 스레드가 없으면 줄기를 띄우지 않는다 — 줄은 사용자 요청 몫")
+			assertEquals(0, claims(id))
+		} finally {
+			release.countDown()
+		}
+
+		awaitIdle()
+		job.run() // 스레드가 빈 다음 번
+		awaitSky(id)
+		assertEquals(1, skies(id))
+	}
+
+	@Test
+	fun `미리 만들기는 대기 줄을 쓰지 않고 한 스레드를 비워 두며 · 사람이 많아도 다음 번을 기다리지 않고 다 만든다`() {
+		val ids = (1..30).map { person("많은이$it") }
+		val gate = CountDownLatch(1)
+		generator.respond = { prompt, call ->
+			gate.await(10, TimeUnit.SECONDS)
+			validDaySky(prompt, call)
+		}
+		try {
+			at("07:30")
+			job.run()
+			awaitUntil { generator.prompts.size >= generation.maxPoolSize - 1 }
+			Thread.sleep(200) // 더 맡기는 것이 있다면 들어올 틈
+			assertEquals(generation.maxPoolSize - 1, generation.activeCount, "한 스레드는 늘 사용자 요청 몫")
+			assertEquals(0, generation.queueSize, "대기 줄은 사용자 요청 몫")
+		} finally {
+			gate.countDown()
+		}
+
+		awaitUntil(20_000) { ids.all { skies(it) > 0 } }
+		assertEquals(ids.size, ids.sumOf { skies(it) }, "한 번 돌아 띄운 미리 만들기가 맡을 사람이 없을 때까지 이어 간다")
+	}
+
+	@Test
+	fun `사용자 요청이 줄에 들어오면 미리 만들기 줄기는 하던 한 사람을 마치고 비켜 준다`() {
+		val ids = (1..12).map { person("비켜줌$it") }
+		val gate = CountDownLatch(1)
+		val users = CountDownLatch(1)
+		generator.respond = { prompt, call ->
+			gate.await(10, TimeUnit.SECONDS)
+			validDaySky(prompt, call)
+		}
+		val builders = generation.maxPoolSize - 1
+		try {
+			at("07:30")
+			job.run()
+			awaitUntil { generator.prompts.size >= builders }
+			// 사용자 요청: 하나는 비워 둔 스레드에서 돌고, 줄기 수만큼은 줄에서 기다린다.
+			repeat(1 + builders) { generation.execute { users.await(10, TimeUnit.SECONDS) } }
+			gate.countDown()
+			awaitUntil { generation.queueSize == 0 }
+			Thread.sleep(200) // 더 맡는 줄기가 있다면 그 틈
+			assertEquals(builders, generator.prompts.size, "하던 사람만 마치고 더 맡지 않는다")
+			assertEquals(builders, ids.sumOf { claims(it) })
+		} finally {
+			gate.countDown()
+			users.countDown()
+		}
+
+		awaitIdle()
+		job.run() // 사용자 요청이 다 빠진 다음 번이 남은 사람을 맡는다
+		awaitUntil { ids.all { skies(it) > 0 } }
+		assertEquals(ids.size, ids.sumOf { skies(it) })
 	}
 }
