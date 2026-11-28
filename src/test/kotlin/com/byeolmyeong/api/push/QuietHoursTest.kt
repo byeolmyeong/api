@@ -8,7 +8,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** 밤 무음(결정 055 의 6): 한국 시각 21:00 ~ 다음 날 08:00, 조용한 채널은 1.1.0 이상 안드로이드에만. */
+/** 밤 무음(결정 057): 한국 시각 21:00 ~ 다음 날 08:00, 조용한 채널은 1.1.0 이상 안드로이드에만. */
 class QuietHoursTest {
 
 	private fun kst(text: String) = LocalDateTime.parse(text).atZone(ZoneId.of("Asia/Seoul")).toInstant()

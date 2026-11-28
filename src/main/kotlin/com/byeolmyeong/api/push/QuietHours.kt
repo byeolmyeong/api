@@ -11,7 +11,7 @@ import java.util.UUID
 data class PushTarget(val accountId: UUID, val token: String, val platform: String, val appVersion: String?)
 
 /**
- * 밤 무음(결정 055 의 6 · 앱 결정 104 의 9): 한국 시각 21:00 ~ 다음 날 08:00 에 보내는 서비스 알림(공지 · 궁합 알림)은 소리 없이 보낸다.
+ * 밤 무음(결정 057 · 앱 결정 104 의 9): 한국 시각 21:00 ~ 다음 날 08:00 에 보내는 서비스 알림(공지 · 궁합 알림)은 소리 없이 보낸다.
  * iOS 는 `sound` 를 빼고, 안드로이드는 1.1.0 앱이 만든 조용한 채널 `quiet` 로 보낸다 — 그 채널이 없는 기기에 실으면 알림이 아예 보이지 않으므로(Expo 문서)
  * 1.1.0 이상 안드로이드에만 싣는다. 광고 푸시의 "보내지 않는 밤"(admin, 법)과 시각은 같지만 따로 바뀔 수 있어 묶지 않는다.
  */

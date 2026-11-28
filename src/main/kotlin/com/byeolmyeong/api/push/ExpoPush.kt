@@ -17,7 +17,7 @@ private const val BATCH = 100
 
 /**
  * 휴대폰 알림 한 건(결정 042 의 4). [data] 는 앱이 누른 뒤 갈 곳을 고르는 값이다.
- * [sound] 가 거짓이면 소리 없이(iOS — `sound` 를 뺀다), [channelId] 는 안드로이드 알림 채널(null 이면 싣지 않는다 — 기본 채널). 밤 무음은 결정 055 의 6.
+ * [sound] 가 거짓이면 소리 없이(iOS — `sound` 를 뺀다), [channelId] 는 안드로이드 알림 채널(null 이면 싣지 않는다 — 기본 채널). 밤 무음은 결정 057.
  */
 data class PushMessage(
 	val to: String,
@@ -91,7 +91,7 @@ class ExpoPushClient(
 				put("title", message.title)
 				put("body", message.body)
 				put("data", message.data)
-				// 빼면 소리가 없다(iOS). 채널은 있을 때만 — 기기에 없는 채널이면 알림이 아예 보이지 않는다(Expo 문서, 결정 055 의 6)
+				// 빼면 소리가 없다(iOS). 채널은 있을 때만 — 기기에 없는 채널이면 알림이 아예 보이지 않는다(Expo 문서, 결정 057)
 				if (message.sound) put("sound", "default")
 				message.channelId?.let { put("channelId", it) }
 			}

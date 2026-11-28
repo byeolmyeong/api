@@ -18,7 +18,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 
 /**
- * 공지 알림의 밤 무음(결정 055 의 6): 보내는 순간이 한국 시각 21:00 ~ 08:00 이면 소리를 빼고, 1.1.0 이상 안드로이드에만 `quiet` 채널을 싣는다.
+ * 공지 알림의 밤 무음(결정 057): 보내는 순간이 한국 시각 21:00 ~ 08:00 이면 소리를 빼고, 1.1.0 이상 안드로이드에만 `quiet` 채널을 싣는다.
  * 풀이 완성 · 오늘의 하늘 같은 다른 알림은 밤에도 지금 모양 그대로다. 시계 · Expo 는 가짜로 바꿔 끼운다.
  */
 @Import(TestcontainersConfiguration::class, NoticeQuietHoursIntegrationTest.Fakes::class)

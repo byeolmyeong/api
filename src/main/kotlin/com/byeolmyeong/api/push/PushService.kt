@@ -109,7 +109,7 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 
 	/**
 	 * 공지 알림(결정 055 의 4): 푸시 동의 + 정지 아님인 계정의 기기 모두에 공지 제목을 보낸다(서비스 알림 — 마케팅 동의 · 하루 한 번과 상관없다).
-	 * 제목은 지금 읽는다 — 그 사이 지워졌거나 내려갔으면 보내지 않는다. 보내는 순간이 밤이면 소리 없이(결정 055 의 6).
+	 * 제목은 지금 읽는다 — 그 사이 지워졌거나 내려갔으면 보내지 않는다. 보내는 순간이 밤이면 소리 없이(결정 057).
 	 */
 	fun notice(noticeId: UUID): PushResult {
 		val title = repository.publishedNoticeTitle(noticeId) ?: return PushResult(0, 0, 0, 0)
