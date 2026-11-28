@@ -279,6 +279,29 @@ class ReadingApiIntegrationTest {
 	}
 
 	@Test
+	fun `생성하는 사이에 출생 정보를 바꾸면 옛 차트의 글은 저장하지 않고 별명 알림도 내지 않는다`() {
+		val token = tokenWithProfile(KNOWN)
+		generator.respond = { prompt, call ->
+			// 모델을 기다리는 수십 초 사이에 같은 사람이 출생 정보를 바꾼다(결정 041).
+			if (call == 1) assertEquals(200, http(port, "PUT", "/profile", UNKNOWN, token).statusCode())
+			validDraft(prompt, call)
+		}
+
+		val stale = read(token)
+
+		assertEquals(502, stale.statusCode(), "옛 차트의 글은 돌려주지 않는다 — 다시 부르면 새 차트로 만든다")
+		assertEquals(FAILED, stale.body())
+		assertEquals(0, rows(), "옛 차트의 글을 저장하지 않는다")
+		assertEquals(0, jdbc.queryForObject("select count(*) from notifications", Int::class.java), "별명을 지었다는 알림(ReadingCreated)도 없다")
+
+		val fresh = read(token)
+		assertEquals(200, fresh.statusCode())
+		assertEquals(4, mapper.readTree(fresh.body())["sections"].size(), "새 출생 정보(시각 모름)로 만든다")
+		assertEquals(1, rows())
+		assertEquals(listOf("READING_DONE"), jdbc.queryForList("select kind from notifications", String::class.java))
+	}
+
+	@Test
 	fun `차트에 없는 근거가 오면 다시 생성한다`() {
 		val token = tokenWithProfile(KNOWN)
 		generator.respond = { prompt, call ->
