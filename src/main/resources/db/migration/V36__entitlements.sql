@@ -6,6 +6,8 @@ create table entitlements (
 	account_id uuid not null references accounts (id) on delete cascade,
 	source text not null check (source in ('LEGACY', 'STORE')),
 	created_at timestamptz not null default now(),
+	-- STORE 일 때 결제 시트에서 보여 준 고지(청약철회 안내)의 판 — 앱이 확인 요청에 실어 보낸 짧은 글자(앱 결정 101 의 5-1). 없으면 null.
+	notice_version text,
 	primary key (account_id, source)
 );
 

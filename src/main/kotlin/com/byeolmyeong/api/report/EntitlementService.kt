@@ -70,14 +70,15 @@ class EntitlementService(
 	 * 결제 · 복원 직후의 확인(결정 056 의 7): RevenueCat 을 담아 둔 답 없이 묻고, 있으면 `STORE` 로 적는다. 스토어 구매만 본다 —
 	 * 결제 없이 여는 계정 · `LEGACY` 라도 스토어 구매가 없으면 false. 묻지 못하면 `web.PurchaseCheckFailedException`.
 	 * 계정마다 분당 `byeolmyeong.rate-limit.entitlement-confirm-per-minute` 번을 넘으면 묻지 않고 [ConfirmRateLimitedException].
+	 * [noticeVersion] 은 결제 시트가 보여 준 고지의 판이고 `STORE` 줄에 처음 한 번 적는다(앱 결정 101 의 5-1).
 	 */
-	fun confirm(ownerId: UUID): Boolean {
+	fun confirm(ownerId: UUID, noticeVersion: String?): Boolean {
 		if (!confirmLimiter.tryAcquire(ownerId.toString())) {
 			log.warn("event=entitlement_confirm_rate_limited")
 			throw ConfirmRateLimitedException()
 		}
 		if (!askStore(ownerId)) return false
-		recordStore(ownerId)
+		recordStore(ownerId, noticeVersion)
 		return true
 	}
 
@@ -93,8 +94,8 @@ class EntitlementService(
 		return owned
 	}
 
-	private fun recordStore(ownerId: UUID) {
-		if (repository.add(ownerId, EntitlementSource.STORE)) log.info("event=entitlement_store_recorded")
+	private fun recordStore(ownerId: UUID, noticeVersion: String? = null) {
+		if (repository.add(ownerId, EntitlementSource.STORE, noticeVersion)) log.info("event=entitlement_store_recorded")
 	}
 
 	/**
@@ -119,10 +120,17 @@ class EntitlementService(
 @Repository
 class EntitlementRepository(private val jdbc: JdbcTemplate) {
 
-	/** 그 계정에 [source] 줄을 더한다. 이미 있거나 계정이 없으면 아무것도 하지 않는다. 더했으면 true. */
-	fun add(accountId: UUID, source: EntitlementSource): Boolean = jdbc.update(
-		"insert into entitlements (account_id, source) select id, ? from accounts where id = ? on conflict do nothing",
-		source.name, accountId,
+	/**
+	 * 그 계정에 [source] 줄을 더한다. 계정이 없으면 아무것도 하지 않는다. 이미 있으면 비어 있던 고지 판만 [noticeVersion] 으로 채운다(처음 적은 판은 바꾸지 않는다).
+	 * 더했거나 채웠으면 true.
+	 */
+	fun add(accountId: UUID, source: EntitlementSource, noticeVersion: String? = null): Boolean = jdbc.update(
+		"""
+		insert into entitlements (account_id, source, notice_version) select id, ?, ? from accounts where id = ?
+		on conflict (account_id, source) do update set notice_version = excluded.notice_version
+		where entitlements.notice_version is null and excluded.notice_version is not null
+		""".trimIndent(),
+		source.name, noticeVersion, accountId,
 	) == 1
 
 	/** 계정 이메일이 결제 없이 여는 목록에 있나(대소문자를 가리지 않는다 — 목록은 소문자). */

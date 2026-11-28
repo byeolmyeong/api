@@ -443,4 +443,37 @@ class EntitlementCheckIntegrationTest {
 		jdbc.update("insert into sessions (token_hash, account_id) values (?, ?)", com.byeolmyeong.api.synastry.sha256(other), otherId)
 		assertEquals(200, confirm(other).statusCode())
 	}
+
+	@Test
+	fun `확인 본문의 고지 판(noticeVersion)을 STORE 줄에 처음 한 번 적고 틀리면 400 이다`() {
+		val token = token()
+		revenueCat.answer = { true }
+		fun confirmWith(body: String) = http(port, "POST", "/entitlements/confirm", body, token, "X-App-Platform", "ios", "X-App-Version", "1.1.0")
+		fun notice(): String? = jdbc.queryForObject("select notice_version from entitlements where source = 'STORE'", String::class.java)
+
+		assertEquals(400 to """{"error":"INVALID_NOTICE_VERSION"}""", confirmWith("""{"noticeVersion":"결제 시트"}""").let { it.statusCode() to it.body() })
+		assertEquals(400 to """{"error":"INVALID_NOTICE_VERSION"}""", confirmWith("""{"noticeVersion":"${"a".repeat(41)}"}""").let { it.statusCode() to it.body() })
+		assertEquals(400 to """{"error":"INVALID_REQUEST"}""", confirmWith("""{"noticeVersion":3}""").let { it.statusCode() to it.body() })
+		assertEquals(400 to """{"error":"INVALID_REQUEST"}""", confirmWith("[]").let { it.statusCode() to it.body() })
+		assertEquals(emptyList(), entitlementRows(), "틀린 본문은 RevenueCat 을 묻기 전에 막는다")
+
+		assertEquals(200, confirmWith("""{"noticeVersion":"P1-2026-11-27"}""").statusCode())
+		assertEquals("P1-2026-11-27", notice())
+
+		assertEquals(200, confirmWith("""{"noticeVersion":"P1-1.2026-12-27"}""").statusCode())
+		assertEquals("P1-2026-11-27", notice(), "처음 적은 판을 바꾸지 않는다")
+	}
+
+	@Test
+	fun `고지 판 없이 확인하면 STORE 줄의 판은 비어 있고 뒤에 판을 실은 확인이 채운다`() {
+		val token = token()
+		revenueCat.answer = { true }
+
+		assertEquals(200, confirm(token).statusCode())
+		assertEquals(listOf<String?>(null), jdbc.queryForList("select notice_version from entitlements", String::class.java))
+
+		assertEquals(200, http(port, "POST", "/entitlements/confirm", """{"noticeVersion":null}""", token).statusCode())
+		assertEquals(200, http(port, "POST", "/entitlements/confirm", """{"noticeVersion":"P1"}""", token).statusCode())
+		assertEquals(listOf<String?>("P1"), jdbc.queryForList("select notice_version from entitlements", String::class.java))
+	}
 }
