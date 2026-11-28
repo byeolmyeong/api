@@ -36,6 +36,7 @@ private val PUBLIC_ENDPOINTS = listOf(
 	"GET" to "/places",
 	"GET" to "/faqs",
 	"GET" to "/notices",
+	"GET" to "/notices/*",
 	"GET" to "/app-config",
 	"GET" to "/shared/*",
 	"POST" to "/auth/dev",

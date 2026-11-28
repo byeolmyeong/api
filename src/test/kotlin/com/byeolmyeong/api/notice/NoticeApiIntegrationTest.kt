@@ -88,7 +88,6 @@ class NoticeApiIntegrationTest {
 			Triple("POST", "/notices", json(mapOf("category" to "NOTICE", "title" to "몰래", "body" to "몰래 넣은 글"))),
 			Triple("PUT", "/notices/$id", json(mapOf("category" to "NOTICE", "title" to "몰래", "body" to "몰래 고친 글"))),
 			Triple("DELETE", "/notices/$id", null),
-			Triple("GET", "/notices/$id", null),
 			Triple("POST", "/notices/$id/publish", json(mapOf("notify" to true))),
 		)
 		for ((method, path, body) in calls) {
@@ -98,6 +97,30 @@ class NoticeApiIntegrationTest {
 			}
 		}
 		assertEquals(1, jdbc.queryForObject("select count(*) from notices", Int::class.java))
+	}
+
+	@Test
+	fun `한 건은 공개 중인 글만 캐시 없이 준다`() {
+		val id = notice("막 공개한 공지", category = "UPDATE", publishedAt = "2026-12-03T09:30:15Z", body = "첫 줄\n둘째 줄")
+		val draft = notice("임시 저장", publishedAt = null)
+
+		val response = http(port, "GET", "/notices/$id")
+		assertEquals(200, response.statusCode())
+		assertEquals("no-store", response.headers().firstValue("Cache-Control").orElse(null), "알림으로 막 연 글이 5분 캐시에 막히지 않게")
+		val item = mapper.readTree(response.body())
+		assertEquals(setOf("id", "category", "title", "body", "publishedAt"), item.propertyNames().toSet())
+		assertEquals(id.toString(), item["id"].asString())
+		assertEquals("UPDATE", item["category"].asString())
+		assertEquals("막 공개한 공지", item["title"].asString())
+		assertEquals("첫 줄\n둘째 줄", item["body"].asString())
+		assertEquals("2026-12-03T09:30:15Z", item["publishedAt"].asString())
+		assertEquals(200, http(port, "GET", "/notices/$id", token = "no-such-token").statusCode(), "세션을 보지 않는다")
+
+		for (path in listOf("/notices/$draft", "/notices/${UUID.randomUUID()}", "/notices/not-a-uuid", "/notices/${id.toString().uppercase()}")) {
+			val missing = http(port, "GET", path)
+			assertEquals(404, missing.statusCode(), path)
+			assertEquals("""{"error":"NOT_FOUND"}""", missing.body(), path)
+		}
 	}
 
 	@Test
@@ -127,7 +150,8 @@ class NoticeRateLimitIntegrationTest {
 
 	@Test
 	fun `공개 목록은 한 주소에서 분당 한도를 넘으면 429 다`() {
-		repeat(3) { assertEquals(200, http(port, "GET", "/notices").statusCode(), "${it + 1}번째") }
+		repeat(2) { assertEquals(200, http(port, "GET", "/notices").statusCode(), "${it + 1}번째") }
+		assertEquals(404, http(port, "GET", "/notices/${UUID.randomUUID()}").statusCode(), "한 건도 같은 한도를 센다")
 
 		val limited = http(port, "GET", "/notices")
 		assertEquals(429, limited.statusCode())

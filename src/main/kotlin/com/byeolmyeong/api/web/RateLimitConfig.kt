@@ -12,7 +12,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 private const val WINDOW_MILLIS = 60_000L
 
 /**
- * `POST /charts`·`GET /places`·`POST /synastry/direct`·`GET /faqs`·`GET /notices`·`GET /app-config`·`GET /shared/{shareId}`·`/auth/login`·`/auth/signup`·`/auth/nickname-check`
+ * `POST /charts`·`GET /places`·`POST /synastry/direct`·`GET /faqs`·`GET /notices`(+ 한 건, 한도를 함께 센다)·`GET /app-config`·`GET /shared/{shareId}`·`/auth/login`·`/auth/signup`·`/auth/nickname-check`
  * 의 주소별 요청 수 제한. 한도를 넘으면 429. 로그인 · 가입 · 닉네임 확인은 한 한도를 같이 쓴다(결정 021 — 카카오 코드는 확인 전에 카카오를 부른다).
  */
 @Configuration
@@ -32,7 +32,7 @@ class RateLimitConfig(
 		registry.addInterceptor(RateLimitInterceptor(placesPerMinute)).addPathPatterns("/places")
 		registry.addInterceptor(RateLimitInterceptor(synastryPerMinute)).addPathPatterns("/synastry/direct")
 		registry.addInterceptor(RateLimitInterceptor(faqsPerMinute)).addPathPatterns("/faqs")
-		registry.addInterceptor(RateLimitInterceptor(noticesPerMinute)).addPathPatterns("/notices")
+		registry.addInterceptor(RateLimitInterceptor(noticesPerMinute)).addPathPatterns("/notices", "/notices/*")
 		registry.addInterceptor(RateLimitInterceptor(appConfigPerMinute)).addPathPatterns("/app-config")
 		registry.addInterceptor(RateLimitInterceptor(sharedPerMinute)).addPathPatterns("/shared/*")
 		registry.addInterceptor(RateLimitInterceptor(authPerMinute)).addPathPatterns("/auth/login", "/auth/signup", "/auth/nickname-check")
