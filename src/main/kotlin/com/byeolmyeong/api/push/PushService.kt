@@ -113,29 +113,22 @@ class PushService(private val repository: PushRepository, private val expo: Expo
 		val messages = notices.flatMap { notice ->
 			repository.tokens(notice.accountId).map { PushMessage(it, notice.title, notice.body, notice.data + ("type" to kind.name)) }
 		}
+		return deliver(kind, messages)
+	}
+
+	/** 그 계정의 기기 모두에 같은 알림을 보낸다. */
+	fun send(accountId: UUID, kind: PushKind, title: String, body: String, data: Map<String, String> = emptyMap()): PushResult {
+		return deliver(kind, repository.tokens(accountId).map { PushMessage(it, title, body, data + ("type" to kind.name)) })
+	}
+
+	/** [messages] 를 보내고 `DeviceNotRegistered` 인 토큰을 지운다. 결과는 기기 수로 센다(sent · skipped · failed 를 나눈다). */
+	private fun deliver(kind: PushKind, messages: List<PushMessage>): PushResult {
 		if (messages.isEmpty()) return PushResult(0, 0, 0, 0)
 		val outcomes = expo.send(messages)
 		val gone = messages.filterIndexed { i, _ -> outcomes.getOrNull(i) == PushOutcome.DEVICE_NOT_REGISTERED }.map { it.to }
 		if (gone.isNotEmpty()) repository.deleteTokens(gone)
 		val result = PushResult(
 			devices = messages.size,
-			sent = outcomes.count { it == PushOutcome.OK },
-			failed = outcomes.count { it == PushOutcome.FAILED || it == PushOutcome.DEVICE_NOT_REGISTERED },
-			skipped = outcomes.count { it == PushOutcome.SKIPPED },
-		)
-		log.info("event=push_sent type={} devices={} sent={} failed={} skipped={} removed={}", kind, result.devices, result.sent, result.failed, result.skipped, gone.size)
-		return result
-	}
-
-	/** 그 계정의 기기 모두에 같은 알림을 보낸다. */
-	fun send(accountId: UUID, kind: PushKind, title: String, body: String, data: Map<String, String> = emptyMap()): PushResult {
-		val tokens = repository.tokens(accountId)
-		if (tokens.isEmpty()) return PushResult(0, 0, 0, 0)
-		val outcomes = expo.send(tokens.map { PushMessage(it, title, body, data + ("type" to kind.name)) })
-		val gone = tokens.filterIndexed { i, _ -> outcomes.getOrNull(i) == PushOutcome.DEVICE_NOT_REGISTERED }
-		if (gone.isNotEmpty()) repository.deleteTokens(gone)
-		val result = PushResult(
-			devices = tokens.size,
 			sent = outcomes.count { it == PushOutcome.OK },
 			failed = outcomes.count { it == PushOutcome.FAILED || it == PushOutcome.DEVICE_NOT_REGISTERED },
 			skipped = outcomes.count { it == PushOutcome.SKIPPED },
