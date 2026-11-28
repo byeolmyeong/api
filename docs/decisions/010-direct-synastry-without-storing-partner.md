@@ -2,8 +2,8 @@
 type: decision
 tags: [궁합, 직접 입력, 출생 정보 저장 안 함, 겹친 휠, 궁합 리포트, 근거]
 status: active
-last_reviewed: 2026-11-11
-superseded_by:
+last_reviewed: 2026-11-28
+superseded_by: 053-synastry-v2.md (1 · 2 · 3 — 상대 출생 정보를 저장하지 않음 · 겹친 휠 · 리포트 때 다시 받음. 4 ~ 7 은 유효)
 ---
 # 010. 직접 입력 궁합: 상대의 출생 정보를 저장하지 않고 겹친 휠과 궁합 리포트를 준다
 
