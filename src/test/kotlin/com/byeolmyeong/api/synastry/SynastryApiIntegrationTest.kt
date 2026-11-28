@@ -490,3 +490,76 @@ class SynastryRateLimitIntegrationTest {
 		repeat(5) { assertEquals(200, http(port, "GET", "/synastry", token = token).statusCode()) }
 	}
 }
+
+/**
+ * 하루 안전 한도(결정 053 의 6): 그날(한국 날짜) 만든 궁합이 50개 이상이면 더 만들지 않는다(429). 다른 테스트는 한도를 크게 둔다(테스트 설정).
+ * 그날의 경계는 DB 의 한국 시각 자정이다.
+ */
+@Import(TestcontainersConfiguration::class, FakeSynastryConfig::class)
+@SpringBootTest(
+	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+	properties = [DEV_AUTH_ON, "byeolmyeong.rate-limit.synastry-per-minute=100000", "byeolmyeong.synastry.daily-limit=50"],
+)
+class SynastryDailyLimitIntegrationTest {
+
+	@LocalServerPort
+	private var port: Int = 0
+
+	@Autowired
+	private lateinit var jdbc: JdbcTemplate
+
+	@Autowired
+	private lateinit var generator: FakeSynastryGenerator
+
+	@Autowired
+	private lateinit var reportExecutor: ThreadPoolTaskExecutor
+
+	@BeforeEach
+	@AfterEach
+	fun clean() {
+		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+		while (reportExecutor.activeCount > 0 || reportExecutor.queueSize > 0) {
+			check(System.nanoTime() < deadline) { "뒤에서 도는 생성이 끝나지 않는다" }
+			Thread.sleep(10)
+		}
+		jdbc.update("delete from accounts")
+		generator.reset()
+	}
+
+	/** 소유자의 궁합 행을 [count] 개 넣는다. [createdAt] 은 SQL 식이다. */
+	private fun seed(owner: UUID, count: Int, createdAt: String) {
+		repeat(count) {
+			jdbc.update(
+				"insert into synastries (id, owner_id, name, relation, score, headline, keywords, owner_chart_hash, created_at) values (?, ?, '이전', 'LOVE', 70, '한줄', '[\"a\",\"b\",\"c\"]'::jsonb, 'h', $createdAt)",
+				UUID.randomUUID(), owner,
+			)
+		}
+	}
+
+	@Test
+	fun `그날 만든 궁합이 50개가 되면 51번째는 429 이고 어제 만든 것과 남의 것은 세지 않는다`() {
+		val token = devToken(port)
+		assertEquals(200, http(port, "PUT", "/profile", ME, token).statusCode())
+		val me = jdbc.queryForObject("select id from accounts", UUID::class.java)!!
+		val other = UUID.randomUUID()
+		jdbc.update("insert into accounts (id, provider, provider_user_id) values (?, 'DEV', ?)", other, "someone-$other")
+		val todayStart = "(date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul')"
+		seed(me, 49, "now()")
+		seed(me, 5, "$todayStart - interval '1 minute'")
+		seed(other, 60, "now()")
+
+		val fiftieth = http(port, "POST", "/synastry", directBody(), token)
+		assertEquals(202, fiftieth.statusCode(), fiftieth.body())
+		awaitSynastry(port, token, mapper.readTree(fiftieth.body())["id"].asString())
+		val calls = generator.requests.size
+
+		val limited = http(port, "POST", "/synastry", directBody(), token)
+
+		assertEquals(429, limited.statusCode())
+		assertEquals("""{"error":"RATE_LIMITED"}""", limited.body())
+		assertEquals(55, jdbc.queryForObject("select count(*) from synastries where owner_id = ?", Int::class.java, me), "넣지 않는다")
+		assertEquals(calls, generator.requests.size, "모델을 부르지 않는다")
+		// 읽기와 남의 계정은 막지 않는다
+		assertEquals(200, http(port, "GET", "/synastry", token = token).statusCode())
+	}
+}

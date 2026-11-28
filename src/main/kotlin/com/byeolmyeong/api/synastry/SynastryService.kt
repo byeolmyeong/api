@@ -17,9 +17,11 @@ import com.byeolmyeong.api.web.AuditAction
 import com.byeolmyeong.api.web.AuditActor
 import com.byeolmyeong.api.web.AuditEvent
 import com.byeolmyeong.api.web.GenerationQuota
+import com.byeolmyeong.api.web.GenerationRateLimitedException
 import com.byeolmyeong.api.web.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
 import org.springframework.scheduling.annotation.Scheduled
@@ -61,6 +63,7 @@ class SynastryService(
 	@Qualifier("reportExecutor") private val executor: Executor,
 	private val events: ApplicationEventPublisher,
 	private val quota: GenerationQuota,
+	@Value("\${byeolmyeong.synastry.daily-limit}") private val dailyLimit: Int,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -82,6 +85,11 @@ class SynastryService(
 	/** 나(저장된 프로필)와 [partner](요청에 적힌 상대)의 궁합을 계산해 `WRITING` 으로 넣고, 글은 뒤에서 쓴다. */
 	fun create(ownerId: UUID, name: String, relation: Relation, partner: BirthProfile): SynastryStarted {
 		val me = profiles.chartInput(ownerId) ?: throw NotFoundException("NO_PROFILE")
+		// 하루 안전 한도(결정 053 의 6): 그날 만든 궁합 수. 보통 사람은 닿지 않는다. 동시에 보낸 요청은 한두 개 넘을 수 있다(잠그지 않는다).
+		if (repository.createdToday(ownerId) >= dailyLimit) {
+			log.info("event=synastry_daily_limited")
+			throw GenerationRateLimitedException()
+		}
 		// 모델을 부르기 전에 센다(결정 023).
 		quota.acquire(ownerId)
 		val facts = facts(me, profiles.chartInput(partner), relation)

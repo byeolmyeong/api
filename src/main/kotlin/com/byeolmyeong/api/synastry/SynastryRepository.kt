@@ -96,6 +96,12 @@ class SynastryRepository(private val jdbc: JdbcTemplate, private val mapper: Jso
 		Date.valueOf(new.partner.date), new.partner.time?.let(Time::valueOf), new.partner.placeId,
 	)!!
 
+	/** 소유자가 그날(한국 날짜 — DB 의 한국 시각 자정부터) 만든 궁합 수. 지운 것은 세지 못한다(결정 053 의 6). */
+	fun createdToday(ownerId: UUID): Int = jdbc.queryForObject(
+		"select count(*) from synastries where owner_id = ? and created_at >= (date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul')",
+		Int::class.java, ownerId,
+	)!!
+
 	/** 소유자의 궁합 하나. 남의 것이면 없는 것이다. */
 	fun find(ownerId: UUID, id: UUID, staleSeconds: Int): StoredSynastry? =
 		jdbc.query("$SELECT where s.owner_id = ? and s.id = ?", row, staleSeconds, ownerId, id).firstOrNull()
