@@ -6,17 +6,21 @@ import com.byeolmyeong.api.push.RecordingExpoPush
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import tools.jackson.databind.JsonNode
 import java.net.http.HttpResponse
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -48,6 +52,10 @@ class AdminNoticeApiIntegrationTest {
 
 	@Autowired
 	private lateinit var expo: RecordingExpoPush
+
+	@Autowired
+	@Qualifier("pushExecutor")
+	private lateinit var pushExecutor: ThreadPoolTaskExecutor
 
 	private lateinit var token: String
 
@@ -431,6 +439,49 @@ class AdminNoticeApiIntegrationTest {
 			jdbc.execute("drop trigger if exists test_fail_notice_inbox on notifications")
 			jdbc.execute("drop function if exists test_fail_notice_inbox()")
 		}
+	}
+
+	/** 푸시 일꾼(스레드 둘)을 [work] 동안 붙잡아 둔다 — 공개가 맡긴 보내기가 줄에서 기다린다. 끝나면 놓아준다. */
+	private fun holdingPushWorker(work: () -> Unit) {
+		val release = CountDownLatch(1)
+		val busy = CountDownLatch(pushExecutor.maxPoolSize)
+		repeat(pushExecutor.maxPoolSize) {
+			pushExecutor.execute {
+				busy.countDown()
+				release.await(10, TimeUnit.SECONDS)
+			}
+		}
+		assertTrue(busy.await(5, TimeUnit.SECONDS), "일꾼을 붙잡았다")
+		try {
+			work()
+		} finally {
+			release.countDown()
+		}
+	}
+
+	@Test
+	fun `공개 직후 일꾼이 돌기 전에 내리면 푸시를 보내지 않고 대상 모두를 보내지 않음으로 적는다`() {
+		user("reader", devices = arrayOf("ExponentPushToken[reader-phone]", "ExponentPushToken[reader-tablet]"))
+		val id = created("바로 내린 공지")
+		holdingPushWorker {
+			published(id, notify = true)
+			assertEquals(200, unpublish(id).statusCode())
+		}
+		val push = awaitResult(id)["push"]
+		assertEquals(listOf(2, 0, 0, 2), listOf(push["devices"].asInt(), push["sent"].asInt(), push["failed"].asInt(), push["skipped"].asInt()))
+		assertEquals(0, awaitSent(1).size, "내린 글은 푸시로 가지 않는다")
+	}
+
+	@Test
+	fun `공개 직후 일꾼이 돌기 전에 지우면 푸시를 보내지 않는다`() {
+		user("reader", devices = arrayOf("ExponentPushToken[reader-phone]"))
+		val id = created("바로 지운 공지")
+		holdingPushWorker {
+			published(id, notify = true)
+			assertEquals(204, http(port, "DELETE", "/admin/notices/$id", token = token).statusCode())
+		}
+		assertEquals(0, awaitSent(1).size, "지운 글은 푸시로 가지 않는다")
+		assertEquals(0, noticeRows(id))
 	}
 
 	@Test
