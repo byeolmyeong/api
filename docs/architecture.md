@@ -361,6 +361,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
 | `GET /admin/push/audience` | 없음 | 200 `{ count }` |
 | `GET /admin/push/status` | 없음 | 200 `PushStatus` |
 | `GET /admin/notices` | 없음 | 200 `[Notice]` 새것부터(임시 저장 포함) |
+| `GET /admin/notices/audience` | 없음 | 200 `{ count }` |
 | `GET /admin/notices/{id}` | 없음 | 200 `Notice` |
 | `POST /admin/notices` | `{ category, title, body, notify? }` | 201 `Notice` |
 | `PUT /admin/notices/{id}` | `{ category, title, body, notify? }` | 200 `Notice` |
@@ -535,6 +536,7 @@ src/test/kotlin/...  기능별 테스트 · ArchitectureTest(의존 규칙)
   - `notify`: 알림 보내기 스위치. `notifiedAt`: 알림함 · 푸시를 보낸 때 또는 `null`(아직). 한 번 보내면 다시 보낼 수 없고 `notify` 는 켜진 채로 남는다.
   - `createdBy` · `updatedBy`(`{ id, name }`): 만든 관리자 · 마지막으로 바꾼(고치기 · 공개 · 내리기) 관리자. `updatedAt` 은 그때.
 - `GET /admin/notices`: 임시 저장까지 모두. 공개 중이면 공개 시각, 아니면 만든 때가 늦은 것부터.
+- `GET /admin/notices/audience` → `{ count }`: 지금 알림을 보내면 푸시를 받을 사람 수(푸시 수신 동의 + 정지 아님 + 기기 하나 이상 — 마케팅 동의는 보지 않는다). 알림을 켜고 공개하기 전 확인 창에 쓴다. 알림함 줄은 이보다 많은 모든 계정에 간다.
 - `POST /admin/notices`: 임시 저장으로 만든다. `notify` 는 불리언이고 없으면 `false`. 201 `Notice`.
 - `PUT /admin/notices/{id}`: `category` · `title` · `body` 는 셋 다 보낸다. `notify` 를 빼면 그대로 둔다. 공개 중인 글은 공개한 채로 바뀐다. 200 `Notice`.
 - `POST /admin/notices/{id}/publish { notify }`: 공개한다. `notify` 는 꼭 있어야 하는 불리언이고 스위치에 적힌다. 임시 저장이었으면 지금이 공개 시각, 이미 공개 중이면 공개 시각은 그대로다. 200 `Notice`.

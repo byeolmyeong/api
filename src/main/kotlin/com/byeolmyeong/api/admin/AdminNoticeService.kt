@@ -36,6 +36,9 @@ data class AdminNotice(
 	val updatedBy: AdminRef?,
 )
 
+/** `GET /admin/notices/audience`: 푸시를 받을 사람 수. */
+data class NoticeAudience(val count: Int)
+
 /** 고치기 · 공개를 판정할 때 잠그고 읽는 칸. */
 data class NoticeState(val category: String, val notify: Boolean, val notified: Boolean)
 
@@ -54,6 +57,9 @@ class AdminNoticeService(
 	fun list(): List<AdminNotice> = repository.findAll()
 
 	fun get(id: UUID): AdminNotice = repository.findById(id) ?: throw NotFoundException("NOT_FOUND")
+
+	/** 푸시를 받을 사람 수: 푸시 동의 + 정지 아님 + 기기 하나 이상(결정 055 의 3). 알림함 줄은 모든 계정에 간다. */
+	fun audience(): Int = repository.pushAudience()
 
 	fun create(adminId: UUID, fields: NoticeFields, notify: Boolean): AdminNotice {
 		requireNotifiable(fields.category, notify)
@@ -140,6 +146,16 @@ class AdminNoticeRepository(private val jdbc: JdbcTemplate) {
 	fun findAll(): List<AdminNotice> = jdbc.query("$select order by coalesce(n.published_at, n.created_at) desc, n.id desc", row)
 
 	fun findById(id: UUID): AdminNotice? = jdbc.query("$select where n.id = ?", row, id).firstOrNull()
+
+	/** 다른 기능의 표(`accounts` · `push_devices`)를 자기 SQL 로 센다(결정 014). push 의 서비스 알림 대상과 같은 조건이다. */
+	fun pushAudience(): Int = jdbc.queryForObject(
+		"""
+		select count(*) from accounts a
+		where a.push_consented_at is not null and a.suspended_at is null
+		  and exists (select 1 from push_devices d where d.account_id = a.id)
+		""",
+		Int::class.java,
+	)!!
 
 	fun insert(adminId: UUID, fields: NoticeFields, notify: Boolean): UUID {
 		val id = UUID.randomUUID()

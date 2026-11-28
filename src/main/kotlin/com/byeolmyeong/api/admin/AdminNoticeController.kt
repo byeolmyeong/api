@@ -25,6 +25,10 @@ class AdminNoticeController(private val notices: AdminNoticeService, private val
 	@GetMapping("/admin/notices")
 	fun list(): List<AdminNotice> = notices.list()
 
+	/** 지금 알림을 보내면 푸시를 받을 사람 수(확인 창 — 외부 발송 전 예상 수). */
+	@GetMapping("/admin/notices/audience")
+	fun audience(): NoticeAudience = NoticeAudience(notices.audience())
+
 	@GetMapping("/admin/notices/{id}")
 	fun get(@PathVariable id: String): AdminNotice = notices.get(pathId(id))
 

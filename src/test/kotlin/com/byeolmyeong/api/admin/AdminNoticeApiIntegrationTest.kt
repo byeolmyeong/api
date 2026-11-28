@@ -335,6 +335,22 @@ class AdminNoticeApiIntegrationTest {
 	}
 
 	@Test
+	fun `보내기 전에 푸시를 받을 사람 수를 준다`() {
+		fun audience() = http(port, "GET", "/admin/notices/audience", token = token).also { assertEquals(200, it.statusCode()) }.json()
+		assertEquals(setOf("count"), audience().propertyNames().toSet())
+		assertEquals(0, audience()["count"].asInt())
+
+		user("reader", consented = true, devices = arrayOf("ExponentPushToken[reader-phone]", "ExponentPushToken[reader-tablet]"))
+		user("second", consented = true, devices = arrayOf("ExponentPushToken[second-phone]"))
+		user("suspended", consented = true, suspended = true, devices = arrayOf("ExponentPushToken[suspended-phone]"))
+		user("silent", consented = false, devices = arrayOf("ExponentPushToken[silent-phone]"))
+		user("web", consented = true)
+
+		assertEquals(2, audience()["count"].asInt(), "푸시 동의 + 정지 아님 + 기기 — 마케팅 동의는 보지 않는다, 사람 수로 센다")
+		assertEquals(401, http(port, "GET", "/admin/notices/audience").statusCode())
+	}
+
+	@Test
 	fun `관리자 세션이 없으면 401 이다`() {
 		val (_, session) = user("reader")
 		for ((method, path) in listOf("GET" to "/admin/notices", "POST" to "/admin/notices", "POST" to "/admin/notices/${UUID.randomUUID()}/publish")) {
